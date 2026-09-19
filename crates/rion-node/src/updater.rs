@@ -333,18 +333,7 @@ fn decode_options(options: ChromiumUpdaterOptions) -> Result<ChromiumUpdateManag
             "UPDATE_CURRENT_VERSION_INVALID".to_owned(),
         )
     })?;
-    let platform = match options.platform.as_str() {
-        "darwin" if cfg!(all(target_os = "macos", target_arch = "aarch64")) => {
-            UpdatePlatform::MacosAarch64
-        }
-        "win32" if cfg!(all(windows, target_arch = "x86_64")) => UpdatePlatform::WindowsX86_64,
-        _ => {
-            return Err(Error::new(
-                Status::InvalidArg,
-                "UPDATE_PLATFORM_BUILD_MISMATCH".to_owned(),
-            ));
-        }
-    };
+    let platform = decode_update_platform(&options.platform, options.packaged)?;
     let endpoint = embedded_updater_endpoint(options.packaged)?;
     Ok(ChromiumUpdateManagerConfig {
         user_data_dir,
@@ -354,6 +343,31 @@ fn decode_options(options: ChromiumUpdaterOptions) -> Result<ChromiumUpdateManag
         endpoint,
         public_key_base64: embedded_updater_public_key().unwrap_or_default().to_owned(),
     })
+}
+
+// The release channels serve macOS arm64 and Windows x64 only, so a packaged
+// build may claim a platform solely when it was compiled for that channel's
+// architecture and could install what the channel hands it. A development build
+// is never packaged, reports the `unsupported` state and resolves no candidate,
+// so demanding the same parity there only keeps the app from starting on a host
+// the channel does not serve, refusing an install that could never be attempted.
+fn decode_update_platform(platform: &str, packaged: bool) -> Result<UpdatePlatform> {
+    let serves_release_architecture = |release: bool| release || !packaged;
+    match platform {
+        "darwin"
+            if cfg!(target_os = "macos")
+                && serves_release_architecture(cfg!(target_arch = "aarch64")) =>
+        {
+            Ok(UpdatePlatform::MacosAarch64)
+        }
+        "win32" if cfg!(windows) && serves_release_architecture(cfg!(target_arch = "x86_64")) => {
+            Ok(UpdatePlatform::WindowsX86_64)
+        }
+        _ => Err(Error::new(
+            Status::InvalidArg,
+            "UPDATE_PLATFORM_BUILD_MISMATCH".to_owned(),
+        )),
+    }
 }
 
 fn embedded_updater_public_key() -> Option<&'static str> {
@@ -443,6 +457,45 @@ mod tests {
 
         let development = configured_updater_endpoint(None, false).unwrap();
         assert_eq!(development.as_str(), DEVELOPMENT_UPDATER_ENDPOINT);
+    }
+
+    #[test]
+    fn development_builds_decode_the_host_platform_their_channel_cannot_serve() {
+        let host = if cfg!(target_os = "macos") {
+            "darwin"
+        } else {
+            "win32"
+        };
+        let expected = if cfg!(target_os = "macos") {
+            UpdatePlatform::MacosAarch64
+        } else {
+            UpdatePlatform::WindowsX86_64
+        };
+        assert_eq!(decode_update_platform(host, false).unwrap(), expected);
+
+        // A packaged build still has to be the architecture it claims, and no
+        // build of either kind may claim the platform it was not compiled for.
+        let release_architecture = cfg!(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(windows, target_arch = "x86_64")
+        ));
+        assert_eq!(
+            decode_update_platform(host, true).is_ok(),
+            release_architecture
+        );
+        let foreign = if cfg!(target_os = "macos") {
+            "win32"
+        } else {
+            "darwin"
+        };
+        for packaged in [false, true] {
+            assert_eq!(
+                decode_update_platform(foreign, packaged)
+                    .unwrap_err()
+                    .reason,
+                "UPDATE_PLATFORM_BUILD_MISMATCH"
+            );
+        }
     }
 
     #[test]

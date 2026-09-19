@@ -322,3 +322,32 @@ DNR allocation restart failure remains open pending a rebuilt engine.
 CHROMIUM-MACOS-APPKIT-EXTENSION-FILTERING-001
 CHROMIUM-WINDOWS-EXTENSION-FILTERING-001
 ```
+
+## Windows local-host recheck (2026-09-19)
+
+A Windows 11 ARM64 desktop recheck found that the Windows native adapter had not
+compiled since `c0a1c992`: the mouse hook called `.contains()` on
+`MSLLHOOKSTRUCT.flags`, which is a bare `u32` rather than the keyboard hook's
+`KBDLLHOOKSTRUCT_FLAGS` newtype. No Windows Rust target, `cargo test`, clippy or
+`build:electron:rust` could succeed, so every Windows native path added after that
+commit was unexecuted rather than passing. With the mask corrected the workspace
+builds warning-free and `cargo test --workspace --all-targets` is green.
+
+Three stale callers surfaced once the addon ran again. The native-integration
+suite and two probe scripts still requested runtime contract 37/38 against
+`CHROMIUM_RUNTIME_CONTRACT_VERSION = 43`, and `probeChromiumInput.cjs` built a
+parent binding that omitted `physicalInputSequence` and never registered the
+exact HWND evidence owner that `windowsChromiumViewParentBinding` reads. These
+were probe drift against production, not product defects; both are corrected.
+
+`CHROMIUM-WINDOWS-MACRO-SHORTCUT-REENTRY-007` gains a second `platform-pending`
+reason that CI cannot retire. `scripts/probeChromiumShortcuts.cjs` drives F11
+through `SendInput`, which always sets `LLKHF_INJECTED`, and `c0a1c992` made the
+runtime shortcut owner treat injected F11 as external native input that never
+acquires the owner. The probe therefore cannot observe the capture it asserts
+(one command, no page events) on any host, including CI. Production matches the
+owner rule in `AGENTS.md`; the comparison probe still encodes the pre-`c0a1c992`
+contract. Whether to retarget the probe's `native-hook` expectations or to treat
+the exclusion as over-broad is an open owner decision, so neither side was
+changed. Only real physical input can exercise this path, which leaves the
+Windows hardware-extended profile as its sole route.

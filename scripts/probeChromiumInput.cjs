@@ -116,6 +116,8 @@ async function probe() {
   view.setBounds({ x: 0, y: 0, width: 600, height: 400 });
   const sibling = new WebContentsView({ webPreferences: { ...options.webPreferences, partition: "rion-input-sibling" } });
   const outcomes = [];
+  // Held across the try so teardown can retire the exact native registration.
+  let registeredOwnerAddon = null;
   try {
     await view.webContents.loadURL(fixture);
     await other.loadURL(fixture);
@@ -169,12 +171,24 @@ async function probe() {
     let viewOwner = null;
     let focusAdmission = null;
     if (nativeParent) {
+      // The physical-input sequence is owned by the exact registered HWND, exactly
+      // as chromiumRuntimeHostFactory registers it for a production runtime host.
+      // Without this registration the native read has no evidence owner to answer.
+      nativeParent.registerWindowsRuntimeShortcutOwner(
+        host.getNativeWindowHandle(), "1", () => {}, () => {}
+      );
+      registeredOwnerAddon = nativeParent;
       const binding = { parent: host, nativeGeneration: 1, revision: "1",
         children: () => host.contentView.children,
         contentsFocused: target => target.webContents.isFocused(),
         read: () => {
-          const parent = nativeParent.readWindowsRuntimeForeground(host.getNativeWindowHandle());
+          const parentHandle = host.getNativeWindowHandle();
+          const parent = nativeParent.readWindowsRuntimeForeground(parentHandle);
+          // The observation contract carries the native physical-input sequence, so
+          // this binding must read it exactly as windowsChromiumViewParentBinding does.
           return { parentIdentity: parent.parentIdentity, focusIdentity: parent.focusIdentity,
+            physicalInputSequence: nativeParent.readWindowsPhysicalInputSequence(parentHandle),
+            physicalKeyboardEvidence: nativeParent.readWindowsPhysicalKeyboardEvidence?.(parentHandle),
             parentForeground: parent.parentWasForeground, parentVisible: parent.parentVisible,
             parentMinimized: parent.parentMinimized,
             focusedWebContentsId: webContents.getFocusedWebContents()?.id ?? null };
@@ -320,6 +334,13 @@ async function probe() {
     }, null, 2) + "\n");
     throw error;
   } finally {
+    if (registeredOwnerAddon) {
+      try {
+        registeredOwnerAddon.unregisterWindowsRuntimeShortcutOwner(host.getNativeWindowHandle(), "1");
+      } catch {
+        // Teardown only: a destroyed HWND has already retired its registration.
+      }
+    }
     const siblingContents = sibling.webContents;
     if (siblingContents && !siblingContents.isDestroyed()) siblingContents.close();
     view.webContents.close();

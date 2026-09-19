@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 
 import { electronMainBundleGuard } from "./scripts/electronMainBundleGuard.mjs";
 import { electronReactRefresh } from "./scripts/electronReactRefresh.mjs";
@@ -37,17 +37,18 @@ const electronMainPreloadInput = resolve(
   repositoryRoot,
   desktopE2eBuild ? "src/electron/e2e/preload.ts" : "src/electron/preload/index.ts"
 );
+// Rollup accepts POSIX separators on every platform, and tooling that reads these
+// entry paths joins them with path.posix: Knip's electron-vite plugin takes
+// path.posix.dirname of each HTML entry to resolve its <script> sources. A Windows
+// backslash path collapses that dirname to ".", which resolves /src/main.tsx to
+// src/main.tsx and drops the whole renderer graph from entry discovery.
+const rendererEntry = (relativePath: string) =>
+  resolve(repositoryRoot, relativePath).split(sep).join("/");
 const rendererInput = {
-  main: resolve(repositoryRoot, "src/renderer/index.html"),
-  runtimeWindowsHost: resolve(repositoryRoot, "src/renderer/runtime-windows-host.html"),
-  runtimeWorkspaceWebChrome: resolve(
-    repositoryRoot,
-    "src/renderer/runtime-web-chrome-electron.html"
-  ),
-  runtimeRolePlaceholder: resolve(
-    repositoryRoot,
-    "src/renderer/runtime-role-placeholder-electron.html"
-  )
+  main: rendererEntry("src/renderer/index.html"),
+  runtimeWindowsHost: rendererEntry("src/renderer/runtime-windows-host.html"),
+  runtimeWorkspaceWebChrome: rendererEntry("src/renderer/runtime-web-chrome-electron.html"),
+  runtimeRolePlaceholder: rendererEntry("src/renderer/runtime-role-placeholder-electron.html")
 };
 export default defineConfig({
   main: {

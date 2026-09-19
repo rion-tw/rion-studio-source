@@ -470,7 +470,9 @@ mod platform {
             // SAFETY: WH_MOUSE_LL supplies this structure for HC_ACTION and
             // retains it through the callback.
             let mouse = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
-            if mouse.flags.contains(LLMHF_INJECTED) {
+            // MSLLHOOKSTRUCT.flags is a bare u32 bitfield, unlike the keyboard
+            // hook's KBDLLHOOKSTRUCT_FLAGS newtype, so this masks directly.
+            if mouse.flags & LLMHF_INJECTED != 0 {
                 return;
             }
             let projected = match wparam.0 as u32 {

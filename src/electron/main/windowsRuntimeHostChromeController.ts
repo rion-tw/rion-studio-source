@@ -665,7 +665,8 @@ export class WindowsRuntimeHostChromeController {
       toolbarVisible: this.#toolbarVisible(),
       topologyRevision: this.#topologyRevision,
       windowGeneration: this.#windowGeneration,
-      windowId: this.#windowId
+      windowId: this.#windowId,
+      workspaceBackground: this.#workspaceBackground
     });
   }
 

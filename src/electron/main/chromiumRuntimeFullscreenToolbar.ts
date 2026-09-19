@@ -70,6 +70,11 @@ export interface ChromiumRuntimeFullscreenToolbarObservation {
   readonly topologyRevision: number;
   readonly windowGeneration: number;
   readonly windowId: string;
+  /**
+   * Background the host is actually projecting, not the setting Core holds.
+   * Windows only; the AppKit host owns its appearance separately.
+   */
+  readonly workspaceBackground?: "material" | "black";
   readonly appKit?: Readonly<{
     addButtonOnScreen: boolean;
     accessoryOnScreen: boolean;

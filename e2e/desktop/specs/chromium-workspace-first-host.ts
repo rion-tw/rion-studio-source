@@ -75,6 +75,13 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
       await capture(`first-host-${phase}-shown`);
       for (const gap of [1,16] as const) for (const background of ["material","black"] as const) {
       await input.setAppearance(gap,background); expectedBackground = background; expectedGap = gap;
+      // Core holding the new appearance does not mean the host has projected it.
+      // Sampling pixels before it has shows the previous background, so wait for
+      // the host's own projected value where it reports one.
+      await browser.waitUntil(async () => {
+        const projected = (await inspect(input.windowId)).native.workspaceBackground;
+        return projected === undefined || projected === background;
+      }, {timeout:20_000,timeoutMsg:`First host ${phase} did not project the ${background} workspace background`});
       const prefix = `first-host-${phase}-${gap}-${background}`;
       for (const edge of ["right","bottom","bottomRight","left","top"] as const) {
         const old = (await layout()).contentBounds;

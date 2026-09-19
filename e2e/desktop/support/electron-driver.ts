@@ -339,6 +339,8 @@ export interface ElectronDesktopE2eFullscreenToolbarRuntimeInspection {
     topologyRevision: number;
     windowGeneration: number;
     windowId: string;
+    /** Windows only: the background the host is actually projecting. */
+    workspaceBackground?: "material" | "black";
   };
   presentation: "fullscreen" | "maximized" | "normal";
   surfaces: readonly {

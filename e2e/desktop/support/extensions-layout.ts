@@ -12,16 +12,24 @@ export async function resizeElectronLauncherWindow(
   height: number
 ): Promise<{ width: number; height: number }> {
   const url = await browser.getUrl();
-  const original = await browser.electron.execute((electron, launcherUrl, size) => {
+  const applied = await browser.electron.execute((electron, launcherUrl, size) => {
     const windows = electron.BrowserWindow.getAllWindows().filter(window => window.webContents.getURL() === launcherUrl);
     if (windows.length !== 1) throw new Error("Exact launcher window unavailable");
     const [priorWidth, priorHeight] = windows[0].getSize();
     windows[0].setSize(size.width, size.height);
-    return { width: priorWidth, height: priorHeight };
+    const [contentWidth, contentHeight] = windows[0].getContentSize();
+    return {
+      original: { width: priorWidth, height: priorHeight },
+      content: { width: contentWidth, height: contentHeight }
+    };
   }, url, { width, height });
+  // Wait against the window's own content size, never the requested window size.
+  // Only a layered host makes the two equal; an opaque frameless Windows host
+  // keeps its resize border outside the content box, so at the window minimum
+  // the viewport is legitimately a pixel short of what was asked for.
   await browser.waitUntil(async () => browser.execute((expected) =>
-    innerWidth === expected.width && innerHeight <= expected.height, { width, height }), {
+    innerWidth === expected.width && innerHeight === expected.height, applied.content), {
     timeout: 10000, timeoutMsg: "Launcher did not reach its requested layout"
   });
-  return original;
+  return applied.original;
 }

@@ -15,6 +15,10 @@ import type {
   ChromiumRoleWebContentsViewPort,
   ChromiumWebContentsViewFactoryPort
 } from "./chromiumRoleSurfacePorts";
+import {
+  interceptChromiumFullscreenShortcut,
+  type ChromiumRoleQuickAccessShortcutPort
+} from "./chromiumRoleQuickAccessShortcut";
 import { buildUnprivilegedRemoteContentWebPreferences } from "./security";
 import { hasChromiumWindowOpenPostBody } from "./chromiumPopupPorts";
 import type {
@@ -162,6 +166,7 @@ interface Deferred<Value> {
 }
 
 interface SurfaceListeners {
+  readonly beforeInputEvent: ChromiumRoleSurfaceEventMap["before-input-event"];
   readonly didCreateWindow: ChromiumRoleSurfaceEventMap["did-create-window"];
   readonly didStartNavigation: ChromiumRoleSurfaceEventMap["did-start-navigation"];
   readonly didFinishLoad: () => void;
@@ -399,6 +404,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
   readonly #popups: ChromiumPopupOwnerLifecyclePort | null;
   readonly #activeMainFrameFailures: ChromiumGlobalWebActiveMainFrameFailurePort | null;
   readonly #navigationCommits: ChromiumWorkspaceWebNavigationCommitPort | null;
+  readonly #fullscreenShortcut: ChromiumRoleQuickAccessShortcutPort | null;
   readonly #records = new Map<string, SurfaceRecord>();
   readonly #surfaceByView = new WeakMap<object, string>();
   readonly #surfaceByWebContents = new WeakMap<object, string>();
@@ -414,7 +420,8 @@ export class ChromiumGlobalWebSurfaceRegistry {
     nativeAttachments: ChromiumGlobalWebNativeAttachmentPort | null = null,
     popups: ChromiumPopupOwnerLifecyclePort | null = null,
     activeMainFrameFailures: ChromiumGlobalWebActiveMainFrameFailurePort | null = null,
-    navigationCommits: ChromiumWorkspaceWebNavigationCommitPort | null = null
+    navigationCommits: ChromiumWorkspaceWebNavigationCommitPort | null = null,
+    fullscreenShortcut: ChromiumRoleQuickAccessShortcutPort | null = null
   ) {
     this.#sessions = sessions;
     this.#views = views;
@@ -422,6 +429,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
     this.#popups = popups;
     this.#activeMainFrameFailures = activeMainFrameFailures;
     this.#navigationCommits = navigationCommits;
+    this.#fullscreenShortcut = fullscreenShortcut;
   }
 
   get activeCount(): number {
@@ -968,6 +976,17 @@ export class ChromiumGlobalWebSurfaceRegistry {
       windowOpenNavigationLane: Promise.resolve()
     };
     record.listeners = {
+      // A focused Website slot shares its Game Window with Role surfaces and
+      // Windows no longer captures F11 natively, so this surface owns the
+      // shortcut above page delivery too. Quick Access stays Role-only.
+      beforeInputEvent: (event, inputEvent) => {
+        interceptChromiumFullscreenShortcut({
+          event,
+          inputEvent,
+          port: this.#fullscreenShortcut,
+          tabId: record.tabId
+        });
+      },
       didCreateWindow: (popupWindow, details) => {
         const openerFrame = record.contents.mainFrame;
         if (
@@ -1053,6 +1072,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
       }
       return { action: "deny" };
     });
+    contents.on("before-input-event", record.listeners.beforeInputEvent);
     contents.on("did-create-window", record.listeners.didCreateWindow);
     contents.on("will-attach-webview", record.listeners.willAttachWebview);
     observeWorkspaceStartPage(contents);
@@ -1611,6 +1631,10 @@ export class ChromiumGlobalWebSurfaceRegistry {
 
   #removeAllListeners(record: SurfaceRecord): void {
     this.#removeLoadListeners(record);
+    record.contents.removeListener(
+      "before-input-event",
+      record.listeners.beforeInputEvent
+    );
     record.contents.removeListener(
       "did-create-window",
       record.listeners.didCreateWindow

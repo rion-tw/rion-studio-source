@@ -67,10 +67,8 @@ import {
   type WindowsRuntimeShortcutOwnerPort
 } from "./chromiumRuntimeHostFactory";
 import { ChromiumRuntimeLayoutResolver } from "./chromiumRuntimeLayoutResolver";
-import type {
-  ChromiumRuntimeFullscreenFocusAdmission,
-  ChromiumRuntimeNativeTabAction
-} from "./chromiumRuntimeNativeWindowController";
+import type { ChromiumRuntimeNativeTabAction } from
+  "./chromiumRuntimeNativeWindowController";
 import {
   CoreEffectCoordinator,
   createCoreEffectProcessReceiptLedger,
@@ -333,10 +331,7 @@ export interface ChromiumRuntimeBootstrapInput {
   ) => void;
   readonly onNativeProjectionChanged?: () => void;
   readonly onRuntimeTabQuickAccess?: (tabId: string) => void;
-  readonly onRuntimeTabFullscreen?: (
-    tabId: string,
-    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
-  ) => void;
+  readonly onRuntimeTabFullscreen?: (tabId: string) => void;
   readonly platform: RuntimePlatform;
   readonly rolePreloadPath: string;
   /** Main-process startup quit fence; production supplies it before Core recovery. */
@@ -668,7 +663,7 @@ export class ChromiumRuntimeBootstrap {
               }
               input.onRuntimeTabQuickAccess(tabId);
             },
-            onRuntimeTabFullscreen: (tabId, focusAdmission) => {
+            onRuntimeTabFullscreen: (tabId) => {
               requireNativeActionIngress();
               const request = input.onRuntimeTabFullscreen;
               if (!request) {
@@ -677,7 +672,7 @@ export class ChromiumRuntimeBootstrap {
                   "The Core-owned Windows fullscreen shortcut lane is unavailable."
                 );
               }
-              request(tabId, focusAdmission);
+              request(tabId);
             },
             onWorkspaceDividerPointer: (event) => {
               requireNativeActionIngress();
@@ -761,32 +756,35 @@ export class ChromiumRuntimeBootstrap {
         core: input.core,
         onError: input.onError
       });
+    // Shared by every surface hosted inside a Game Window. Role surfaces use
+    // the whole port; a Website slot consumes only its fullscreen lane.
+    const quickAccessShortcut = input.onRuntimeTabQuickAccess
+      ? {
+          platform: input.platform,
+          request: (tabId: string) => {
+            requireNativeActionIngress();
+            input.onRuntimeTabQuickAccess!(tabId);
+          },
+          ...(input.onRuntimeTabFullscreen === undefined
+            ? {}
+            : {
+                requestFullscreen: (tabId: string) => {
+                  requireNativeActionIngress();
+                  input.onRuntimeTabFullscreen!(tabId);
+                }
+              }),
+          onError: (error: unknown) => input.onError(normalizeRionBridgeError(
+            error,
+            "ELECTRON_CHROMIUM_QUICK_ACCESS_REQUEST_FAILED"
+          ))
+        }
+      : null;
     const surfaces = new ChromiumRoleSurfaceRegistry(
       sessions,
       input.views,
       roleNativeAttachments,
       popupCoordinator,
-      input.onRuntimeTabQuickAccess
-        ? {
-            platform: input.platform,
-            request: (tabId) => {
-              requireNativeActionIngress();
-              input.onRuntimeTabQuickAccess!(tabId);
-            },
-            ...(input.onRuntimeTabFullscreen === undefined
-              ? {}
-              : {
-                  requestFullscreen: (tabId: string) => {
-                    requireNativeActionIngress();
-                    input.onRuntimeTabFullscreen!(tabId);
-                  }
-                }),
-            onError: (error) => input.onError(normalizeRionBridgeError(
-              error,
-              "ELECTRON_CHROMIUM_QUICK_ACCESS_REQUEST_FAILED"
-            ))
-          }
-        : null,
+      quickAccessShortcut,
       navigationFailureReporter
     );
     const contentWebSurfaces = new ChromiumGlobalWebSurfaceRegistry(
@@ -795,7 +793,8 @@ export class ChromiumRuntimeBootstrap {
       globalNativeAttachments,
       popupCoordinator,
       workspaceWebNavigationFailureReporter,
-      workspaceWebNavigationCommitReporter
+      workspaceWebNavigationCommitReporter,
+      quickAccessShortcut
     );
     const webSurfaces = input.webChromeShell
       ? new ChromiumGlobalWebPresentationRegistry({

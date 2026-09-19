@@ -677,7 +677,7 @@
         "success",
         "failure"
       ],
-      "description": "Drive real Windows Ctrl+N through exact-PID OS input to create one empty bundled-Chromium Game Window, use visible Quick Access to launch a fixture Role into it, then send Ctrl+Plus, Ctrl+0, and F11 only to the exact foreground HWND. Prove monotonic exact Core zoom receipts, Core/native/Role-surface factor readback, unchanged main-window zoom/fullscreen state, and stable bundled-host identity through zoom, reset, and fullscreen enter/exit. The adjacent real native addon shortcut probe checks cancellation of a held F11 capture when the exact owner deactivates, hides, or retires, including an extra key-up after focus returns."
+      "description": "Drive real Windows Ctrl+N through exact-PID OS input to create one empty bundled-Chromium Game Window, use visible Quick Access to launch a fixture Role into it, then send Ctrl+Plus, Ctrl+0, and F11 only to the exact foreground HWND. Prove monotonic exact Core zoom receipts, Core/native/Role-surface factor readback, unchanged main-window zoom/fullscreen state, and stable bundled-host identity through zoom, reset, and fullscreen enter/exit. The adjacent isolated probe compares the two Chromium APIs that can own F11 above page delivery across focus transfer, a hidden owner, and a retired owner: the before-input-event owner used in production suppresses both halves with no page delivery, while a registered menu accelerator completes on key-down and still lets the page observe F11."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-QUICK-MENU-033",

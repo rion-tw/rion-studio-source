@@ -340,14 +340,44 @@ parent binding that omitted `physicalInputSequence` and never registered the
 exact HWND evidence owner that `windowsChromiumViewParentBinding` reads. These
 were probe drift against production, not product defects; both are corrected.
 
-`CHROMIUM-WINDOWS-MACRO-SHORTCUT-REENTRY-007` gains a second `platform-pending`
-reason that CI cannot retire. `scripts/probeChromiumShortcuts.cjs` drives F11
-through `SendInput`, which always sets `LLKHF_INJECTED`, and `c0a1c992` made the
-runtime shortcut owner treat injected F11 as external native input that never
-acquires the owner. The probe therefore cannot observe the capture it asserts
-(one command, no page events) on any host, including CI. Production matches the
-owner rule in `AGENTS.md`; the comparison probe still encodes the pre-`c0a1c992`
-contract. Whether to retarget the probe's `native-hook` expectations or to treat
-the exclusion as over-broad is an open owner decision, so neither side was
-changed. Only real physical input can exercise this path, which leaves the
-Windows hardware-extended profile as its sole route.
+Windows no longer keeps a native F11 owner. `c0a1c992` had already stopped the
+low-level hook from capturing injected F11, and `SendInput` — the only way an
+automated probe can drive a key — always sets `LLKHF_INJECTED`. Every shipped
+Windows path therefore already reached fullscreen through Chromium, so the hook's
+capture, latch and bounded dispatcher were unreachable in practice while still
+owning a desktop-wide key. The owner authorised removing them on 2026-09-19. The
+hook is now a pure physical-input evidence source for
+`readWindowsPhysicalInputSequence` and `readWindowsPhysicalKeyboardEvidence`, and
+F11 is owned above page delivery by the before-input-event handlers in
+`src/electron/main/chromiumRuntimeHostFactory.ts` and
+`src/electron/main/chromiumRoleQuickAccessShortcut.ts`. This aligns Windows with
+macOS, which never had a native key hook for fullscreen.
+
+Removing the capture exposed one real gap, now closed:
+`src/electron/main/chromiumGlobalWebSurfaceRegistry.ts` had no
+`before-input-event` owner, yet a focused Website slot shares its Game Window's
+HWND, so the hook had been covering it. Website surfaces now own F11 through the
+same shared lane, while Quick Access stays a Role-surface shortcut. Chromium
+popups are unaffected: they are separate unregistered HWNDs the hook never
+covered.
+
+`scripts/probeChromiumShortcuts.cjs` lost its `native-hook` mode rather than
+having it retargeted. An injected-input probe cannot distinguish a hook that
+passes F11 through from one that captures only physical input, so any such
+assertion would stay green whether the capture were present, removed, or
+restored. The probe now compares the two Chromium APIs that can own the key and
+records the measured difference behind CP-07: the before-input owner suppresses
+both halves with no page delivery, while a registered accelerator completes on
+key-down and still lets the managed page observe F11.
+
+Correcting the first revision of this section: that probe is not the `spec` of
+any journey, and attributing it to `CHROMIUM-WINDOWS-MACRO-SHORTCUT-REENTRY-007`
+was wrong — that journey covers macro chord reentry. The probe's behaviour is
+claimed by `CHROMIUM-WINDOWS-APPLICATION-SHORTCUTS-030`, whose manifest
+description is updated with what the reduced probe now compares.
+
+Physical F11 now toggles on key-down instead of key-up, and a held F11 can no
+longer be cancelled by deactivating the window mid-press. No injected-input test
+can observe either change, so `CHROMIUM-WINDOWS-GAME-WINDOWS-NATIVE-001` remains
+the only route that can and stays `platform-pending` until the Windows
+hardware-extended profile runs.

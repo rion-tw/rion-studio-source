@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { GlobalWebProfilePathsRecord } from "../src/shared/generated";
+import type {
+  ChromiumRoleQuickAccessShortcutPort
+} from "../src/electron/main/chromiumRoleQuickAccessShortcut";
 import {
   ChromiumGlobalWebSessionRegistry
 } from "../src/electron/main/chromiumGlobalWebSessionRegistry";
@@ -283,7 +286,8 @@ function harness(
   activeMainFrameFailures: ChromiumGlobalWebActiveMainFrameFailurePort | null =
     null,
   navigationCommits: ChromiumWorkspaceWebNavigationCommitPort | null = null,
-  popups: ChromiumPopupOwnerLifecyclePort | null = null
+  popups: ChromiumPopupOwnerLifecyclePort | null = null,
+  fullscreenShortcut: ChromiumRoleQuickAccessShortcutPort | null = null
 ) {
   const nativeSession = fakeSession();
   const fromPath = vi.fn(() => nativeSession.session);
@@ -306,7 +310,8 @@ function harness(
     nativeAttachments,
     popups,
     activeMainFrameFailures,
-    navigationCommits
+    navigationCommits,
+    fullscreenShortcut
   );
   const parent = new FakeParent();
   const input = (
@@ -382,6 +387,48 @@ function fakeNativeAttachments(
 }
 
 describe("Electron Chromium global Web surface registry", () => {
+  it("owns Windows F11 on a focused Website slot without taking Quick Access", async () => {
+    const requestFullscreen = vi.fn();
+    const request = vi.fn();
+    const subject = harness(null, null, null, null, {
+      platform: "win32", request, requestFullscreen, onError: vi.fn()
+    });
+    const creating = subject.surfaces.create(subject.input());
+    const contents = subject.views[0]!.webContents;
+    contents.finish("https://web-tab-1-1.example.test/start");
+    await creating;
+
+    // A Website slot shares its Game Window with Role surfaces, so F11 must
+    // reach the same Core-owned command instead of Chromium's default toggle.
+    const halves = [
+      { type: "keyDown", isAutoRepeat: false },
+      { type: "keyDown", isAutoRepeat: true },
+      { type: "keyUp", isAutoRepeat: false }
+    ] as const;
+    const fullscreenEvents = halves.map(() => ({ preventDefault: vi.fn() }));
+    halves.forEach((half, index) => contents.emit(
+      "before-input-event",
+      fullscreenEvents[index]!,
+      {
+        alt: false, code: "F11", control: false, isAutoRepeat: half.isAutoRepeat,
+        key: "F11", meta: false, shift: false, type: half.type
+      }
+    ));
+    expect(fullscreenEvents.every(
+      (event) => event.preventDefault.mock.calls.length === 1
+    )).toBe(true);
+    expect(requestFullscreen).toHaveBeenCalledExactlyOnceWith("tab-web-tab-1-1");
+
+    // Quick Access stays a Role-surface shortcut; a Website page keeps Ctrl+K.
+    const quickAccess = { preventDefault: vi.fn() };
+    contents.emit("before-input-event", quickAccess, {
+      alt: false, code: "KeyK", control: true, isAutoRepeat: false,
+      key: "k", meta: false, shift: false, type: "keyDown"
+    });
+    expect(quickAccess.preventDefault).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("commits the final URL when the initial request redirects", async () => {
     const commits: unknown[] = [];
     const subject = harness(null, null, {

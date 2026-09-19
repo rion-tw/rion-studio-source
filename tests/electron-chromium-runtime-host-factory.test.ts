@@ -322,13 +322,7 @@ class FakeRuntimeForegroundProbe implements WindowsRuntimeForegroundProbePort {
 }
 
 class FakeRuntimeShortcutOwner implements WindowsRuntimeShortcutOwnerPort {
-  readonly acknowledgementCalls: Array<Readonly<{
-    handle: Buffer;
-    ownerRevision: string;
-  }>> = [];
   readonly registrations: Array<Readonly<{
-    callback: () => void;
-    failureCallback: (message: string) => void;
     handle: Buffer;
     ownerRevision: string;
   }>> = [];
@@ -337,29 +331,8 @@ class FakeRuntimeShortcutOwner implements WindowsRuntimeShortcutOwnerPort {
     ownerRevision: string;
   }>> = [];
 
-  acknowledgeWindowsRuntimeShortcutOwner(
-    handle: Buffer,
-    ownerRevision: string
-  ) {
-    this.acknowledgementCalls.push({
-      handle: Buffer.from(handle),
-      ownerRevision
-    });
-    return { ownerRevision, registered: true, uiThreadId: 17 };
-  }
-
-  registerWindowsRuntimeShortcutOwner(
-    handle: Buffer,
-    ownerRevision: string,
-    callback: () => void,
-    failureCallback: (message: string) => void
-  ) {
-    this.registrations.push({
-      callback,
-      failureCallback,
-      handle: Buffer.from(handle),
-      ownerRevision
-    });
+  registerWindowsRuntimeShortcutOwner(handle: Buffer, ownerRevision: string) {
+    this.registrations.push({ handle: Buffer.from(handle), ownerRevision });
     return { ownerRevision, registered: true, uiThreadId: 17 };
   }
 
@@ -603,17 +576,15 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(observations).toHaveLength(1);
   });
 
-  it("owns physical Windows F11 on the exact native runtime host", async () => {
+  it("registers and retires the exact physical-input evidence owner", async () => {
     const browserWindows = new FakeBrowserWindows();
     const shortcutOwner = new FakeRuntimeShortcutOwner();
-    const foreground = new FakeRuntimeForegroundProbe();
     const requestFullscreen = vi.fn();
     const factory = new ChromiumPlatformRuntimeHostFactory({
       platform: "win32",
       browserWindows: browserWindows.port,
       displays,
       onRuntimeTabFullscreen: requestFullscreen,
-      runtimeForegroundProbe: foreground,
       runtimeDocumentPath,
       runtimeShortcutOwner: shortcutOwner
     });
@@ -624,56 +595,17 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(shortcutOwner.registrations).toHaveLength(1);
     expect(shortcutOwner.registrations[0]).toMatchObject({ ownerRevision: "1" });
     expect(shortcutOwner.registrations[0]?.handle.readBigUInt64LE()).toBe(1n);
+    // The owner supplies evidence only. It cannot dispatch a shortcut, so no
+    // fullscreen intent may originate from the registration itself.
+    expect(requestFullscreen).not.toHaveBeenCalled();
 
-    foreground.parentVisible = true;
-    foreground.parentWasForeground = true;
-    window.visible = true;
-    window.focused = true;
-    shortcutOwner.registrations[0]?.callback();
-
-    expect(requestFullscreen).toHaveBeenCalledOnce();
-    expect(requestFullscreen).toHaveBeenCalledWith(
-      "tab-1",
-      "windows-native-foreground"
-    );
-    expect(shortcutOwner.acknowledgementCalls).toHaveLength(1);
     const close = host.close();
     expect(shortcutOwner.unregisterCalls).toHaveLength(1);
     expect(shortcutOwner.unregisterCalls[0]).toMatchObject({ ownerRevision: "1" });
     expect(shortcutOwner.unregisterCalls[0]?.handle.readBigUInt64LE()).toBe(1n);
     window.emit("closed");
     await close;
-    shortcutOwner.registrations[0]?.callback();
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(shortcutOwner.acknowledgementCalls).toHaveLength(1);
-  });
-
-  it("carries exact native F11 foreground admission into Core", async () => {
-    const browserWindows = new FakeBrowserWindows();
-    const shortcutOwner = new FakeRuntimeShortcutOwner();
-    const requestFullscreen = vi.fn();
-    const factory = new ChromiumPlatformRuntimeHostFactory({
-      platform: "win32",
-      browserWindows: browserWindows.port,
-      displays,
-      onRuntimeTabFullscreen: requestFullscreen,
-      runtimeDocumentPath,
-      runtimeShortcutOwner: shortcutOwner
-    });
-    const creation = factory.create(target(), tab(target()));
-    const window = browserWindows.windows[0]!;
-    const host = await finishCreation(creation, window);
-    await applyWindowFence(host);
-    shortcutOwner.registrations[0]?.callback();
-    expect(requestFullscreen).toHaveBeenCalledOnce();
-    expect(requestFullscreen).toHaveBeenCalledWith(
-      "tab-1",
-      "windows-native-foreground"
-    );
-    expect(shortcutOwner.acknowledgementCalls).toEqual([{
-      handle: expect.any(Buffer),
-      ownerRevision: "1"
-    }]);
+    expect(requestFullscreen).not.toHaveBeenCalled();
   });
 
   it("routes host Ctrl+K once to the exact active tab and suppresses both halves", async () => {
@@ -711,7 +643,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
-  it("retains WebContents F11 suppression as a delivery fallback", async () => {
+  it("owns both halves of host F11 and submits one fullscreen intent", async () => {
     const browserWindows = new FakeBrowserWindows();
     const requestFullscreen = vi.fn();
     const factory = new ChromiumPlatformRuntimeHostFactory({

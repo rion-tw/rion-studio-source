@@ -9,7 +9,7 @@ import { expect, it } from "vitest";
 const executeFile = promisify(execFile);
 const require = createRequire(import.meta.url);
 
-it.skipIf(process.platform !== "win32")("compares native F11 key terminality with Chromium APIs", async () => {
+it.skipIf(process.platform !== "win32")("compares Chromium F11 ownership APIs above the managed page", async () => {
   const directory = await mkdtemp(join(tmpdir(), "rion-shortcut-probe-"));
   try {
     const reportDirectory = process.env.RION_CHROMIUM_INPUT_REPORT_DIR ?? directory;
@@ -21,33 +21,29 @@ it.skipIf(process.platform !== "win32")("compares native F11 key terminality wit
     const report = JSON.parse(await readFile(reportPath, "utf8"));
     expect(report.platform).toBe("win32");
     expect(report.electron).toBe(require("electron/package.json").version);
-    expect(report.outcomes).toHaveLength(36);
+    expect(report.outcomes).toHaveLength(24);
     for (const outcome of report.outcomes) {
       expect(outcome.hostFocused).toBe(true);
-      expect(outcome.events.some((event: { kind: string }) => event.kind === "native-error")).toBe(false);
       expect(outcome.pageEvents.every((event: { trusted: boolean }) => event.trusted)).toBe(true);
-      if (outcome.mode === "native-hook") {
+      if (outcome.mode === "before-input") {
+        // The shipped owner suppresses both halves above page delivery and
+        // never completes the command before the key is released.
+        expect(outcome.pageEvents, JSON.stringify(outcome)).toEqual([]);
         expect(outcome.commandsBeforeRelease).toBe(0);
-        expect(outcome.events.filter((event: { kind: string }) => event.kind === "command")).toHaveLength(1);
-        expect(outcome.pageEvents).toEqual([]);
+      } else {
+        // CP-07: a registered accelerator fires on key-down and still lets the
+        // managed page observe F11, which is why production does not register
+        // one. This asymmetry is reported, never converted into parity.
+        expect(outcome.pageEvents.length, JSON.stringify(outcome)).toBeGreaterThan(0);
+        expect(outcome.commandsBeforeRelease).toBe(1);
       }
     }
-    expect(report.lifecycleOutcomes).toHaveLength(36);
+    expect(report.lifecycleOutcomes).toHaveLength(24);
     for (const outcome of report.lifecycleOutcomes) {
       expect(["focus-transfer", "hidden-owner", "retired-owner"]).toContain(outcome.scenario);
       expect(outcome.ownerVisibleAtRelease).toBe(outcome.scenario !== "hidden-owner");
-      expect(outcome.events.some((event: { kind: string }) => event.kind === "native-error")).toBe(false);
       for (const events of [outcome.pageEvents, outcome.destinationPageEvents]) {
         expect(events.every((event: { trusted: boolean }) => event.trusted)).toBe(true);
-      }
-      if (outcome.mode === "native-hook") {
-        expect(outcome.events.filter((event: { kind: string }) => event.kind === "command")).toEqual([]);
-      }
-    }
-    for (const outcome of [...report.outcomes, ...report.lifecycleOutcomes]) {
-      if (outcome.mode !== "native-hook") continue;
-      for (const event of outcome.events) {
-        if (event.kind === "command") expect(event.ownerRevision).toBe(outcome.ownerRevision);
       }
     }
     // API differences are reported, never converted into replacement parity.

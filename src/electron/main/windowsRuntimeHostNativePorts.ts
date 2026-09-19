@@ -163,14 +163,9 @@ export interface WindowsRuntimeShortcutOwnerReceipt {
 }
 
 export interface WindowsRuntimeShortcutOwnerDiagnostic {
-  readonly callbackDeliveries: number;
-  readonly callbackRejections: number;
-  readonly callbackSubmissions: number;
-  readonly f11Events: number;
   readonly foregroundMatches: number;
   readonly hookCallbacks: number;
   readonly ownerRevision: string;
-  readonly plainKeyDowns: number;
   readonly uiThreadId: number;
 }
 
@@ -180,16 +175,11 @@ export interface WindowsRuntimeShortcutOwnerDiagnosticPort {
   ) => WindowsRuntimeShortcutOwnerDiagnostic;
 }
 
+/** Physical-input evidence owner. It observes keys; it captures none. */
 export interface WindowsRuntimeShortcutOwnerPort {
-  acknowledgeWindowsRuntimeShortcutOwner: (
-    parentHandle: Buffer,
-    ownerRevision: string
-  ) => WindowsRuntimeShortcutOwnerReceipt;
   registerWindowsRuntimeShortcutOwner: (
     parentHandle: Buffer,
-    ownerRevision: string,
-    callback: () => void,
-    failureCallback: (message: string) => void
+    ownerRevision: string
   ) => WindowsRuntimeShortcutOwnerReceipt;
   unregisterWindowsRuntimeShortcutOwner: (
     parentHandle: Buffer,

@@ -38,9 +38,6 @@ export interface ChromiumRuntimeWindowActionTarget {
   readonly windowId: string;
 }
 
-export type ChromiumRuntimeFullscreenFocusAdmission =
-  "windows-native-foreground";
-
 /** Routes native menu/toolbar actions back through the same Core-owned lanes. */
 export class ChromiumRuntimeNativeWindowController {
   readonly #core: ElectronCoreCommandPort;
@@ -64,15 +61,8 @@ export class ChromiumRuntimeNativeWindowController {
   }
 
   async toggleFullscreenForTab(
-    tabId: string,
-    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+    tabId: string
   ): Promise<SystemRuntimeOperationSummaryRecord> {
-    if (focusAdmission && this.#platform !== "win32") {
-      throw controlError(
-        "ELECTRON_RUNTIME_FULLSCREEN_ADMISSION_INVALID",
-        "Only the exact Win32 shortcut owner may admit a blurred fullscreen target."
-      );
-    }
     const native = this.#readNativeSnapshot().tabs.find((tab) => tab.tabId === tabId);
     if (!native) {
       throw controlError(
@@ -102,8 +92,7 @@ export class ChromiumRuntimeNativeWindowController {
     return this.#setPresentation(
       target.windowId,
       window.presentation === "fullscreen" ? "normal" : "fullscreen",
-      target,
-      focusAdmission
+      target
     );
   }
 
@@ -225,19 +214,17 @@ export class ChromiumRuntimeNativeWindowController {
   async #setPresentation(
     windowId: string,
     presentation: "fullscreen" | "maximized" | "normal",
-    target?: ChromiumRuntimeWindowActionTarget,
-    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+    target?: ChromiumRuntimeWindowActionTarget
   ): Promise<SystemRuntimeOperationSummaryRecord> {
     const prior = this.#presentationLanes.get(windowId);
     // The first event-bound presentation ingress is already serialized by the
-    // absence of a lane. Start it in the current native callback turn so a
-    // Win32 TSFN delivery cannot lose its exact HWND/revision fence behind an
-    // otherwise unnecessary Promise microtask. Contended requests still chain.
+    // absence of a lane. Start it in the current before-input-event callback
+    // turn so the exact window fence cannot go stale behind an otherwise
+    // unnecessary Promise microtask. Contended requests still chain.
     const begin = () => this.#setPresentationNow(
       windowId,
       presentation,
-      target,
-      focusAdmission
+      target
     );
     const operation = prior ? prior.then(begin) : begin();
     const tail = operation.then(() => undefined, () => undefined);
@@ -252,22 +239,10 @@ export class ChromiumRuntimeNativeWindowController {
   async #setPresentationNow(
     windowId: string,
     presentation: "fullscreen" | "maximized" | "normal",
-    target?: ChromiumRuntimeWindowActionTarget,
-    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+    target?: ChromiumRuntimeWindowActionTarget
   ): Promise<SystemRuntimeOperationSummaryRecord> {
-    const requireFocused = focusAdmission === undefined;
-    if (focusAdmission && this.#platform !== "win32") {
-      throw controlError(
-        "ELECTRON_RUNTIME_FULLSCREEN_ADMISSION_INVALID",
-        "The native fullscreen focus admission is not valid on this platform."
-      );
-    }
     if (target) {
-      this.#requireExplicitWindowTarget(
-        target,
-        target.topologyRevision,
-        requireFocused
-      );
+      this.#requireExplicitWindowTarget(target, target.topologyRevision);
     }
     const core = await this.#core.invoke({ type: "appSnapshot" });
     const logical = core.logicalWindows.find((window) => window.windowId === windowId);
@@ -308,11 +283,7 @@ export class ChromiumRuntimeNativeWindowController {
           "Core omitted the exact runtime-window presentation revision."
         );
       }
-      this.#requireExplicitWindowTarget(
-        target,
-        summary.topologyRevision!,
-        requireFocused
-      );
+      this.#requireExplicitWindowTarget(target, summary.topologyRevision!);
     }
     return summary;
   }
@@ -361,8 +332,7 @@ export class ChromiumRuntimeNativeWindowController {
 
   #requireExplicitWindowTarget(
     target: ChromiumRuntimeWindowActionTarget,
-    topologyRevision: number = target.topologyRevision,
-    requireFocused = true
+    topologyRevision: number = target.topologyRevision
   ): ChromiumRuntimeExecutorSnapshot["windows"][number] {
     const native = this.#readNativeSnapshot().windows.find((candidate) =>
       candidate.windowId === target.windowId);
@@ -374,7 +344,7 @@ export class ChromiumRuntimeNativeWindowController {
       : target.appKitIdentity === undefined && native?.appKitIdentity === undefined;
     if (
       !native || native.activeTabId !== target.activeTabId ||
-      !native.visible || (requireFocused && !native.focused) ||
+      !native.visible || !native.focused ||
       target.activeTabId.length === 0 ||
       !native.tabIds.includes(target.activeTabId) ||
       !Number.isSafeInteger(target.parentNativeHostId) ||

@@ -32,11 +32,13 @@ function projection(active = tabId) {
     topologyRevision: 1,
     windowGeneration: 1,
     workspaceDividers: [],
-    windowId
+    windowId,
+    windowMaximized: false,
+    windowName: ""
   };
 }
 
-function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>, initialWorkspaceBackground: "black" | "material" = "material") {
+function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>, initialWorkspaceBackground: "black" | "material" = "material", initialWindowName = "") {
   const state = {
     destroyed: false,
     fullscreen: false,
@@ -88,6 +90,7 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
     visible: true
   });
   const controller = new WindowsRuntimeHostChromeController({
+    initialWindowName,
     initialWorkspaceBackground,
     documentUrl,
     hostGeneration: 1,
@@ -119,6 +122,31 @@ describe("Windows runtime-host chrome controller", () => {
     subject.controller.documentLoaded(documentUrl);
     expect(subject.send).toHaveBeenLastCalledWith(WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL,
       expect.objectContaining({ workspaceBackground: background }));
+  });
+  it("publishes the launch-target name and every exact Core rename", async () => {
+    const subject = harness(undefined, "material", "Flyff Window");
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    expect(subject.send).toHaveBeenLastCalledWith(
+      WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL,
+      expect.objectContaining({ windowName: "Flyff Window" })
+    );
+
+    const revision = subject.controller.readObservation().projectionRevision;
+    expect(subject.controller.applyWindowName("Raid Window")).toBe("Raid Window");
+    expect(subject.send).toHaveBeenLastCalledWith(
+      WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL,
+      expect.objectContaining({ windowName: "Raid Window" })
+    );
+    expect(subject.controller.readObservation().projectionRevision).toBe(revision + 1);
+
+    // An unchanged name is not a new fact, so it must not advance the fence.
+    expect(subject.controller.applyWindowName("Raid Window")).toBe("Raid Window");
+    expect(subject.controller.readObservation().projectionRevision).toBe(revision + 1);
+    expect(() => subject.controller.applyWindowName("")).toThrow();
+    expect(() => subject.controller.applyWindowName(" Raid ")).toThrow();
+    expect(() => subject.controller.applyWindowName("Raid")).toThrow();
+    expect(subject.controller.readObservation().projectionRevision).toBe(revision + 1);
   });
   it("keeps visible tab commands available while a single slot retries", async () => {
     const subject = harness();

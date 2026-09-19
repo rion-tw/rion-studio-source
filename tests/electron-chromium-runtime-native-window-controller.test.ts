@@ -217,44 +217,26 @@ describe("Core-owned native runtime-window controls", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("retains exact Win32 foreground admission across callback delivery blur", async () => {
-    let applied = false;
+  it("rejects a blurred Win32 fullscreen target now that no owner admits one", async () => {
     const invoke = vi.fn(async (command: { type: string }) => {
       if (command.type === "appSnapshot") return appSnapshot();
-      if (command.type === "embeddedWindowPresentation") {
-        applied = true;
-        return { status: "applied", topologyRevision: 10 };
-      }
       throw new Error(`Unexpected command ${command.type}`);
     });
     const subject = new ChromiumRuntimeNativeWindowController({
       backend: { execute: vi.fn() } as never,
       core: { invoke } as never,
       platform: "win32",
-      readNativeSnapshot: () => {
-        const snapshot = explicitNativeSnapshot(false, applied ? 10 : 9);
-        return applied
-          ? {
-              ...snapshot,
-              windows: [{ ...snapshot.windows[0], presentation: "fullscreen" }]
-            }
-          : snapshot;
-      }
+      readNativeSnapshot: () => explicitNativeSnapshot(false)
     });
 
-    const terminal = subject.toggleFullscreenForTab(
-      tabId,
-      "windows-native-foreground"
-    );
-    expect(invoke).toHaveBeenCalledWith({ type: "appSnapshot" });
-    await expect(terminal).resolves.toMatchObject({
-      status: "applied",
-      topologyRevision: 10
+    // The Win32 shortcut owner no longer dispatches F11, so every fullscreen
+    // request arrives from a before-input-event on a focused surface. Nothing
+    // may admit a blurred native window any more.
+    await expect(subject.toggleFullscreenForTab(tabId)).rejects.toMatchObject({
+      code: "ELECTRON_RUNTIME_WINDOW_ACTION_FENCE_STALE"
     });
-    expect(invoke).toHaveBeenLastCalledWith(expect.objectContaining({
-      presentation: "fullscreen",
-      type: "embeddedWindowPresentation",
-      windowId
+    expect(invoke).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: "embeddedWindowPresentation"
     }));
   });
 

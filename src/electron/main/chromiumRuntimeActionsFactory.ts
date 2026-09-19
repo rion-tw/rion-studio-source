@@ -7,7 +7,8 @@ import type {
 } from "../../shared/generated";
 import type { QuickAccessPresentationRequest } from "../../shared/types";
 import {
-  CoreOwnedChromiumRuntimeActionBackend
+  CoreOwnedChromiumRuntimeActionBackend,
+  type WindowsRuntimeChromeWindowNamePort
 } from "./chromiumRuntimeActionBackend";
 import {
   ChromiumRuntimeActionController,
@@ -36,7 +37,6 @@ import type { ChromiumRuntimeRestoreSessionMutationPort } from
   "./chromiumRuntimeRestoreSessionCoordinator";
 import {
   ChromiumRuntimeNativeWindowController,
-  type ChromiumRuntimeFullscreenFocusAdmission,
   type ChromiumRuntimeNativeTabAction,
   type ChromiumRuntimeWindowActionTarget
 } from "./chromiumRuntimeNativeWindowController";
@@ -62,6 +62,7 @@ export interface ChromiumRuntimeActionsFactoryInput {
     factory: MacosAppKitRuntimeHostFactoryPort;
     events: MacosAppKitRendererActionPort;
   }>;
+  readonly windowsChrome?: WindowsRuntimeChromeWindowNamePort;
 }
 
 export interface ChromiumRuntimeActionsServices {
@@ -82,10 +83,8 @@ export interface ChromiumRuntimeActionsServices {
   ) => Promise<void>;
   readonly setAlwaysShowToolbarInFullScreen: (value: boolean) =>
     Promise<RuntimeWindowPreferencesRecord>;
-  readonly toggleRuntimeTabFullscreen: (
-    tabId: string,
-    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
-  ) => Promise<SystemRuntimeOperationSummaryRecord>;
+  readonly toggleRuntimeTabFullscreen: (tabId: string) =>
+    Promise<SystemRuntimeOperationSummaryRecord>;
   readonly toggleRuntimeWindowFullscreen: (
     target: ChromiumRuntimeWindowActionTarget
   ) => Promise<SystemRuntimeOperationSummaryRecord>;
@@ -135,7 +134,10 @@ export function createCoreOwnedChromiumRuntimeActions(
     newWindowMoves,
     quickAccess,
     windowPreferences: input.windowPreferences,
-    ...(input.appKit === undefined ? {} : { appKit: input.appKit })
+    ...(input.appKit === undefined ? {} : { appKit: input.appKit }),
+    ...(input.windowsChrome === undefined
+      ? {}
+      : { windowsChrome: input.windowsChrome })
   });
   const nativeWindows = new ChromiumRuntimeNativeWindowController({
     backend,
@@ -162,10 +164,8 @@ export function createCoreOwnedChromiumRuntimeActions(
       nativeWindows.requestTabControl(tabId, action),
     setAlwaysShowToolbarInFullScreen: (value: boolean) =>
       nativeWindows.setAlwaysShowToolbarInFullScreen(value),
-    toggleRuntimeTabFullscreen: (
-      tabId: string,
-      focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
-    ) => nativeWindows.toggleFullscreenForTab(tabId, focusAdmission),
+    toggleRuntimeTabFullscreen: (tabId: string) =>
+      nativeWindows.toggleFullscreenForTab(tabId),
     toggleRuntimeWindowFullscreen: (target: ChromiumRuntimeWindowActionTarget) =>
       nativeWindows.toggleFullscreenForTarget(target),
     zoomRuntimeWindow: (

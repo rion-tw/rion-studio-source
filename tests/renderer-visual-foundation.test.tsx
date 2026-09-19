@@ -47,6 +47,64 @@ describe("renderer visual foundation", () => {
     expect(styles).not.toContain("@font-face");
   });
 
+  it("leads the Windows game-window control bar with an inert Rion Studio mark", () => {
+    const runtimeHost = readFileSync(rendererPath("runtime-windows-host.html"), "utf8");
+    const runtimeHostStyles = readFileSync(rendererPath("runtime-windows-host.css"), "utf8");
+    const toolbar = runtimeHost.slice(
+      runtimeHost.indexOf("<header data-runtime-toolbar"),
+      runtimeHost.indexOf("</header>")
+    );
+
+    expect(toolbar).toContain('src="/src/assets/app-icon.png"');
+    expect(toolbar).toContain('alt="" aria-hidden="true"');
+    expect(toolbar.indexOf("data-runtime-brand"))
+      .toBeGreaterThan(toolbar.indexOf("runtime-drag-region"));
+    expect(toolbar.indexOf("data-runtime-brand"))
+      .toBeLessThan(toolbar.indexOf("data-runtime-tabs"));
+    expect(runtimeHost).toContain("img-src 'self'");
+    expect(runtimeHostStyles).toMatch(/\.runtime-brand \{[^}]*flex: none;/);
+    // The mark stays beneath the drag layer, so the control bar keeps dragging
+    // the Game Window from every pixel the mark covers.
+    expect(runtimeHostStyles).not.toMatch(/\.runtime-brand \{[^}]*app-region/);
+  });
+
+  it("orders the Windows control bar as mark, Game Window name, then tabs", () => {
+    const runtimeHost = readFileSync(rendererPath("runtime-windows-host.html"), "utf8");
+    const runtimeHostStyles = readFileSync(rendererPath("runtime-windows-host.css"), "utf8");
+    const toolbar = runtimeHost.slice(
+      runtimeHost.indexOf("<header data-runtime-toolbar"),
+      runtimeHost.indexOf("</header>")
+    );
+
+    expect(toolbar.indexOf("data-runtime-window-name"))
+      .toBeGreaterThan(toolbar.indexOf("data-runtime-brand"));
+    expect(toolbar.indexOf("data-runtime-window-name"))
+      .toBeLessThan(toolbar.indexOf("data-runtime-tabs"));
+    // A long name yields the row to the tabs instead of squeezing them out.
+    expect(runtimeHostStyles).toMatch(/\.runtime-window-name \{[^}]*min-width: 0;/);
+    expect(runtimeHostStyles).toMatch(
+      /\.runtime-window-name \{[^}]*text-overflow: ellipsis;/
+    );
+  });
+
+  it("draws Game Window controls with the app window-control glyphs", () => {
+    const appDocument = readFileSync(rendererPath("index.html"), "utf8");
+    const runtimeHost = readFileSync(rendererPath("runtime-windows-host.html"), "utf8");
+    const runtimeHostStyles = readFileSync(rendererPath("runtime-windows-host.css"), "utf8");
+    const bootStyles = readFileSync(rendererPath("src", "boot.css"), "utf8");
+    const glyphs = [...appDocument.matchAll(/<(?:path|rect) [^>]+\/>/g)]
+      .map((match) => match[0]);
+
+    expect(glyphs.length).toBeGreaterThan(0);
+    for (const glyph of glyphs) expect(runtimeHost).toContain(glyph);
+    // Grid centring, not glyph metrics, decides the vertical rest position.
+    for (const styles of [bootStyles, runtimeHostStyles]) {
+      expect(styles).toMatch(/-window-controls button \{[^}]*place-items: center;/);
+      expect(styles).toMatch(/-window-controls svg \{[^}]*stroke: currentColor;/);
+    }
+    expect(runtimeHost).not.toMatch(/data-window-command="[^"]+">&#x/);
+  });
+
   it("keeps count primitives compact without adding nested backdrop filters", () => {
     render(
       <>

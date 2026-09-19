@@ -43,6 +43,7 @@ import {
   closeVisibleRuntimeWindow,
   dragVisibleWindowsRuntimeTab,
   installRuntimeTabShellErrorJournal,
+  readVisibleWindowsRuntimeControlBar,
   readVisibleWindowsRuntimeHostLayout,
   resizeVisibleWindowsRuntimeWindow,
   runtimeTabShellErrors,
@@ -1124,6 +1125,22 @@ async function seedPhase(input: Readonly<{
     platform: input.platform,
     roles: sourceRoles
   });
+
+  if (input.platform === "windows") {
+    expect(await readVisibleWindowsRuntimeControlBar({
+      mainWindowHandle: input.mainWindowHandle,
+      tabId: tabIds[0]!,
+      windowId: gameWindow.id
+    })).toEqual({
+      controlGlyphCount: 3,
+      decorative: true,
+      leadsWindowName: true,
+      loaded: true,
+      windowName: gameWindow.name,
+      windowNameLeadsTabRow: true,
+      withinToolbar: true
+    });
+  }
 
   await closeVisibleRuntimeTab({
     mainWindowHandle: input.mainWindowHandle,

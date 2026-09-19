@@ -3,18 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; style-src 'self'; script-src 'self'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; img-src 'self'; style-src 'self'; script-src 'self'" />
     <title></title>
     <link rel="stylesheet" href="/runtime-windows-host.css" />
   </head>
   <body>
     <header data-runtime-toolbar aria-label="Game Window tabs">
       <div class="runtime-drag-region" aria-hidden="true"></div>
+      <img class="runtime-brand" data-runtime-brand src="/src/assets/app-icon.png" alt="" aria-hidden="true" draggable="false" />
+      <span class="runtime-window-name" data-runtime-window-name hidden></span>
       <div class="runtime-tabs" data-runtime-tabs aria-label="Open Game Window tabs"></div>
       <div class="runtime-window-controls" data-runtime-window-controls>
-        <button type="button" aria-label="Minimize Game Window" data-window-command="minimizeWindow">&#x2212;</button>
-        <button type="button" aria-label="Maximize or restore Game Window" data-window-command="toggleMaximizeWindow">&#x25A1;</button>
-        <button type="button" aria-label="Close Game Window" data-window-command="closeWindow">&#x00D7;</button>
+        <button type="button" aria-label="Minimize Game Window" data-window-command="minimizeWindow">
+          <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 8.5h10" /></svg>
+        </button>
+        <button type="button" aria-label="Maximize or restore Game Window" data-window-command="toggleMaximizeWindow">
+          <svg aria-hidden="true" data-window-control-glyph="maximize" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" /></svg>
+          <svg aria-hidden="true" data-window-control-glyph="restore" viewBox="0 0 16 16"><path d="M5.5 5.5V3.5h7v7h-2M3.5 5.5h7v7h-7z" /></svg>
+        </button>
+        <button type="button" aria-label="Close Game Window" data-window-command="closeWindow">
+          <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m4 4 8 8m0-8-8 8" /></svg>
+        </button>
       </div>
     </header>
     <div class="runtime-reveal-edge" data-runtime-reveal-edge hidden></div>

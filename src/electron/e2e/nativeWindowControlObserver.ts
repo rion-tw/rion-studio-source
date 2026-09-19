@@ -13,7 +13,7 @@ import {
   nextCoreFlowIdentity
 } from "./coreFlowDiagnosticsObserver";
 
-/** Journals each boundary after the exact native Windows F11 callback. */
+/** Journals each boundary of the Windows runtime fullscreen ingress. */
 export function installElectronDesktopE2eNativeWindowControlObserver(): void {
   installWindowTransitionObservation();
   const chrome = WindowsRuntimeHostChromeController.prototype;
@@ -46,17 +46,16 @@ export function installElectronDesktopE2eNativeWindowControlObserver(): void {
     return originalBootstrapStart({
       ...input,
       ...(originalFullscreen ? {
-        onRuntimeTabFullscreen: (tabId, focusAdmission) => {
+        onRuntimeTabFullscreen: (tabId) => {
           const identity = nextCoreFlowIdentity(
             `runtime-fullscreen-ingress:${tabId}`
           );
           appendCoreFlowObservation({
-            boundary: "command", details: {
-              focusAdmission: focusAdmission ?? null, tabId
-            }, identity, status: "started", type: "runtimeFullscreenIngress"
+            boundary: "command", details: { tabId }, identity,
+            status: "started", type: "runtimeFullscreenIngress"
           });
           try {
-            originalFullscreen(tabId, focusAdmission);
+            originalFullscreen(tabId);
             appendCoreFlowObservation({
               boundary: "command", identity, status: "completed",
               type: "runtimeFullscreenIngress"
@@ -75,16 +74,15 @@ export function installElectronDesktopE2eNativeWindowControlObserver(): void {
 
   const controller = ChromiumRuntimeNativeWindowController.prototype;
   const originalToggleFullscreenForTab = controller.toggleFullscreenForTab;
-  controller.toggleFullscreenForTab = function (tabId, focusAdmission) {
+  controller.toggleFullscreenForTab = function (tabId) {
     const identity = nextCoreFlowIdentity(`native-fullscreen:${tabId}`);
     appendCoreFlowObservation({
-      boundary: "command", details: {
-        focusAdmission: focusAdmission ?? null, tabId
-      }, identity, status: "started", type: "toggleFullscreenForTab"
+      boundary: "command", details: { tabId }, identity,
+      status: "started", type: "toggleFullscreenForTab"
     });
     let operation: ReturnType<typeof originalToggleFullscreenForTab>;
     try {
-      operation = originalToggleFullscreenForTab.call(this, tabId, focusAdmission);
+      operation = originalToggleFullscreenForTab.call(this, tabId);
     } catch (error) {
       appendCoreFlowObservation({
         boundary: "command", error: describeCoreFlowError(error), identity,

@@ -60,10 +60,8 @@ import {
 } from "./chromiumRuntimeBootstrap";
 import { createCoreOwnedChromiumRuntimeActions } from
   "./chromiumRuntimeActionsFactory";
-import type {
-  ChromiumRuntimeFullscreenFocusAdmission,
-  ChromiumRuntimeNativeTabAction
-} from "./chromiumRuntimeNativeWindowController";
+import type { ChromiumRuntimeNativeTabAction } from
+  "./chromiumRuntimeNativeWindowController";
 import {
   installMacosRuntimeWindowPreferencesMenu,
   type MacosRuntimeWindowPreferencesMenuHandle
@@ -775,10 +773,7 @@ async function bootstrapReadyPhase(
   );
   installChromiumSessionSecurityPolicy(webChromeShellSession);
   let beginRuntimeTabQuickAccess: ((tabId: string) => void) | null = null;
-  let beginRuntimeTabFullscreen: ((
-    tabId: string,
-    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
-  ) => void) | null = null;
+  let beginRuntimeTabFullscreen: ((tabId: string) => void) | null = null;
   let requestRuntimeWindowControl: ((
     windowId: string,
     action: "closeWindow" | "toggleMaximizeWindow"
@@ -848,7 +843,7 @@ async function bootstrapReadyPhase(
       }
       begin(tabId);
     },
-    onRuntimeTabFullscreen: (tabId, focusAdmission) => {
+    onRuntimeTabFullscreen: (tabId) => {
       const begin = beginRuntimeTabFullscreen;
       if (!begin) {
         throw new RionBridgeError({
@@ -856,7 +851,7 @@ async function bootstrapReadyPhase(
           message: "The managed Chromium fullscreen lane is not ready."
         });
       }
-      begin(tabId, focusAdmission);
+      begin(tabId);
     },
     shellEffects: overlayShellEffects,
     sessions: {
@@ -1297,6 +1292,14 @@ async function bootstrapReadyPhase(
             events: appKit.rendererActions
           }
         }
+      : {}),
+    ...(runtimePlatform === "win32"
+      ? {
+          windowsChrome: {
+            applyWindowName: (windowId: string, name: string) =>
+              chromiumRuntime?.applyRuntimeWindowName(windowId, name) ?? null
+          }
+        }
       : {})
   });
   if (!runtimeActionServices) {
@@ -1396,11 +1399,8 @@ async function bootstrapReadyPhase(
     ? (tabId) => { runtimeActionServices.beginRuntimeTabQuickAccess(tabId); }
     : null;
   beginRuntimeTabFullscreen = runtimeActionServices
-    ? (tabId, focusAdmission) => {
-        void runtimeActionServices.toggleRuntimeTabFullscreen(
-          tabId,
-          focusAdmission
-        ).catch(
+    ? (tabId) => {
+        void runtimeActionServices.toggleRuntimeTabFullscreen(tabId).catch(
           revealShellError
         );
       }

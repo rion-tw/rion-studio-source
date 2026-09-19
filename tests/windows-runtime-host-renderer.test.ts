@@ -32,6 +32,8 @@ describe("Windows runtime-host renderer", () => {
     vi.resetModules();
     document.body.innerHTML = `
       <header data-runtime-toolbar>
+        <img data-runtime-brand src="/src/assets/app-icon.png" alt="" aria-hidden="true" />
+        <span data-runtime-window-name hidden></span>
         <div data-runtime-tabs></div>
         <div data-runtime-window-controls></div>
       </header>
@@ -106,6 +108,8 @@ describe("Windows runtime-host renderer", () => {
       topologyRevision: 8,
       windowGeneration: 2,
       windowId,
+      windowMaximized: false,
+      windowName: "Raid Window",
       workspaceDividers: [{
         attemptGeneration: "attempt-1",
         axis: "vertical",
@@ -266,6 +270,8 @@ describe("Windows runtime-host renderer", () => {
       topologyRevision: 8,
       windowGeneration: 2,
       windowId,
+      windowMaximized: false,
+      windowName: "Raid Window",
       workspaceDividers: [{
         attemptGeneration: "attempt-1",
         axis: "vertical",
@@ -307,6 +313,59 @@ describe("Windows runtime-host renderer", () => {
       expect.objectContaining({ phase: "end", pointerSequence: 3 })
     ]);
   });
+  it("shows the Game Window name and keeps glyph window controls clickable", async () => {
+    document.body.innerHTML = `
+      <header data-runtime-toolbar>
+        <img data-runtime-brand src="/src/assets/app-icon.png" alt="" aria-hidden="true" />
+        <span data-runtime-window-name hidden></span>
+        <div data-runtime-tabs></div>
+        <div data-runtime-window-controls>
+          <button type="button" data-window-command="minimizeWindow">
+            <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 8.5h10" /></svg>
+          </button>
+        </div>
+      </header>
+      <div data-runtime-reveal-edge></div>
+      <div data-runtime-workspace-dividers></div>
+    `;
+    const submit = vi.fn();
+    let project!: (projection: WindowsRuntimeHostProjection) => void;
+    Object.assign(window, { rionStudioWindowsRuntimeHost: {
+      onProjection: (listener: typeof project) => { project = listener; return () => undefined; },
+      submit
+    } });
+    await import("../src/renderer/src/runtime-windows-host");
+    const value: WindowsRuntimeHostProjection = {
+      windowId, windowMaximized: false, windowName: "Raid Window", activeTabId: null,
+      alwaysShowToolbarInFullScreen: false,
+      contentBounds: { height: 600, width: 900, x: 0, y: 40 },
+      fullscreen: false, lifecycleEpoch: 4, moveTargets: [], projectionRevision: 5,
+      tabs: [], toolbarVisible: true, topologyRevision: 8, windowGeneration: 2,
+      workspaceDividers: []
+    };
+    const name = document.querySelector<HTMLElement>("[data-runtime-window-name]")!;
+    const brand = document.querySelector<HTMLElement>("[data-runtime-brand]")!;
+    const tabRow = document.querySelector<HTMLElement>("[data-runtime-tabs]")!;
+
+    project(value);
+    expect(name.textContent).toBe("Raid Window");
+    expect(name.hidden).toBe(false);
+    expect(brand.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(name.compareDocumentPosition(tabRow) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+
+    // An unnamed window carries no label, so the bar must not reserve its row.
+    project({ ...value, windowName: "", projectionRevision: 6 });
+    expect(name.textContent).toBe("");
+    expect(name.hidden).toBe(true);
+
+    document.querySelector<SVGElement>("[data-window-command] svg")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "minimizeWindow", windowId
+    }));
+  });
   it("submits hover chrome only when fullscreen presentation can change", async () => {
     const submit = vi.fn();
     let project!: (projection: WindowsRuntimeHostProjection) => void;
@@ -316,7 +375,8 @@ describe("Windows runtime-host renderer", () => {
     } });
     await import("../src/renderer/src/runtime-windows-host");
     const value: WindowsRuntimeHostProjection = {
-      windowId, activeTabId: firstTabId, alwaysShowToolbarInFullScreen: false,
+      windowId, windowMaximized: false, windowName: "", activeTabId: firstTabId,
+      alwaysShowToolbarInFullScreen: false,
       contentBounds: { height: 600, width: 900, x: 0, y: 40 },
       fullscreen: false, lifecycleEpoch: 4, moveTargets: [], projectionRevision: 5,
       tabs: [], toolbarVisible: true, topologyRevision: 8, windowGeneration: 2,

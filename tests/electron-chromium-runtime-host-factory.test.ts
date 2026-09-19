@@ -576,6 +576,88 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(observations).toHaveLength(1);
   });
 
+  it("subscribes to window state before Core projects the host and retires it", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const foreground = new FakeRuntimeForegroundProbe();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32",
+      browserWindows: browserWindows.port,
+      displays,
+      lifecycleEpoch: () => 3,
+      runtimeDocumentPath,
+      runtimeForegroundProbe: foreground
+    });
+    const creation = factory.create(target(), tab(target()));
+    const window = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, window);
+
+    // The first-host presentation path observes a host the moment it exists,
+    // before Core's first topology projection supplies its window fence.
+    const observations: ChromiumRuntimeWindowStateObservation[] = [];
+    const unsubscribe = host.bindRuntimeWindowState?.((observation) => {
+      observations.push(observation);
+    });
+    expect(typeof unsubscribe).toBe("function");
+    expect(() => host.readRuntimeWindowState?.()).toThrowError(
+      expect.objectContaining({
+        code: "ELECTRON_WINDOWS_RUNTIME_WINDOW_STATE_FENCE_INVALID"
+      })
+    );
+
+    // An unprojected host has no authoritative fence to stamp, so a native
+    // event neither invents one nor terminates the stream.
+    window.visible = true;
+    window.emit("show");
+    expect(observations).toEqual([]);
+
+    await applyWindowFence(host);
+    foreground.parentVisible = true;
+    foreground.parentWasForeground = true;
+    window.focused = true;
+    window.emit("focus");
+    expect(observations).toEqual([expect.objectContaining({
+      source: "focus",
+      sequence: 2,
+      windowGeneration: 4,
+      topologyRevision: 9,
+      visible: true,
+      focused: true,
+      foreground: true
+    })]);
+    unsubscribe?.();
+  });
+
+  it("retires an unprojected host to its exact terminal subscriber", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32",
+      browserWindows: browserWindows.port,
+      displays,
+      lifecycleEpoch: () => 3,
+      runtimeDocumentPath,
+      runtimeForegroundProbe: new FakeRuntimeForegroundProbe()
+    });
+    const creation = factory.create(target(), tab(target()));
+    const window = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, window);
+    const observations: ChromiumRuntimeWindowStateObservation[] = [];
+    host.bindRuntimeWindowState?.((observation) => observations.push(observation));
+
+    // Creation can be compensated before Core ever projects the host. The
+    // terminal event still has to reach the owner that armed the presentation.
+    const closing = host.close();
+    window.emit("closed");
+    await closing;
+    expect(observations).toEqual([expect.objectContaining({
+      source: "closed",
+      windowGeneration: 0,
+      topologyRevision: 0,
+      visible: false,
+      focused: false,
+      foreground: false
+    })]);
+  });
+
   it("registers and retires the exact physical-input evidence owner", async () => {
     const browserWindows = new FakeBrowserWindows();
     const shortcutOwner = new FakeRuntimeShortcutOwner();

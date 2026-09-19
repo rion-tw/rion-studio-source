@@ -866,6 +866,7 @@ implements ChromiumRuntimeHostFactoryPort {
         record,
         () => this.#readPlacementObservation(record)
       ),
+      readRuntimeWindowBoundsSequence: () => record.chrome.boundsSequence,
       readFullscreenToolbar: () => this.#withCurrent(
         record,
         () => record.chrome.readObservation()

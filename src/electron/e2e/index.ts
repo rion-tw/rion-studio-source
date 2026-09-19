@@ -188,7 +188,8 @@ let observedCore: CoreAddonClient | null = null;
 let observedApplicationLifecycle: ElectronApplicationLifecycleController | null = null;
 let observedRuntime: Pick<
   ChromiumRuntimeBootstrap,
-  "desktopE2eStatusPresentation" | "inspectFullscreenToolbar" | "snapshot"
+  "desktopE2eStatusPresentation" | "inspectFullscreenToolbar" |
+  "settleCurrentProjection" | "snapshot"
 > | null = null;
 let observedPopupLifecycle: ChromiumPopupLifecycleCoordinator | null = null;
 let readWindowsShortcutOwnerDiagnostic: (
@@ -382,7 +383,8 @@ function installElectronDesktopE2eRoleRuntimeObserver(): void {
 
   type RuntimeSnapshotPort = Pick<
     ChromiumRuntimeBootstrap,
-    "desktopE2eStatusPresentation" | "inspectFullscreenToolbar" | "snapshot"
+    "desktopE2eStatusPresentation" | "inspectFullscreenToolbar" |
+    "settleCurrentProjection" | "snapshot"
   >;
   // Bind the actual owner at startup, before a gated first navigation can wait
   // for an inspection whose snapshot was previously required to discover it.
@@ -1380,6 +1382,21 @@ async function readFullscreenToolbarRuntime(
     throw new Error(
       `Fullscreen toolbar ${windowId} has no observed Core/native Chromium ownership.`
     );
+  }
+  // This reader demands one coherent Core/native snapshot, and a live border
+  // drag keeps projections in flight. One fence only drains the work admitted
+  // before it, so settle until a pass admits nothing new and the fences below
+  // are compared at rest instead of mid-transaction. A runtime that refuses to
+  // settle, because it is draining, keeps its exact mismatch diagnostic below
+  // instead of being reported as a settle failure.
+  try {
+    for (let settled = 0, sequence = -1; settled < 32; settled += 1) {
+      const next = await runtime.settleCurrentProjection();
+      if (next === sequence) break;
+      sequence = next;
+    }
+  } catch {
+    // The exact Core/native comparison below is the authoritative evidence.
   }
   const [coreSnapshot, preferences] = await Promise.all([
     core.invoke({ type: "appSnapshot" }),

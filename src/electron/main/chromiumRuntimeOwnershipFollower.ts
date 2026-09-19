@@ -286,7 +286,8 @@ export async function followChromiumRuntimeOwnership(
       tabs: input.tabs,
       roles: input.roles,
       webSurfaces: input.webSurfaces,
-      quarantineWindows
+      quarantineWindows,
+      effect: input.effect
     });
     applyAppKitOwnershipFences(input);
     if (input.focusTabId) {

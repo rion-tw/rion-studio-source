@@ -37,8 +37,13 @@ public static class WorkspaceScreen {
  [StructLayout(LayoutKind.Sequential)] public struct Point { public int x,y; }
  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref Point p);
  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+ [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
 }
 '@
+# GetDpiForWindow reports the host's real DPI whatever this process is, so the
+# origin and the capture must be read in that same physical space. PowerShell is
+# DPI-unaware by default and would otherwise virtualize both.
+[WorkspaceScreen]::SetThreadDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
 $h = [IntPtr][int64]$payload.nativeWindowHandle
 $origin = New-Object WorkspaceScreen+Point
 if (-not [WorkspaceScreen]::ClientToScreen($h, [ref]$origin)) { throw 'client origin unavailable' }

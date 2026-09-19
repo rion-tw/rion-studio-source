@@ -289,6 +289,7 @@ export class WindowsRuntimeWindowPlacementController {
       );
     }
     this.#adapterSequence += 1;
+    const boundsBefore = host.readRuntimeWindowBoundsSequence?.();
     const event = eventFor(before, display, this.#adapterSequence);
     let receipt: WindowsRuntimeWindowPlacementReceiptRecord;
     try {
@@ -344,6 +345,17 @@ export class WindowsRuntimeWindowPlacementController {
       return;
     }
     const appliedVerified = receipt.status === "applied" && failedPostconditions.length === 0;
+    const boundsAfter = host.readRuntimeWindowBoundsSequence?.();
+    if (receipt.status === "applied" && !appliedVerified && identityStable &&
+        postconditions.displayTopology && boundsBefore !== undefined &&
+        boundsAfter !== boundsBefore) {
+      // The host saw another exact geometry change while Core acknowledged this
+      // one, so the user is still dragging and the event that superseded this
+      // receipt brings its own. Reporting here would raise the main window over
+      // the drag. A mismatch with no newer geometry still falls through below.
+      this.#push({ event, receipt, status: "superseded", verified: false });
+      return;
+    }
     if (receipt.status === "applied" && !appliedVerified) {
       const failure = normalizeRionBridgeError(placementError(
         "ELECTRON_WINDOWS_RUNTIME_PLACEMENT_POSTCONDITION_STALE",

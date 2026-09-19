@@ -9,7 +9,8 @@ import type {
   EmbeddedRuntimeWindowProjectionRecord
 } from
   "../../shared/generated";
-import { RionBridgeError } from "../ipc/errors";
+import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
+import { recordRuntimeTransition } from "./runtimeOperationJournal";
 import type {
   ChromiumRuntimeEffectExecutorInput
 } from "./chromiumRuntimeEffectExecutor";
@@ -32,6 +33,8 @@ interface ApplyRuntimeWindowsProjectionInput {
   readonly roles: Map<string, ChromiumRuntimeRoleRecord>;
   readonly webSurfaces: Map<string, ChromiumRuntimeWebSurfaceRecord>;
   readonly quarantineWindows: (windowIds: readonly string[]) => Promise<void>;
+  /** Identity for journalling a refusal that quarantine would otherwise erase. */
+  readonly effect?: Readonly<{ effectId: string; operationId: string }>;
 }
 
 interface ProjectedTab {
@@ -337,9 +340,17 @@ export async function applyChromiumRuntimeWindowsProjection(
           "The Windows runtime host cannot apply its native toolbar projection."
         );
       }
+      // The divider geometry below was resolved against the viewport this
+      // transaction sampled. Re-reading the live window here would tear the
+      // pair apart mid border drag and refuse geometry that was never stale.
+      const contentBounds = projectedTabs.get(projection.activeTabId ?? "")?.contentBounds ??
+        projection.tabIds.flatMap((tabId) => {
+          const projected = projectedTabs.get(tabId);
+          return projected ? [projected.contentBounds] : [];
+        })[0] ?? host.getContentBounds();
       await host.applyWindowsChromeProjection({
         activeTabId: projection.activeTabId ?? null,
-        contentBounds: Object.freeze({ ...host.getContentBounds() }),
+        contentBounds: Object.freeze({ ...contentBounds }),
         moveTargets: Object.freeze([...projectionByWindow.values()]
           .filter((target) => target.windowId !== windowId)
           .map((target) => {
@@ -381,11 +392,29 @@ export async function applyChromiumRuntimeWindowsProjection(
         }))
       });
     }
-  } catch {
+  } catch (error) {
+    // Quarantine retires the host, so the refusal that caused it is the only
+    // evidence left of why. Journal its exact code before the host is gone.
+    const cause = normalizeRionBridgeError(
+      error,
+      "ELECTRON_CHROMIUM_WINDOWS_CHROME_PROJECTION_FAILED"
+    );
+    if (input.effect) {
+      recordRuntimeTransition({
+        operationId: input.effect.operationId,
+        effectId: input.effect.effectId,
+        action: "windows-chrome-projection",
+        targetKind: "window",
+        targetId: [...projectionByWindow.keys()].sort().join(","),
+        stage: "refused",
+        errorCode: cause.code
+      });
+    }
     await input.quarantineWindows([...projectionByWindow.keys()]);
     throw projectionError(
       "ELECTRON_CHROMIUM_WINDOWS_CHROME_PROJECTION_FAILED",
-      "The Windows runtime topology was quarantined after toolbar projection failed."
+      "The Windows runtime topology was quarantined after toolbar projection failed: " +
+        `${cause.code}: ${cause.message}`
     );
   }
 

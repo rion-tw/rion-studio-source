@@ -344,4 +344,60 @@ describe("Windows Chromium runtime topology projection", () => {
     });
     expect(subject.quarantineWindows).toHaveBeenCalledWith(["window-1", "window-2"]);
   });
+
+  it("projects divider geometry against the viewport it was resolved for", async () => {
+    const subject = harness();
+    subject.roles.clear();
+    subject.tabs.delete("tab-2");
+    subject.windows.delete("window-2");
+    const rect = { x: 0, y: 0, width: 1, height: 1 };
+    const web = { lastUrl: "https://example.test/" };
+    const tab = subject.tabs.get("tab-1")!;
+    tab.specification = {
+      tabId: "tab-1", workspaceId: "workspace-1", workspaceTemplate: "single",
+      attemptGeneration: "attempt-1",
+      workspaceSlots: [{ id: "slot-1", web, rect }],
+      slots: [{ slotId: "slot-1", role: { id: "web-slot-1" }, web, rect }],
+      roles: []
+    } as unknown as EmbeddedTabEffectRecord;
+
+    // A live border drag shrinks the native viewport between the layout
+    // resolution and the toolbar projection.
+    let width = 900;
+    subject.firstHost.getContentBounds = () => ({ x: 0, y: 0, width: width -= 40, height: 600 });
+    subject.input.ports.layout.resolveWorkspaceLayout = async () => {
+      const contentBounds = subject.firstHost.getContentBounds();
+      return {
+        contentBounds,
+        dividers: [{
+          axis: "vertical" as const,
+          bounds: { x: contentBounds.width - 1, y: 0, width: 1, height: 600 },
+          index: 0
+        }],
+        roles: new Map([["web-slot-1", contentBounds]]),
+        visible: true
+      };
+    };
+
+    await applyChromiumRuntimeWindowsProjection({
+      ...subject.input,
+      projections: [{
+        ...projection("window-1", ["tab-1"], "tab-1"),
+        workspaceTabs: [{
+          tabId: "tab-1",
+          workspaceSlots: [{ id: "slot-1", web, rect }],
+          workspaceAppearance: { background: "material" as const, gap: 16 as const }
+        }]
+      }]
+    });
+
+    const applied = vi.mocked(subject.firstHost.applyWindowsChromeProjection!).mock.calls.at(-1)![0];
+    for (const divider of applied.workspaceDividers) {
+      expect(divider.bounds.x + divider.bounds.width)
+        .toBeLessThanOrEqual(applied.contentBounds.x + applied.contentBounds.width);
+      expect(divider.bounds.y + divider.bounds.height)
+        .toBeLessThanOrEqual(applied.contentBounds.y + applied.contentBounds.height);
+    }
+    expect(subject.quarantineWindows).not.toHaveBeenCalled();
+  });
 });

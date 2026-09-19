@@ -66,6 +66,17 @@ function requirePositive(value: unknown, field: string): number {
   return value as number;
 }
 
+/** Zero is Core's "not projected yet" fence, not a malformed one. */
+function requireCoreFence(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw stateError(
+      "ELECTRON_WINDOWS_RUNTIME_WINDOW_STATE_FENCE_INVALID",
+      `The exact Windows runtime-window ${field} fence is invalid.`
+    );
+  }
+  return value as number;
+}
+
 function validateReadback(
   value: WindowsRuntimeForegroundReadback
 ): WindowsRuntimeForegroundReadback {
@@ -117,7 +128,9 @@ export class WindowsRuntimeWindowStateStream {
         "The exact Windows runtime-window state stream has terminated."
       );
     }
-    this.#last = this.#readExact("initial", this.#sequence);
+    // Subscribing is not an observation. A host that Core has not projected
+    // yet owns no window-generation or topology fence, so seeding an exact
+    // read here would fail creation instead of delivering later native events.
     this.#observers.add(observer);
     let subscribed = true;
     return () => {
@@ -152,6 +165,10 @@ export class WindowsRuntimeWindowStateStream {
   >): void {
     if (this.#terminal || !this.#input.isCurrent()) return;
     try {
+      // Core's first topology projection supplies the window fence every
+      // observation must carry. A native event that arrives first has nothing
+      // authoritative to report; the stream waits instead of terminating.
+      if (!this.#coreProjected()) return;
       const observation = this.#readExact(source, this.#sequence + 1);
       this.#sequence = observation.sequence;
       this.#last = observation;
@@ -173,6 +190,12 @@ export class WindowsRuntimeWindowStateStream {
 
   close(): void {
     this.#terminate("closed");
+  }
+
+  #coreProjected(): boolean {
+    const fence = this.#input.readCoreFence();
+    return requireCoreFence(fence.windowGeneration, "window generation") >= 1 &&
+      requireCoreFence(fence.topologyRevision, "topology revision") >= 1;
   }
 
   #readExact(
@@ -257,11 +280,14 @@ export class WindowsRuntimeWindowStateStream {
           this.#input.nativeGeneration,
           "native generation"
         ),
-        windowGeneration: requirePositive(
+        // A host can close or fail before Core ever projects it. Its terminal
+        // event still has to reach every subscriber, carrying the unprojected
+        // zero fence rather than throwing the retirement away.
+        windowGeneration: requireCoreFence(
           fence.windowGeneration,
           "window generation"
         ),
-        topologyRevision: requirePositive(
+        topologyRevision: requireCoreFence(
           fence.topologyRevision,
           "topology revision"
         ),

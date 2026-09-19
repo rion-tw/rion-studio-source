@@ -110,7 +110,14 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
     "toolbarVisible", "topologyRevision", "windowGeneration", "windowId"
   ];
   const hasAppKit = candidate.hostKind === "appkit";
-  if (!exact(native, hasAppKit ? [...commonKeys, "appKit"] : commonKeys) ||
+  // The Windows host reports the background it is actually projecting, which
+  // Core's own setting does not prove. The AppKit host owns its appearance
+  // separately and reports none.
+  if (!exact(native, hasAppKit
+    ? [...commonKeys, "appKit"]
+    : [...commonKeys, "workspaceBackground"]) ||
+    (!hasAppKit && native.workspaceBackground !== "material" &&
+      native.workspaceBackground !== "black") ||
     native.windowId !== candidate.windowId ||
     native.windowGeneration !== candidate.windowGeneration ||
     native.topologyRevision !== candidate.topologyRevision ||

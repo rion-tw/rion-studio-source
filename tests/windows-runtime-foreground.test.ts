@@ -51,7 +51,8 @@ const inspection = {
   native: {
     windowId, windowGeneration: 1, topologyRevision: 1, projectionRevision: 1,
     alwaysShowToolbarInFullScreen: false, fullscreen: false, revealed: false,
-    toolbarVisible: true, nativeControlsVisible: true, nativeWindowControlCount: 3
+    toolbarVisible: true, nativeControlsVisible: true, nativeWindowControlCount: 3,
+    workspaceBackground: "material" as const
   }
 };
 

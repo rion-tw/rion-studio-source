@@ -1494,6 +1494,12 @@ export class ChromiumRuntimeBootstrap {
     return this.#windowPlacement.inspect(windowId);
   }
 
+  /** Shows a renamed Core Game Window on its live Windows control bar. */
+  applyRuntimeWindowName(windowId: string, name: string): string | null {
+    if (this.#state !== "open") return null;
+    return this.#hosts.applyWindowsWindowName(windowId, name);
+  }
+
   applyWindowPreferences(
     preferences: import("../../shared/generated").RuntimeWindowPreferencesRecord
   ): Promise<void> {

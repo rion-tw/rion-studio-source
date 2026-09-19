@@ -1564,11 +1564,15 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     const document = await readFile("src/renderer/runtime-windows-host.html", "utf8");
     expect(document).toContain("default-src 'none'");
     expect(document).toContain("script-src 'self'");
+    expect(document).toContain("img-src 'self'");
     expect(document).toContain("runtime-windows-host.css");
     expect(document).toContain("runtime-windows-host.ts");
     expect(document).toContain('data-window-command="minimizeWindow"');
     expect(document).toContain('data-window-command="toggleMaximizeWindow"');
     expect(document).toContain('data-window-command="closeWindow"');
+    expect(document).toContain('data-runtime-brand src="/src/assets/app-icon.png"');
+    expect(document).toContain('data-runtime-window-name');
+    expect(document).toContain('data-window-control-glyph="restore"');
   });
 });
 

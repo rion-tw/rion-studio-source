@@ -21,6 +21,9 @@ const bridge = window.rionStudioWindowsRuntimeHost;
 const toolbar = document.querySelector<HTMLElement>("[data-runtime-toolbar]");
 const revealEdge = document.querySelector<HTMLElement>("[data-runtime-reveal-edge]");
 const tabs = document.querySelector<HTMLElement>("[data-runtime-tabs]");
+const windowName = document.querySelector<HTMLElement>(
+  "[data-runtime-window-name]"
+);
 const windowControls = document.querySelector<HTMLElement>(
   "[data-runtime-window-controls]"
 );
@@ -28,8 +31,8 @@ const dividerLayer = document.querySelector<HTMLElement>(
   "[data-runtime-workspace-dividers]"
 );
 
-if (!bridge || !toolbar || !revealEdge || !tabs || !windowControls ||
-    !dividerLayer) {
+if (!bridge || !toolbar || !revealEdge || !tabs || !windowName ||
+    !windowControls || !dividerLayer) {
   throw new Error("The bundled Windows runtime-host document is incomplete.");
 }
 
@@ -492,6 +495,8 @@ function render(projection: WindowsRuntimeHostProjection): void {
   current = projection;
   workspaceBackground.style.background = projection.workspaceBackground === "black" ? "#000" : "transparent";
   toolbar!.hidden = !projection.toolbarVisible;
+  windowName!.textContent = projection.windowName;
+  windowName!.hidden = projection.windowName.length === 0;
   revealEdge!.hidden = projection.toolbarVisible || !projection.fullscreen ||
     projection.alwaysShowToolbarInFullScreen;
   tabs!.replaceChildren(...projection.tabs.filter((tab) => !tab.hidden).map((tab) => {
@@ -551,6 +556,8 @@ function render(projection: WindowsRuntimeHostProjection): void {
   }));
   renderDividers(projection);
   document.documentElement.dataset.fullscreen = String(projection.fullscreen);
+  document.documentElement.dataset.windowMaximized =
+    String(projection.windowMaximized);
   document.documentElement.dataset.toolbarVisible = String(projection.toolbarVisible);
   document.documentElement.dataset.runtimeContentHeight =
     String(projection.contentBounds.height);
@@ -573,7 +580,10 @@ function render(projection: WindowsRuntimeHostProjection): void {
 revealEdge.addEventListener("pointerenter", () => submit("revealToolbar"));
 toolbar.addEventListener("pointerleave", () => submit("hideToolbar"));
 windowControls.addEventListener("click", (event) => {
-  const target = event.target;
+  // The glyph, not the button, owns the click target inside each control.
+  const target = event.target instanceof Element
+    ? event.target.closest("button")
+    : null;
   if (!(target instanceof HTMLButtonElement)) return;
   const command = target.dataset.windowCommand;
   if (

@@ -574,6 +574,16 @@ implements ChromiumRuntimeHostFactoryPort {
     }
   }
 
+  /**
+   * Shows the renamed Core Game Window name on its live control bar. An
+   * unopened window carries its name from the launch target instead.
+   */
+  applyWindowName(windowId: string, name: string): string | null {
+    const record = this.#activeByLogicalWindow.get(windowId);
+    if (!record || record.state !== "active" || record.native.isDestroyed()) return null;
+    return record.chrome.applyWindowName(name);
+  }
+
   create(
     target: EmbeddedLaunchTargetRecord,
     initialTab: EmbeddedTabEffectRecord
@@ -778,6 +788,7 @@ implements ChromiumRuntimeHostFactoryPort {
       contentGeometry: new WindowsRuntimeContentGeometry()
     };
     record.chrome = new WindowsRuntimeHostChromeController({
+      initialWindowName: target.persistedName ?? "",
       initialWorkspaceBackground: background,
       resizeIndicators: this.#windows.createResizeIndicators?.(native),
       documentUrl: record.documentUrl,
@@ -1549,6 +1560,12 @@ implements ChromiumRuntimeHostFactoryPort {
   ): WindowsChromiumInputRuntimeParentBinding | null {
     if (this.#platform !== "win32") return null;
     return this.#windows!.resolveInputParent(parent);
+  }
+
+  /** macOS renames through its AppKit lane; only Windows draws its own bar. */
+  applyWindowsWindowName(windowId: string, name: string): string | null {
+    if (this.#platform !== "win32") return null;
+    return this.#windows!.applyWindowName(windowId, name);
   }
 
   applyWindowPreferences(

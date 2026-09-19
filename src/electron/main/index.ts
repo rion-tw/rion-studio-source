@@ -1284,6 +1284,14 @@ async function bootstrapReadyPhase(
             events: appKit.rendererActions
           }
         }
+      : {}),
+    ...(runtimePlatform === "win32"
+      ? {
+          windowsChrome: {
+            applyWindowName: (windowId: string, name: string) =>
+              chromiumRuntime?.applyRuntimeWindowName(windowId, name) ?? null
+          }
+        }
       : {})
   });
   if (!runtimeActionServices) {

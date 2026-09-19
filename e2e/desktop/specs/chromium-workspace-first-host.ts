@@ -81,10 +81,18 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
         const move = { x: edge === "top" || edge === "bottom" ? 0 : edge === "left" ? 64 : -64,
           y: edge === "left" || edge === "right" ? 0 : edge === "top" ? 48 : -48 };
         await resizeWorkspaceWindow({inspection:await inspect(input.windowId),edge,moves:[move,{x:0,y:0}],
-          whileHeld: async step => {
+          whileHeld: async (step, frame) => {
+            // The layout can plateau on an intermediate size before catching up,
+            // so waiting for it to merely change or merely hold still samples a
+            // window that has already moved on. The resize reports the real
+            // frame: require the layout to agree with it before capturing.
             await browser.waitUntil(async () => {
               const now = (await layout()).contentBounds;
-              return step === 0 ? now.width !== old.width || now.height !== old.height : now.width === old.width && now.height === old.height;
+              const tracksWindow = Math.abs(now.y + now.height - frame.height) <= 1 &&
+                Math.abs(now.x + now.width - frame.width) <= 1;
+              return tracksWindow && (step === 0
+                ? now.width !== old.width || now.height !== old.height
+                : now.width === old.width && now.height === old.height);
             }, {timeout:20_000,timeoutMsg:`First host ${phase} ${edge} geometry waited for loading`});
             await capture(`${prefix}-${edge}-${step}-held`);
           }});

@@ -437,6 +437,18 @@ public static class RionNativeShortcutInput {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hwnd, uint command);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassNameW(IntPtr hwnd, System.Text.StringBuilder text, int count);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowTextW(IntPtr hwnd, System.Text.StringBuilder text, int count);
+  public static string WindowEvidence(IntPtr hwnd) {
+    var className = new System.Text.StringBuilder(128);
+    GetClassNameW(hwnd, className, className.Capacity);
+    var title = new System.Text.StringBuilder(160);
+    GetWindowTextW(hwnd, title, title.Capacity);
+    return String.Format("hwnd={0},class={1},title={2},iconic={3},owner={4}",
+      hwnd.ToInt64(), className, title, IsIconic(hwnd), GetWindow(hwnd, 4).ToInt64());
+  }
   [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint mapType);
   [DllImport("user32.dll", SetLastError = true)]
   public static extern uint SendInput(uint count, Input[] inputs, int size);
@@ -538,7 +550,13 @@ if ($targetMode -eq 'launcher') {
     }
     return $true
   }, [IntPtr]::Zero) | Out-Null
-  if ($matches.Count -ne 1) { throw 'exact visible Rion main window unavailable' }
+  if ($matches.Count -ne 1) {
+    $evidence = (@($matches | ForEach-Object {
+      [RionNativeShortcutInput]::WindowEvidence($_)
+    }) | Select-Object -First 16) -join '; '
+    if ($evidence.Length -gt 2000) { $evidence = $evidence.Substring(0, 2000) }
+    throw "exact visible Rion main window unavailable; visible top-level windows=$evidence"
+  }
   $inputWindow = $matches[0]
   if (-not [RionNativeShortcutInput]::SetForegroundWindow($inputWindow)) {
     throw 'Rion main window could not become foreground'
@@ -676,6 +694,11 @@ public static class RionQuickMenuInput {
   [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hwnd, int command);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+  public static void DismissMenu() {
+    keybd_event(0x1B, 0, 0, UIntPtr.Zero);
+    keybd_event(0x1B, 0, 2, UIntPtr.Zero);
+  }
   public static void RightClick(int x, int y) {
     if (!SetCursorPos(x, y)) throw new InvalidOperationException("tray pointer placement failed");
     mouse_event(0x0008, 0, 0, 0, UIntPtr.Zero);
@@ -767,6 +790,13 @@ function Find-NotificationChevron {
     Sort-Object { $_.Current.BoundingRectangle.Left } |
     Select-Object -First 1
 }
+function MenuCommandDiagnostics($items) {
+  $diagnostic = (@($items | ForEach-Object {
+    "$($_.Current.Name) [$($_.Current.ControlType.ProgrammaticName)]"
+  }) | Select-Object -First 48) -join '; '
+  if ($diagnostic.Length -gt 2000) { return $diagnostic.Substring(0, 2000) }
+  return $diagnostic
+}
 function Click-Center($element, [bool]$right) {
   $bounds = $element.Current.BoundingRectangle
   if ($bounds.IsEmpty -or $bounds.Width -le 0 -or $bounds.Height -le 0) {
@@ -815,33 +845,53 @@ $openLabels = @('Open Rion Studio', '開啟 Rion Studio', '打开 Rion Studio', 
 $roleLabels = @('Roles', '角色', 'ロール')
 $workspaceLabels = @('Workspaces', '工作區', '工作区', 'ワークスペース')
 $windowLabels = @('Windows', '視窗', '窗口', 'ウインドウ')
-$expiry = [DateTime]::UtcNow.AddSeconds(10)
-do {
-  $openItem = Find-NamedElement $openLabels ([System.Windows.Automation.ControlType]::MenuItem)
-  $roleItem = Find-NamedElement $roleLabels ([System.Windows.Automation.ControlType]::MenuItem)
-  $workspaceItem = Find-NamedElement $workspaceLabels ([System.Windows.Automation.ControlType]::MenuItem)
-  $windowItem = Find-NamedElement $windowLabels ([System.Windows.Automation.ControlType]::MenuItem)
-  if ($openItem -and $roleItem -and $workspaceItem -and $windowItem) { break }
-  if ([DateTime]::UtcNow -gt $expiry) { throw 'complete Rion Studio Tray Quick Menu unavailable' }
-  Start-Sleep -Milliseconds 50
-} while ($true)
-$menu = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($openItem)
-$directItems = $menu.FindAll(
-  [System.Windows.Automation.TreeScope]::Children,
-  [System.Windows.Automation.PropertyCondition]::new(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-    [System.Windows.Automation.ControlType]::MenuItem
-  )
+# Chromium reports a checked Views menu item as a UIA CheckBox, never a
+# MenuItem. Every live runtime window entry is exactly that: Electron builds it
+# with 'type: checkbox', so a MenuItem-only walk cannot see the one selection
+# this helper exists to make. Accept every control type a menu row can carry.
+$commandTypeNames = @(
+  'ControlType.MenuItem', 'ControlType.CheckBox', 'ControlType.RadioButton'
 )
-if ($payload.absentWindowLabel -and ($directItems | Where-Object {
-  $_.Current.Name -eq $payload.absentWindowLabel
-})) { throw 'closed runtime window remains in the top-level Tray menu' }
-if ($payload.windowLabel) {
-  $windowItems = @($directItems | Where-Object { $_.Current.Name -eq $payload.windowLabel })
-  if ($windowItems.Count -ne 1) { throw 'exact top-level runtime window menu item unavailable' }
-  Click-Center $windowItems[0] $false
-} else {
-  Click-Center $openItem $false
+try {
+  $expiry = [DateTime]::UtcNow.AddSeconds(10)
+  do {
+    $openItem = Find-NamedElement $openLabels ([System.Windows.Automation.ControlType]::MenuItem)
+    $roleItem = Find-NamedElement $roleLabels ([System.Windows.Automation.ControlType]::MenuItem)
+    $workspaceItem = Find-NamedElement $workspaceLabels ([System.Windows.Automation.ControlType]::MenuItem)
+    $windowItem = Find-NamedElement $windowLabels ([System.Windows.Automation.ControlType]::MenuItem)
+    if ($openItem -and $roleItem -and $workspaceItem -and $windowItem) { break }
+    if ([DateTime]::UtcNow -gt $expiry) { throw 'complete Rion Studio Tray Quick Menu unavailable' }
+    Start-Sleep -Milliseconds 50
+  } while ($true)
+  if ($payload.windowLabel -or $payload.absentWindowLabel) {
+    $menu = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($openItem)
+    $directItems = @($menu.FindAll(
+      [System.Windows.Automation.TreeScope]::Children,
+      [System.Windows.Automation.Condition]::TrueCondition
+    ) | Where-Object {
+      $commandTypeNames -contains $_.Current.ControlType.ProgrammaticName
+    })
+    if ($payload.absentWindowLabel -and ($directItems | Where-Object {
+      $_.Current.Name -eq $payload.absentWindowLabel
+    })) {
+      throw "closed runtime window remains in the top-level Tray menu; label=$($payload.absentWindowLabel); top-level items=$(MenuCommandDiagnostics $directItems)"
+    }
+  }
+  if ($payload.windowLabel) {
+    $windowItems = @($directItems | Where-Object { $_.Current.Name -eq $payload.windowLabel })
+    if ($windowItems.Count -ne 1) {
+      throw "exact top-level runtime window menu item unavailable; label=$($payload.windowLabel); top-level items=$(MenuCommandDiagnostics $directItems)"
+    }
+    Click-Center $windowItems[0] $false
+  } else {
+    Click-Center $openItem $false
+  }
+} catch {
+  # The opened native menu owns the foreground until something dismisses it. A
+  # menu left standing would fail every later native selection in this phase
+  # behind an unrelated message, so retire it before reporting the exact cause.
+  [RionQuickMenuInput]::DismissMenu()
+  throw
 }
 `;
   // The prelude runs under Set-StrictMode -Version Latest, where reading an

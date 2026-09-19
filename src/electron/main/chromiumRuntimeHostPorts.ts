@@ -66,13 +66,6 @@ export interface ChromiumRuntimeHostPort {
   bindRuntimeWindowLayout?: (observer: () => Promise<void>) => void;
   bindRuntimeWindowPlacement?: (observer: () => Promise<void>) => void;
   readRuntimeWindowPlacement?: () => WindowsRuntimeWindowPlacementObservation;
-  /**
-   * Monotonic count of exact native geometry changes on this host. A reader
-   * that round-trips to Core compares it to learn whether the window moved
-   * again meanwhile, which the placement observer lane cannot reveal on its
-   * own because it admits the next observation only after this one settles.
-   */
-  readRuntimeWindowBoundsSequence?: () => number;
   readFullscreenToolbar?: () => ChromiumRuntimeFullscreenToolbarObservation;
   setRuntimeWindowPresentation?: (
     request: ChromiumRuntimeWindowPresentationRequest

@@ -400,34 +400,4 @@ describe("Windows runtime-window placement controller", () => {
       failureCode: "ELECTRON_WINDOWS_RUNTIME_PLACEMENT_POSTCONDITION_STALE"
     })]);
   });
-
-  it("retires a drag frame whose window moved again during the Core round trip", async () => {
-    let current = observation();
-    let boundsSequence = 7;
-    const errors = vi.fn();
-    const onApplied = vi.fn();
-    const controller = new WindowsRuntimeWindowPlacementController({
-      core: {
-        invoke: async <Command extends CoreCommand>(command: Command) => {
-          const placement = command as Extract<CoreCommand, { type: "browserWindowsRuntimeWindowPlacement" }>;
-          // A live border drag: the host observes another exact geometry change
-          // while Core acknowledges the event it was already given.
-          current = { ...current, normalBounds: { ...current.normalBounds,
-            width: current.normalBounds.width - 16 } };
-          boundsSequence += 1;
-          return receiptFor(placement) as CoreCommandResult<Command>;
-        }
-      },
-      readDisplayTopology: () => topology(),
-      onError: errors,
-      onApplied
-    });
-    await controller.observe({
-      ...hostFor(() => current),
-      readRuntimeWindowBoundsSequence: () => boundsSequence
-    } as unknown as ChromiumRuntimeHostPort);
-    expect(controller.inspect()[0]).toMatchObject({ status: "superseded", verified: false });
-    expect(errors).not.toHaveBeenCalled();
-    expect(onApplied).not.toHaveBeenCalled();
-  });
 });

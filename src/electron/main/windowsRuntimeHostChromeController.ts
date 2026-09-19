@@ -144,7 +144,6 @@ export class WindowsRuntimeHostChromeController {
   #layoutLane: Promise<void> = Promise.resolve();
   #placementObserver: (() => Promise<void>) | null = null;
   #placementLane: Promise<void> = Promise.resolve();
-  #boundsSequence = 0;
   #commandLane: Promise<void> = Promise.resolve();
   #pendingMinimize: Deferred<void> | null = null;
   #pending: {
@@ -580,10 +579,6 @@ export class WindowsRuntimeHostChromeController {
     // geometry must not enqueue relayout work ahead of the exact native
     // presentation event; that event applies the one authoritative layout.
     if (this.#pending || this.#native.isMinimized()) return;
-    // The host factory already collapsed duplicate native layout reads, so this
-    // counts one exact geometry change. A placement receipt in flight compares
-    // it to tell "the user is still dragging" from "Core lost the window".
-    this.#boundsSequence += 1;
     await this.#relayout();
     const observer = this.#placementObserver;
     if (!observer || this.#windowGeneration < 1 || this.#topologyRevision < 1) return;
@@ -648,10 +643,6 @@ export class WindowsRuntimeHostChromeController {
     });
     this.#commandLane = operation.catch(() => undefined);
     return operation;
-  }
-
-  get boundsSequence(): number {
-    return this.#boundsSequence;
   }
 
   readCoreFence(): Readonly<{ windowGeneration: number; topologyRevision: number }> {

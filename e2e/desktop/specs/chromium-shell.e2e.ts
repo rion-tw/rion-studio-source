@@ -529,6 +529,20 @@ describe("Chromium desktop shell", () => {
       throw new Error(`Unexpected Chromium desktop E2E target ${target}`);
     }
 
+    if (target === "chromium-v23-windows") {
+      // The opaque Mica host and the renderer's translucent surfaces are one
+      // decision. An "enabled" document state without a native backdrop paints
+      // the shell over a bare window, so the renderer must mirror main exactly.
+      const micaEnabled = await rendererCall("getWindowsMicaEnabled");
+      const expected = micaEnabled ? "enabled" : "fallback";
+      await browser.waitUntil(async () => await browser.execute(
+        () => document.documentElement.dataset.windowsMica
+      ) === expected, {
+        timeout: 10_000,
+        timeoutMsg: `The renderer did not adopt the main-process Mica decision ${expected}`
+      });
+    }
+
     const root = await $("#root");
     await expect(root).toExist();
     await installRuntimeTabShellErrorJournal();

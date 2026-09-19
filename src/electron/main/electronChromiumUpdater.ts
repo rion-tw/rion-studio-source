@@ -369,6 +369,40 @@ export class ElectronChromiumUpdater {
   }
 }
 
+/**
+ * Packaged macOS entry for the updater relaunch helper. A development shell
+ * has no signed bundle to hand back to, so the mode is refused rather than
+ * attempted.
+ */
+export async function runInternalMacosUpdateRelaunchHelper(
+  factory: RawChromiumUpdaterFactory,
+  app: Readonly<{
+    exit: (code: number) => void;
+    getVersion: () => string;
+    isPackaged: boolean;
+  }>,
+  platform: NodeJS.Platform,
+  helper: Readonly<{
+    attemptId: string;
+    parentProcessId: number;
+    userDataDir: string;
+  }>
+): Promise<void> {
+  if (platform !== "darwin" || !app.isPackaged) {
+    throw new RionBridgeError({
+      code: "ELECTRON_UPDATE_HELPER_FORBIDDEN",
+      message: "The updater relaunch helper is available only in packaged macOS builds."
+    });
+  }
+  await runMacosUpdaterRelaunchHelper(factory, {
+    userDataDir: helper.userDataDir,
+    attemptId: helper.attemptId,
+    currentVersion: app.getVersion(),
+    parentProcessId: helper.parentProcessId
+  });
+  app.exit(0);
+}
+
 export async function runMacosUpdaterRelaunchHelper(
   factory: RawChromiumUpdaterFactory,
   options: {

@@ -215,6 +215,7 @@ interface WindowsHostRecord {
   windowState: WindowsRuntimeWindowStateStream;
   shortcutOwnerInstalled: boolean;
   lastNativeLayoutSignature: string | null;
+  nativeLayoutSequence: number;
   readonly contentGeometry: WindowsRuntimeContentGeometry;
 }
 
@@ -574,6 +575,16 @@ implements ChromiumRuntimeHostFactoryPort {
     }
   }
 
+  /**
+   * Shows the renamed Core Game Window name on its live control bar. An
+   * unopened window carries its name from the launch target instead.
+   */
+  applyWindowName(windowId: string, name: string): string | null {
+    const record = this.#activeByLogicalWindow.get(windowId);
+    if (!record || record.state !== "active" || record.native.isDestroyed()) return null;
+    return record.chrome.applyWindowName(name);
+  }
+
   create(
     target: EmbeddedLaunchTargetRecord,
     initialTab: EmbeddedTabEffectRecord
@@ -775,9 +786,11 @@ implements ChromiumRuntimeHostFactoryPort {
       windowState: undefined as unknown as WindowsRuntimeWindowStateStream,
       shortcutOwnerInstalled: false,
       lastNativeLayoutSignature: null,
+      nativeLayoutSequence: 0,
       contentGeometry: new WindowsRuntimeContentGeometry()
     };
     record.chrome = new WindowsRuntimeHostChromeController({
+      initialWindowName: target.persistedName ?? "",
       initialWorkspaceBackground: background,
       resizeIndicators: this.#windows.createResizeIndicators?.(native),
       documentUrl: record.documentUrl,
@@ -1058,7 +1071,8 @@ implements ChromiumRuntimeHostFactoryPort {
       savedWorkArea: Object.freeze({ ...display.workArea }),
       presentation: record.native.isFullScreen()
         ? "fullscreen" as const
-        : record.native.isMaximized() ? "maximized" as const : "normal" as const
+        : record.native.isMaximized() ? "maximized" as const : "normal" as const,
+      nativeLayoutSequence: record.nativeLayoutSequence
     });
   }
 
@@ -1334,6 +1348,10 @@ implements ChromiumRuntimeHostFactoryPort {
     ]);
     if (record.lastNativeLayoutSignature === signature) return;
     record.lastNativeLayoutSignature = signature;
+    // One authoritative native layout change. Placement receipts carry this
+    // sequence so a receipt overtaken by a newer move or resize retires as
+    // superseded instead of reporting a geometry postcondition failure.
+    record.nativeLayoutSequence += 1;
     void record.chrome.nativeBoundsChanged().catch((error) =>
       this.#onPresentationFailure(record, error)
     );
@@ -1549,6 +1567,12 @@ implements ChromiumRuntimeHostFactoryPort {
   ): WindowsChromiumInputRuntimeParentBinding | null {
     if (this.#platform !== "win32") return null;
     return this.#windows!.resolveInputParent(parent);
+  }
+
+  /** macOS renames through its AppKit lane; only Windows draws its own bar. */
+  applyWindowsWindowName(windowId: string, name: string): string | null {
+    if (this.#platform !== "win32") return null;
+    return this.#windows!.applyWindowName(windowId, name);
   }
 
   applyWindowPreferences(

@@ -191,6 +191,7 @@ class BackendHarness {
     async (_preferences: RuntimeWindowPreferencesRecord) => undefined
   );
   readonly quarantineHost = vi.fn();
+  readonly applyWindowsWindowName = vi.fn((_windowId: string, name: string) => name);
   readonly setWindowVisibility = vi.fn(async (
     _hosts: readonly AppKitRuntimeHostObservationRecord[],
     _visible: boolean
@@ -384,7 +385,10 @@ class BackendHarness {
           await this.applyWindowPreferences(preferences);
         }
       },
-      ...(appKit === undefined ? {} : { appKit })
+      ...(appKit === undefined ? {} : { appKit }),
+      ...(this.platform === "win32"
+        ? { windowsChrome: { applyWindowName: this.applyWindowsWindowName } }
+        : {})
     });
   }
 
@@ -509,6 +513,58 @@ describe("Core-owned Chromium runtime action backend", () => {
     );
   });
 
+  it("shows a renamed Game Window on its live Windows control bar", async () => {
+    const harness = new BackendHarness("win32");
+    const backend = harness.backend();
+    const update = action("update-name", 1, {
+      type: "updateGameWindow",
+      windowId: WINDOW_ID,
+      input: { name: "Renamed" }
+    });
+
+    const first = await backend.execute(update);
+    const duplicate = await backend.execute(update);
+
+    expect(first).toMatchObject({
+      status: "applied",
+      value: { id: WINDOW_ID, name: "Renamed" }
+    });
+    expect(duplicate.status).toBe("duplicate");
+    expect(harness.applyWindowsWindowName).toHaveBeenCalledOnce();
+    expect(harness.applyWindowsWindowName)
+      .toHaveBeenCalledWith(WINDOW_ID, "Renamed");
+  });
+
+  it("compensates Core when the Windows control bar rejects a name", async () => {
+    const harness = new BackendHarness("win32");
+    harness.applyWindowsWindowName.mockImplementationOnce(() => {
+      throw new Error("control bar name rejected");
+    });
+
+    await expect(harness.backend().execute(action("update-name-fails", 1, {
+      type: "updateGameWindow",
+      windowId: WINDOW_ID,
+      input: { name: "Renamed" }
+    }))).rejects.toThrow("control bar name rejected");
+
+    expect(harness.saved.name).toBe("Prior");
+  });
+
+  it("reports an indeterminate Windows name when compensation fails", async () => {
+    const harness = new BackendHarness("win32");
+    harness.failNameCompensation = true;
+    harness.applyWindowsWindowName.mockImplementationOnce(() => {
+      throw new Error("control bar name rejected");
+    });
+
+    await expect(harness.backend().execute(action("update-name-stuck", 1, {
+      type: "updateGameWindow",
+      windowId: WINDOW_ID,
+      input: { name: "Renamed" }
+    }))).rejects.toMatchObject({
+      code: "ELECTRON_WINDOWS_RUNTIME_WINDOW_NAME_COMPENSATION_FAILED"
+    });
+  });
   it("compensates Core when AppKit rejects the dynamic window name", async () => {
     const harness = new BackendHarness("darwin");
     harness.applyWindowName.mockImplementationOnce(() => {

@@ -68,6 +68,8 @@ function validObservation(
     Number.isSafeInteger(value.topologyRevision) && value.topologyRevision > 0 &&
     Number.isSafeInteger(value.displayId) && value.displayId >= 0 &&
     validBounds(value.normalBounds) && validBounds(value.savedWorkArea) &&
+    Number.isSafeInteger(value.nativeLayoutSequence) &&
+    value.nativeLayoutSequence >= 0 &&
     new Set(["normal", "maximized", "fullscreen"]).has(value.presentation);
 }
 
@@ -98,6 +100,7 @@ function sameObservation(
     left.topologyRevision === right.topologyRevision &&
     left.displayId === right.displayId &&
     left.presentation === right.presentation &&
+    left.nativeLayoutSequence === right.nativeLayoutSequence &&
     sameBounds(left.normalBounds, right.normalBounds) &&
     sameBounds(left.savedWorkArea, right.savedWorkArea);
 }
@@ -204,6 +207,18 @@ function exactReceipt(
   }
   return true;
 }
+
+/**
+ * Postconditions a later native move, resize, maximize or restore can change
+ * on its own. Identity, topology and display-topology mismatches are never in
+ * this set: those are genuine failures, not a newer geometry event.
+ */
+const NATIVE_LAYOUT_POSTCONDITIONS = new Set([
+  "display",
+  "presentation",
+  "normalBounds",
+  "savedWorkArea"
+]);
 
 function appliedKey(
   observation: WindowsRuntimeWindowPlacementObservation,
@@ -340,6 +355,17 @@ export class WindowsRuntimeWindowPlacementController {
       // EventBound: a newer Core chrome projection overtook this receipt on the
       // same native host. Retire it without applying its old target or caching
       // it as verified; the next native event still requires its own receipt.
+      this.#push({ event, receipt, status: "superseded", verified: false });
+      return;
+    }
+    if (receipt.status === "applied" &&
+        after.nativeLayoutSequence > before.nativeLayoutSequence &&
+        failedPostconditions.length > 0 &&
+        failedPostconditions.every((name) => NATIVE_LAYOUT_POSTCONDITIONS.has(name))) {
+      // EventBound: the host emitted a newer native layout event while Core was
+      // deciding this one, so the geometry this receipt describes is already
+      // history. Its own observation is queued behind this lane and carries its
+      // own receipt; retire this one without applying or caching its old target.
       this.#push({ event, receipt, status: "superseded", verified: false });
       return;
     }

@@ -9,6 +9,7 @@ import { ExtensionStoreHost } from "./extensionStoreHost";
 import { createExtensionApiDispatcher } from "./extensionApiDispatcher";
 import { createChromiumExtensionSessions } from "./createChromiumExtensionSessions";
 import { randomUUID } from "node:crypto";
+import { release } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -137,6 +138,7 @@ import {
 } from "./security";
 import { ElectronWindowStateController } from "./windowStateController";
 import { buildMainWindowOptions } from "./windowOptions";
+import { windowsMicaSupported } from "./windowsMicaSupport";
 import { ElectronFatalEventStreamRouter, ElectronFatalTerminationCoordinator } from
   "./fatalStartupShutdown";
 import { ElectronOverlayShellEffects } from "./electronOverlayShellEffects";
@@ -147,7 +149,7 @@ import {
   MACOS_UPDATE_RELAUNCH_HELPER_SWITCH,
   parseMacosUpdaterRecoveryArguments,
   parseMacosUpdaterRelaunchArguments,
-  runMacosUpdaterRelaunchHelper,
+  runInternalMacosUpdateRelaunchHelper,
   verifyMacosUpdaterRecoveryLocator
 } from "./electronChromiumUpdater";
 import { createElectronUpdaterDispatcher } from "./electronUpdaterDispatcher";
@@ -186,6 +188,7 @@ let rendererGeneration = 0;
 let displayTopology: ElectronDisplayTopologyController | null = null;
 let unsubscribeDisplayTopology: (() => void) | null = null;
 let mainWindowState: ElectronWindowStateController | null = null;
+let windowsMicaEnabled = false;
 let applicationLifecycle: ElectronApplicationLifecycleController | null = null;
 let chromiumRuntime: ChromiumRuntimeBootstrap | null = null;
 let abandonExtensionReleases: (() => void) | null = null;
@@ -519,12 +522,16 @@ async function createMainWindow(): Promise<BrowserWindow> {
     });
     applicationLifecycle.start();
   }
+  // The renderer mirrors this exact decision through getWindowsMicaEnabled, so
+  // the translucent surfaces and the native backdrop can never disagree.
+  windowsMicaEnabled = windowsMicaSupported(platform(), release());
   const window = new BrowserWindow(buildMainWindowOptions(
     platform(),
     buildMainRendererWebPreferences({
       preloadPath: join(import.meta.dirname, "../preload/index.cjs"),
       devTools: !app.isPackaged
     }),
+    windowsMicaEnabled,
     applicationIcon?.path
   ));
   revealElectronMainWindowOnStartupReady(window);
@@ -1088,6 +1095,7 @@ async function bootstrapReadyPhase(
   const baselineDispatcher = createElectronBaselineDispatcher({
     getAppSnapshot: readAppSnapshot,
     getAppVersion: () => app.getVersion(),
+    getWindowsMicaEnabled: () => windowsMicaEnabled,
     getApplicationLifecycleStatus: () => {
       if (applicationLifecycle) return applicationLifecycle.snapshot();
       throw new RionBridgeError({
@@ -1282,6 +1290,14 @@ async function bootstrapReadyPhase(
           appKit: {
             factory: appKit.hostFactory,
             events: appKit.rendererActions
+          }
+        }
+      : {}),
+    ...(runtimePlatform === "win32"
+      ? {
+          windowsChrome: {
+            applyWindowName: (windowId: string, name: string) =>
+              chromiumRuntime?.applyRuntimeWindowName(windowId, name) ?? null
           }
         }
       : {})
@@ -1577,24 +1593,6 @@ async function bootstrapReadyPhase(
   await runtimeLogs.applicationSessionReady();
 }
 
-async function runInternalMacosUpdateRelaunchHelper(
-  helper: { attemptId: string; parentProcessId: number; userDataDir: string }
-): Promise<void> {
-  if (process.platform !== "darwin" || !app.isPackaged) {
-    throw new RionBridgeError({
-      code: "ELECTRON_UPDATE_HELPER_FORBIDDEN",
-      message: "The updater relaunch helper is available only in packaged macOS builds."
-    });
-  }
-  await runMacosUpdaterRelaunchHelper(loadNativeAddon(), {
-    userDataDir: helper.userDataDir,
-    attemptId: helper.attemptId,
-    currentVersion: app.getVersion(),
-    parentProcessId: helper.parentProcessId
-  });
-  app.exit(0);
-}
-
 const internalChromeProfileImportHelper =
   isChromeProfileImportHelperInvocation(process.argv);
 const internalMacosUpdateHelperRequested =
@@ -1635,7 +1633,9 @@ const startup = Promise.resolve().then(async () => {
     return;
   }
   if (macosUpdateHelper) {
-    await runInternalMacosUpdateRelaunchHelper(macosUpdateHelper);
+    await runInternalMacosUpdateRelaunchHelper(
+      loadNativeAddon(), app, process.platform, macosUpdateHelper
+    );
     return;
   }
   await bootstrap(macosUpdateRecovery);

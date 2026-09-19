@@ -142,6 +142,7 @@ export const RION_API_INVOKE_METHODS = {
   setOverlayLanguage: true,
   setRuntimeTheme: true,
   getAppVersion: true,
+  getWindowsMicaEnabled: true,
   getUpdateStatus: true,
   checkForUpdates: true,
   setAutoUpdateEnabled: true,

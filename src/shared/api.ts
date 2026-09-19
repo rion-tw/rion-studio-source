@@ -221,6 +221,7 @@ export interface RionStudioApi {
   setOverlayLanguage: (language: AppLanguage) => Promise<void>;
   setRuntimeTheme: (theme: ResolvedTheme) => Promise<void>;
   getAppVersion: () => Promise<string>;
+  getWindowsMicaEnabled: () => Promise<boolean>;
   getUpdateStatus: () => Promise<AppUpdateStatus>;
   checkForUpdates: () => Promise<AppUpdateStatus>;
   setAutoUpdateEnabled: (enabled: boolean) => Promise<AppUpdateStatus>;

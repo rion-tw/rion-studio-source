@@ -617,6 +617,58 @@ export async function readVisibleWindowsRuntimeHostLayout(input: Readonly<{
   );
 }
 
+export interface VisibleWindowsRuntimeControlBar {
+  readonly controlGlyphCount: number;
+  readonly decorative: boolean;
+  readonly leadsWindowName: boolean;
+  readonly loaded: boolean;
+  readonly windowName: string;
+  readonly windowNameLeadsTabRow: boolean;
+  readonly withinToolbar: boolean;
+}
+
+/** Reads the mark, Game Window name, and glyph controls of the Windows bar. */
+export async function readVisibleWindowsRuntimeControlBar(input: Readonly<{
+  mainWindowHandle: string;
+  tabId: string;
+  windowId?: string;
+}>): Promise<VisibleWindowsRuntimeControlBar> {
+  if (process.platform !== "win32") {
+    throw new Error("The bundled Windows control bar is Windows-only");
+  }
+  return withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
+    const mark = await $("[data-runtime-brand]");
+    await mark.waitForDisplayed({ timeout: 10_000 });
+    return browser.execute(() => {
+      const brand = document.querySelector<HTMLImageElement>("[data-runtime-brand]");
+      const name = document.querySelector<HTMLElement>("[data-runtime-window-name]");
+      const toolbar = document.querySelector("[data-runtime-toolbar]");
+      const tabs = document.querySelector("[data-runtime-tabs]");
+      if (!brand || !name || !toolbar || !tabs) {
+        throw new Error("The Windows control bar omitted its leading identity");
+      }
+      const bounds = brand.getBoundingClientRect();
+      const nameBounds = name.getBoundingClientRect();
+      const toolbarBounds = toolbar.getBoundingClientRect();
+      return {
+        // The restore glyph hides through CSS, so only laid-out glyphs count.
+        controlGlyphCount: [...document.querySelectorAll(
+          "[data-runtime-window-controls] button > svg"
+        )].filter((glyph) => glyph.getClientRects().length > 0).length,
+        decorative: brand.getAttribute("alt") === "" &&
+          brand.getAttribute("aria-hidden") === "true",
+        leadsWindowName: bounds.width > 0 && bounds.right <= nameBounds.left,
+        loaded: brand.complete && brand.naturalWidth > 0,
+        windowName: name.textContent ?? "",
+        windowNameLeadsTabRow: nameBounds.width > 0 &&
+          nameBounds.right <= tabs.getBoundingClientRect().left,
+        withinToolbar: bounds.left >= toolbarBounds.left &&
+          bounds.top >= toolbarBounds.top && bounds.bottom <= toolbarBounds.bottom
+      };
+    });
+  }, input.windowId);
+}
+
 /** Closes the live native Game Window, leaving its saved topology dormant. */
 export async function closeVisibleRuntimeWindow(input: Readonly<{
   mainWindowHandle: string;
@@ -750,8 +802,11 @@ export async function dragVisibleRuntimeWindow(input: Readonly<{
   if (input.platform === "windows") {
     await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
       const dragRegion = await $(".runtime-drag-region");
+      // Press the vertical middle of the caption. The 5px strips above and below
+      // the tab strip stay draggable even when the region is wrongly subtracted,
+      // so an offset press would pass against a bar users cannot actually drag.
       await browser.action("pointer", { parameters: { pointerType: "mouse" } })
-        .move({ origin: dragRegion, x: 120, y: 18 })
+        .move({ origin: dragRegion, x: 120, y: 0 })
         .down("left")
         .move({ x: 64, y: 38, duration: 500 })
         .up("left")

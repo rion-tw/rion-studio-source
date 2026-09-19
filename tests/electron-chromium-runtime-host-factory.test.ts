@@ -1095,7 +1095,10 @@ describe("Windows Electron Chromium runtime-host factory", () => {
       displayId: 7,
       normalBounds: { x: 140, y: 110, width: 1000, height: 720 },
       savedWorkArea: { x: 0, y: 0, width: 1920, height: 1080 },
-      presentation: "normal"
+      presentation: "normal",
+      // One observed native layout change so far; a placement receipt overtaken
+      // by a later one reads a higher sequence and retires as superseded.
+      nativeLayoutSequence: 1
     });
 
     window.contentBounds = { x: 140, y: 110, width: 1024, height: 740 };
@@ -1564,11 +1567,15 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     const document = await readFile("src/renderer/runtime-windows-host.html", "utf8");
     expect(document).toContain("default-src 'none'");
     expect(document).toContain("script-src 'self'");
+    expect(document).toContain("img-src 'self'");
     expect(document).toContain("runtime-windows-host.css");
     expect(document).toContain("runtime-windows-host.ts");
     expect(document).toContain('data-window-command="minimizeWindow"');
     expect(document).toContain('data-window-command="toggleMaximizeWindow"');
     expect(document).toContain('data-window-command="closeWindow"');
+    expect(document).toContain('data-runtime-brand src="/src/assets/app-icon.png"');
+    expect(document).toContain('data-runtime-window-name');
+    expect(document).toContain('data-window-control-glyph="restore"');
   });
 });
 

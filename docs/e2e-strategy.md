@@ -442,6 +442,20 @@ remains observable. No real-sleep PASS may be inferred from these tests.
   phase. Artifacts are retained for 14 days on hosted CI and 30 days on hardware
   runners.
 
+Windows runtime profiles normally sit beside that evidence under
+`.desktop-e2e-artifacts/.u-<hash>/`, with hashed run and phase segments so the
+deepest file Chromium creates stays inside Windows' 260-character `MAX_PATH`.
+When the checkout itself is too deep to leave that room — a git worktree costs
+roughly 45 characters over a plain clone — the runner moves the profiles to
+`<temp>/rion-e2e/<hash>` instead and prints where they went. The overflow it
+avoids is silent and easy to misread as a product defect: Chromium creates every
+file that fits and abandons the rest, so an extension's settings store keeps its
+`LOCK` and `LOG` but loses `MANIFEST-000001`, `chrome.storage` fails to open for
+every extension in the run, and the phase fails wherever it first depended on
+extension state. `RION_STUDIO_E2E_USER_DATA_ROOT` overrides the location and
+keeps readable phase names. `pnpm run clean:artifacts` only removes profiles
+kept inside the checkout.
+
 ## Agent change contract
 
 Every user-visible implementation handoff must list affected journey IDs and the

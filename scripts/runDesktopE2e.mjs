@@ -54,6 +54,17 @@ const userDataLayout = resolveDesktopE2eUserDataLayout({
   runId
 });
 const userDataRoot = userDataLayout.userDataRoot;
+if (userDataLayout.outsideArtifactBase) {
+  // Say so up front rather than only in report.json: the runtime profiles are
+  // the first thing anyone debugging a phase goes looking for, and this run
+  // keeps them somewhere other than beside the rest of its evidence.
+  process.stdout.write(
+    `Desktop E2E runtime profiles: ${userDataRoot}\n` +
+    "  (kept outside the checkout because its path leaves too little room for " +
+    "Chromium's own files under Windows MAX_PATH; `pnpm run clean:artifacts` " +
+    "does not reach them)\n"
+  );
+}
 const token = randomBytes(32).toString("hex");
 const node = process.execPath;
 const wdio = resolve(root, "node_modules", "@wdio", "cli", "bin", "wdio.js");

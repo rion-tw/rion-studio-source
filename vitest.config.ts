@@ -21,7 +21,14 @@ export default defineConfig({
     // fixtures. Two isolated workers keep those external processes within the
     // hosted-runner Job/memory envelope without changing test authority.
     ...(process.platform === "win32" ? { maxWorkers: 2 } : {}),
-    testTimeout: 10_000,
+    // Measured on an idle 4-core Windows host: the slowest honest tests take
+    // 5.7-7.3s (macro editor, macro mind map, promotion readiness), so a 10s budget
+    // left 1.37x headroom. Wall time here is decided by contention rather than by the
+    // work: one promotion-readiness test measured 1.0s, 1.0s and 3.8s across idle full
+    // runs, then exceeded 10s as soon as two more CPU-bound threads shared the machine,
+    // which is what made the suite report different failures on every run. 30s keeps
+    // the net that catches a hung test while letting the assertion decide the outcome.
+    testTimeout: 30_000,
     css: {
       include: /src\/shared\/browser-overlay\/macroOverlay\.css/
     }

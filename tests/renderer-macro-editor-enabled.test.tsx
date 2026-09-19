@@ -13,6 +13,15 @@ import en from "../src/renderer/src/i18n/en.json";
 import { MACRO_DELAY_MAX_MS as _MACRO_DELAY_MAX_MS } from "../src/shared/macroSettings";
 import type { Game, Macro, Role } from "../src/shared/types";
 
+// This file covers the editor controls and never asserts on the mind map, but
+// every mount rendered the real React Flow canvas and re-ran its dagre layout on
+// each edit. Stubbing it cuts the three macro editor files from 32.1s to 23.8s
+// with all 53 tests unchanged; MacroMindMapPanel keeps its own coverage in
+// renderer-macro-mind-map-ui.test.tsx.
+vi.mock("../src/renderer/src/features/macros/MacroMindMap", () => ({
+  MacroMindMapPanel: () => null
+}));
+
 beforeAll(() => {
   vi.stubGlobal("ResizeObserver", class ResizeObserver {
     disconnect(): void {}

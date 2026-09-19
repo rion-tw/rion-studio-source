@@ -1392,18 +1392,33 @@ async function readFullscreenToolbarRuntime(
   // while it was taken. A runtime that refuses to settle, because it is
   // draining, keeps its exact mismatch diagnostic below instead of being
   // reported as a settle failure.
+  // A deliberately gated load — this journey holds every Role before creation —
+  // leaves a projection task that never settles, so the fence must be bounded
+  // rather than awaited outright. Past the deadline the read proceeds and the
+  // exact comparison below stays the authority.
+  const deadline = Date.now() + 5_000;
   const settleToQuiescence = async (): Promise<number | null> => {
-    try {
-      let sequence = -1;
-      for (let settled = 0; settled < 32; settled += 1) {
-        const next = await runtime.settleCurrentProjection();
-        if (next === sequence) return sequence;
-        sequence = next;
+    let sequence = -1;
+    for (let settled = 0; settled < 8; settled += 1) {
+      if (Date.now() >= deadline) return null;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let next: number | null;
+      try {
+        next = await Promise.race([
+          runtime.settleCurrentProjection(),
+          new Promise<null>((resolveTimer) => {
+            timer = setTimeout(() => resolveTimer(null), deadline - Date.now());
+          })
+        ]);
+      } catch {
+        return null;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
-      return sequence;
-    } catch {
-      return null;
+      if (next === null || next === sequence) return next;
+      sequence = next;
     }
+    return sequence;
   };
   const readCoreAndNative = async () => {
     const [snapshot, windowPreferences] = await Promise.all([
@@ -1413,11 +1428,11 @@ async function readFullscreenToolbarRuntime(
     return { native: runtime.snapshot(), snapshot, windowPreferences };
   };
   let read: Awaited<ReturnType<typeof readCoreAndNative>> | null = null;
-  for (let attempt = 0; attempt < 8 && read === null; attempt += 1) {
+  for (let attempt = 0; attempt < 4 && read === null; attempt += 1) {
     const before = await settleToQuiescence();
     const candidate = await readCoreAndNative();
     const after = before === null ? null : await settleToQuiescence();
-    if (before === null || after === before || attempt === 7) read = candidate;
+    if (before === null || after === before || attempt === 3) read = candidate;
   }
   const coreSnapshot = read!.snapshot;
   const preferences = read!.windowPreferences;

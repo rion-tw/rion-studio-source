@@ -27,18 +27,33 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
   const capture = async (name: string) => {
     const current = await inspect(input.windowId);
     expect(current.workspaceTabs.find(t => t.tabId === input.tabId)!.slots).toEqual(baseline);
-    const boxes = Object.values((await layout()).roles);
-    const left = boxes.reduce((a,b) => a.x < b.x ? a : b);
-    const right = boxes.filter(b => b.x > left.x).sort((a,b) => a.y-b.y);
-    const gap = right[0]!.x-left.x-left.width;
+    // A held resize keeps rewriting the layout, so geometry read before the
+    // screenshot can describe a window the screenshot no longer shows: the
+    // outermost samples then land on the desktop behind it and read as leakage.
+    // Capture between two reads and require the content bounds to match either
+    // side, which proves the window held still across the screenshot.
+    let boxes!: Bounds[];
+    let left!: Bounds;
+    let right!: Bounds[];
+    let gap!: number;
+    let samples!: Awaited<ReturnType<typeof captureWorkspacePixels>>;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const before = await layout();
+      boxes = Object.values(before.roles);
+      left = boxes.reduce((a,b) => a.x < b.x ? a : b);
+      right = boxes.filter(b => b.x > left.x).sort((a,b) => a.y-b.y);
+      gap = right[0]!.x-left.x-left.width;
+      samples = await captureWorkspacePixels({ inspection: current, name,
+        reference: { x:left.x+left.width,y:left.y,width:gap,height:left.height },
+        region: {x:left.x,y:left.y,width:right[0]!.x+right[0]!.width-left.x,height:left.height},
+        points: Array.from({length:19}, (_,i) => ({x:left.x+left.width+gap/2,y:left.y+left.height*(i+1)/20})).concat(boxes.flatMap(b => [
+          {x:b.x+12,y:b.y+12},{x:b.x+b.width-12,y:b.y+12},
+          {x:b.x+12,y:b.y+b.height-12},{x:b.x+b.width-12,y:b.y+b.height-12}])) });
+      const after = await layout();
+      if (JSON.stringify(after.contentBounds) === JSON.stringify(before.contentBounds)) break;
+    }
     expect(gap).toBe(expectedGap);
     expect(right[1]!.y-right[0]!.y-right[0]!.height).toBe(expectedGap);
-    const samples = await captureWorkspacePixels({ inspection: current, name,
-      reference: { x:left.x+left.width,y:left.y,width:gap,height:left.height },
-      region: {x:left.x,y:left.y,width:right[0]!.x+right[0]!.width-left.x,height:left.height},
-      points: Array.from({length:19}, (_,i) => ({x:left.x+left.width+gap/2,y:left.y+left.height*(i+1)/20})).concat(boxes.flatMap(b => [
-        {x:b.x+12,y:b.y+12},{x:b.x+b.width-12,y:b.y+12},
-        {x:b.x+12,y:b.y+b.height-12},{x:b.x+b.width-12,y:b.y+b.height-12}])) });
     expect(samples.labels).toEqual([]);
     // Sharp saturated checkerboard means clear desktop leakage, not native material.
     for (const [r,g,b] of samples.samples.slice(0,19)) {

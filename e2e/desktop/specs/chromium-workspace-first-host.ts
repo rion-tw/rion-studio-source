@@ -81,19 +81,20 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
         const move = { x: edge === "top" || edge === "bottom" ? 0 : edge === "left" ? 64 : -64,
           y: edge === "left" || edge === "right" ? 0 : edge === "top" ? 48 : -48 };
         await resizeWorkspaceWindow({inspection:await inspect(input.windowId),edge,moves:[move,{x:0,y:0}],
-          whileHeld: async (step, frame) => {
-            // The layout can plateau on an intermediate size before catching up,
-            // so waiting for it to merely change or merely hold still samples a
-            // window that has already moved on. The resize reports the real
-            // frame: require the layout to agree with it before capturing.
+          whileHeld: async (step, frame, initialFrame) => {
+            // The layout plateaus on an intermediate size before catching up, so
+            // waiting for it to merely change, or merely hold still, samples a
+            // window that has already moved on. The resize measures the real
+            // frame at the start and now, so require the layout to have moved by
+            // the same amount — a delta needs no assumption about how the window
+            // rect relates to the client area.
+            const movedWidth = frame.width - initialFrame.width;
+            const movedHeight = frame.height - initialFrame.height;
             await browser.waitUntil(async () => {
               const now = (await layout()).contentBounds;
-              const tracksWindow = Math.abs(now.y + now.height - frame.height) <= 1 &&
-                Math.abs(now.x + now.width - frame.width) <= 1;
-              return tracksWindow && (step === 0
-                ? now.width !== old.width || now.height !== old.height
-                : now.width === old.width && now.height === old.height);
-            }, {timeout:20_000,timeoutMsg:`First host ${phase} ${edge} geometry waited for loading`});
+              return Math.abs(now.width - old.width - movedWidth) <= 1 &&
+                Math.abs(now.height - old.height - movedHeight) <= 1;
+            }, {timeout:20_000,timeoutMsg:`First host ${phase} ${edge} step ${step} layout did not track the ${movedWidth}x${movedHeight} frame move`});
             await capture(`${prefix}-${edge}-${step}-held`);
           }});
         await capture(`${prefix}-${edge}-ended`);

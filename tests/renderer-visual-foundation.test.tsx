@@ -38,6 +38,11 @@ describe("renderer visual foundation", () => {
     expect(runtimeTabStyles).toContain("font-variant-numeric: lining-nums tabular-nums");
     expect(runtimeTabStyles).toMatch(/\.runtime-drag-region \{[\s\S]*?-webkit-app-region: drag;/);
     expect(runtimeTabStyles).toMatch(/\.runtime-window-controls \{[\s\S]*?-webkit-app-region: no-drag;/);
+    // Electron unions the caption drag region first and differences every no-drag
+    // rect after it, so a no-drag flex filler subtracts the whole bar back out.
+    // Only the tabs themselves may opt out of dragging.
+    expect(runtimeTabStyles).toMatch(/\.runtime-tab \{[^}]*-webkit-app-region: no-drag;/);
+    expect(runtimeTabStyles).not.toMatch(/\.runtime-tabs \{[^}]*-webkit-app-region/);
     expect(tokens).toContain('--font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
     expect(styles).not.toContain("@font-face");
   });

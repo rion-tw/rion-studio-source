@@ -1163,7 +1163,10 @@ describe("Windows Electron Chromium runtime-host factory", () => {
       displayId: 7,
       normalBounds: { x: 140, y: 110, width: 1000, height: 720 },
       savedWorkArea: { x: 0, y: 0, width: 1920, height: 1080 },
-      presentation: "normal"
+      presentation: "normal",
+      // One observed native layout change so far; a placement receipt overtaken
+      // by a later one reads a higher sequence and retires as superseded.
+      nativeLayoutSequence: 1
     });
 
     window.contentBounds = { x: 140, y: 110, width: 1024, height: 740 };

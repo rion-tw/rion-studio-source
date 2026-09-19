@@ -219,6 +219,7 @@ interface WindowsHostRecord {
   windowState: WindowsRuntimeWindowStateStream;
   shortcutOwnerInstalled: boolean;
   lastNativeLayoutSignature: string | null;
+  nativeLayoutSequence: number;
   readonly contentGeometry: WindowsRuntimeContentGeometry;
 }
 
@@ -788,6 +789,7 @@ implements ChromiumRuntimeHostFactoryPort {
       windowState: undefined as unknown as WindowsRuntimeWindowStateStream,
       shortcutOwnerInstalled: false,
       lastNativeLayoutSignature: null,
+      nativeLayoutSequence: 0,
       contentGeometry: new WindowsRuntimeContentGeometry()
     };
     record.chrome = new WindowsRuntimeHostChromeController({
@@ -1069,7 +1071,8 @@ implements ChromiumRuntimeHostFactoryPort {
       savedWorkArea: Object.freeze({ ...display.workArea }),
       presentation: record.native.isFullScreen()
         ? "fullscreen" as const
-        : record.native.isMaximized() ? "maximized" as const : "normal" as const
+        : record.native.isMaximized() ? "maximized" as const : "normal" as const,
+      nativeLayoutSequence: record.nativeLayoutSequence
     });
   }
 
@@ -1388,6 +1391,10 @@ implements ChromiumRuntimeHostFactoryPort {
     ]);
     if (record.lastNativeLayoutSignature === signature) return;
     record.lastNativeLayoutSignature = signature;
+    // One authoritative native layout change. Placement receipts carry this
+    // sequence so a receipt overtaken by a newer move or resize retires as
+    // superseded instead of reporting a geometry postcondition failure.
+    record.nativeLayoutSequence += 1;
     void record.chrome.nativeBoundsChanged().catch((error) =>
       this.#onPresentationFailure(record, error)
     );

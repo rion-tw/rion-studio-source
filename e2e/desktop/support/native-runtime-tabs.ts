@@ -750,8 +750,11 @@ export async function dragVisibleRuntimeWindow(input: Readonly<{
   if (input.platform === "windows") {
     await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
       const dragRegion = await $(".runtime-drag-region");
+      // Press the vertical middle of the caption. The 5px strips above and below
+      // the tab strip stay draggable even when the region is wrongly subtracted,
+      // so an offset press would pass against a bar users cannot actually drag.
       await browser.action("pointer", { parameters: { pointerType: "mouse" } })
-        .move({ origin: dragRegion, x: 120, y: 18 })
+        .move({ origin: dragRegion, x: 120, y: 0 })
         .down("left")
         .move({ x: 64, y: 38, duration: 500 })
         .up("left")

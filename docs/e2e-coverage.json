@@ -633,7 +633,7 @@
         "success",
         "failure"
       ],
-      "description": "Launch the Chromium v23 desktop shell on Windows and prove the isolated preload bridge, Core snapshot, and native non-client gesture contract are live."
+      "description": "Launch the Chromium v23 desktop shell on Windows and prove the isolated preload bridge, Core snapshot, native non-client gesture contract, and the opaque Mica backdrop decision the renderer mirrors onto its translucent surfaces are live."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-APPLICATION-SHORTCUTS-030",

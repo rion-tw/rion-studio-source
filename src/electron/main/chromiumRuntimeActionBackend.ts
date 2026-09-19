@@ -30,6 +30,11 @@ import type { ChromiumRuntimeWindowPreferencesProjectionPort } from
 
 const MAX_RETAINED_ACTION_RECEIPTS = 512;
 
+/** The live Windows control bar that shows one exact Core Game Window name. */
+export interface WindowsRuntimeChromeWindowNamePort {
+  applyWindowName: (windowId: string, name: string) => string | null;
+}
+
 export interface ChromiumSavedWindowActionPort {
   show: (windowId: string) => Promise<void>;
   openEmpty: (windowId: string) => Promise<void>;
@@ -62,6 +67,7 @@ export interface ChromiumRuntimeActionBackendInput {
     factory: MacosAppKitRuntimeHostFactoryPort;
     events: MacosAppKitRendererActionPort;
   }>;
+  readonly windowsChrome?: WindowsRuntimeChromeWindowNamePort;
   readonly savedWindows: ChromiumSavedWindowActionPort;
   readonly newWindowMoves: ChromiumNewWindowMovePort;
   readonly quickAccess: ChromiumQuickAccessRequestPort;
@@ -844,7 +850,25 @@ implements ChromiumRuntimeActionBackend {
         "Core returned a mismatched Game Window update receipt."
       );
     }
-    if (!observation || updated.name === prior.name) return updated;
+    if (updated.name === prior.name) return updated;
+    if (this.#input.platform === "win32") {
+      if (!live || !this.#input.windowsChrome) return updated;
+      try {
+        const applied = this.#input.windowsChrome.applyWindowName(windowId, updated.name);
+        if (applied !== null && applied !== updated.name) {
+          throw backendError(
+            "ELECTRON_WINDOWS_RUNTIME_WINDOW_NAME_RECEIPT_INVALID",
+            "The Windows control bar returned a mismatched Game Window name receipt."
+          );
+        }
+        return updated;
+      } catch (error) {
+        await this.#compensateGameWindowName(windowId, prior,
+          "ELECTRON_WINDOWS_RUNTIME_WINDOW_NAME_COMPENSATION_FAILED");
+        throw error;
+      }
+    }
+    if (!observation) return updated;
     try {
       const native = this.#input.appKit!.factory.applyWindowName(
         observation.identity,
@@ -859,17 +883,7 @@ implements ChromiumRuntimeActionBackend {
       return updated;
     } catch (error) {
       try {
-        await this.#input.core.invoke({
-          type: "gameWindowSaveConfiguration",
-          id: windowId,
-          input: {
-            name: prior.name,
-            targetDisplay: prior.targetDisplay,
-            placement: prior.placement,
-            tabs: prior.tabs,
-            activeTabId: prior.activeTabId ?? null
-          }
-        });
+        await this.#restoreGameWindowName(windowId, prior);
       } catch (compensationError) {
         this.#input.appKit!.factory.quarantineHost(
           observation.identity,
@@ -881,6 +895,39 @@ implements ChromiumRuntimeActionBackend {
         );
       }
       throw error;
+    }
+  }
+
+  /** Restores the prior Core Game Window name after a native name failure. */
+  async #restoreGameWindowName(
+    windowId: string,
+    prior: StateGameWindowRecord
+  ): Promise<void> {
+    await this.#input.core.invoke({
+      type: "gameWindowSaveConfiguration",
+      id: windowId,
+      input: {
+        name: prior.name,
+        targetDisplay: prior.targetDisplay,
+        placement: prior.placement,
+        tabs: prior.tabs,
+        activeTabId: prior.activeTabId ?? null
+      }
+    });
+  }
+
+  async #compensateGameWindowName(
+    windowId: string,
+    prior: StateGameWindowRecord,
+    failureCode: string
+  ): Promise<void> {
+    try {
+      await this.#restoreGameWindowName(windowId, prior);
+    } catch {
+      throw backendError(
+        failureCode,
+        "The Core Game Window name could not be compensated after native failure."
+      );
     }
   }
 

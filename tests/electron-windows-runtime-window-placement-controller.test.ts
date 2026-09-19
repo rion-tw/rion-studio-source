@@ -50,7 +50,8 @@ function observation(): WindowsRuntimeWindowPlacementObservation {
     displayId: 7,
     normalBounds: { x: 120, y: 80, width: 960, height: 680 },
     savedWorkArea: { x: 0, y: 0, width: 1920, height: 1040 },
-    presentation: "normal"
+    presentation: "normal",
+    nativeLayoutSequence: 5
   };
 }
 
@@ -271,6 +272,78 @@ describe("Windows runtime-window placement controller", () => {
     expect(controller.inspect()[1]).toMatchObject({ status: "applied", verified: true });
     expect(onApplied).toHaveBeenCalledOnce();
     expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("retires a receipt overtaken by a newer native layout event", async () => {
+    let current = observation();
+    const errors = vi.fn();
+    const onApplied = vi.fn();
+    const controller = new WindowsRuntimeWindowPlacementController({
+      core: {
+        invoke: async <Command extends CoreCommand>(command: Command) => {
+          const placement = command as Extract<
+            CoreCommand,
+            { type: "browserWindowsRuntimeWindowPlacement" }
+          >;
+          // The user keeps dragging: Windows emits another move while Core is
+          // still deciding the previous one.
+          current = {
+            ...current,
+            topologyRevision: current.topologyRevision + 1,
+            normalBounds: { ...current.normalBounds, x: current.normalBounds.x + 24 },
+            nativeLayoutSequence: current.nativeLayoutSequence + 1
+          };
+          return receiptFor(placement) as CoreCommandResult<Command>;
+        }
+      },
+      readDisplayTopology: () => topology(),
+      onError: errors,
+      onApplied
+    });
+
+    await controller.observe(hostFor(() => current));
+
+    expect(controller.inspect()).toEqual([expect.objectContaining({
+      status: "superseded",
+      verified: false
+    })]);
+    expect(controller.inspect()[0]?.failureCode).toBeUndefined();
+    expect(errors).not.toHaveBeenCalled();
+    expect(onApplied).not.toHaveBeenCalled();
+  });
+
+  it("still reports a geometry mismatch that no native layout event explains", async () => {
+    let current = observation();
+    const errors = vi.fn();
+    const controller = new WindowsRuntimeWindowPlacementController({
+      core: {
+        invoke: async <Command extends CoreCommand>(command: Command) => {
+          const placement = command as Extract<
+            CoreCommand,
+            { type: "browserWindowsRuntimeWindowPlacement" }
+          >;
+          current = {
+            ...current,
+            topologyRevision: current.topologyRevision + 1,
+            normalBounds: { ...current.normalBounds, x: current.normalBounds.x + 24 }
+          };
+          return receiptFor(placement) as CoreCommandResult<Command>;
+        }
+      },
+      readDisplayTopology: () => topology(),
+      onError: errors
+    });
+
+    await controller.observe(hostFor(() => current));
+
+    expect(controller.inspect()[0]).toMatchObject({
+      status: "indeterminate",
+      verified: false,
+      failureCode: "ELECTRON_WINDOWS_RUNTIME_PLACEMENT_POSTCONDITION_STALE"
+    });
+    expect(errors).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining("postcondition: normalBounds;")
+    }));
   });
 
   it.each(["identity", "normalBounds", "displayTopology"] as const)(

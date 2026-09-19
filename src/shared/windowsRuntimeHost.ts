@@ -37,6 +37,8 @@ export interface WindowsRuntimeHostProjection {
   readonly topologyRevision: number;
   readonly windowGeneration: number;
   readonly windowId: string;
+  readonly windowMaximized: boolean;
+  readonly windowName: string;
   readonly workspaceDividers: readonly WindowsRuntimeWorkspaceDividerProjection[];
 }
 
@@ -141,6 +143,15 @@ function containsBounds(parent: LayoutBounds, child: LayoutBounds): boolean {
     child.y + child.height <= parent.y + parent.height;
 }
 
+/** A saved Game Window name, or the empty string while a window stays unnamed. */
+function validWindowName(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 512 && (value.length === 0 ||
+    (value === value.trim() && ![...value].some((character) => {
+      const code = character.codePointAt(0)!;
+      return code <= 0x1f || code === 0x7f;
+    })));
+}
+
 function validUuid(value: unknown): value is string {
   return typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
@@ -150,11 +161,13 @@ function validUuid(value: unknown): value is string {
 export function isWindowsRuntimeHostProjection(
   value: unknown
 ): value is WindowsRuntimeHostProjection {
-  if (!isRecord(value) || Object.keys(value).length !== (value.workspaceBackground === undefined ? 13 : 14) + (value.workspaceSlotLoads === undefined ? 0 : 1) ||
+  if (!isRecord(value) || Object.keys(value).length !== (value.workspaceBackground === undefined ? 15 : 16) + (value.workspaceSlotLoads === undefined ? 0 : 1) ||
       (value.workspaceSlotLoads !== undefined && (!Array.isArray(value.workspaceSlotLoads) ||
         !value.workspaceSlotLoads.every(isWorkspaceSlotLoadPresentation))) ||
       (value.workspaceBackground !== undefined && value.workspaceBackground !== "material" && value.workspaceBackground !== "black") ||
       !validIdentifier(value.windowId) ||
+      !validWindowName(value.windowName) ||
+      typeof value.windowMaximized !== "boolean" ||
       !Number.isSafeInteger(value.projectionRevision) ||
       Number(value.projectionRevision) < 1 ||
       !Number.isSafeInteger(value.windowGeneration) ||

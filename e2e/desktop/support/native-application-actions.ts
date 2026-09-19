@@ -844,7 +844,15 @@ if ($payload.windowLabel) {
   Click-Center $openItem $false
 }
 `;
-  await runEncodedPowerShellJson(script, { processId, ...selection }, {
+  // The prelude runs under Set-StrictMode -Version Latest, where reading an
+  // absent property of the ConvertFrom-Json object is a terminating error. The
+  // script reads both selectors on every path, so both must always be present;
+  // the macOS helper normalizes them the same way.
+  await runEncodedPowerShellJson(script, {
+    processId,
+    windowLabel: selection.windowLabel ?? "",
+    absentWindowLabel: selection.absentWindowLabel ?? ""
+  }, {
     timeoutMilliseconds: 30_000
   });
 }

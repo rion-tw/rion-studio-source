@@ -127,6 +127,8 @@ export interface WindowsRuntimeWindowPlacementObservation {
   readonly normalBounds: ChromiumRoleSurfaceBounds;
   readonly savedWorkArea: ChromiumRoleSurfaceBounds;
   readonly presentation: EmbeddedLaunchTargetRecord["presentation"];
+  /** Advances on every observed native layout change for this exact host. */
+  readonly nativeLayoutSequence: number;
 }
 
 export interface ChromiumRuntimeHostProjection {

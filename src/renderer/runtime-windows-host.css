@@ -35,6 +35,30 @@ body {
   -webkit-app-region: drag;
 }
 
+.runtime-brand {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  margin-right: 8px;
+}
+
+.runtime-window-name {
+  min-width: 0;
+  max-width: 220px;
+  margin-right: 12px;
+  overflow: hidden;
+  color: var(--runtime-host-muted);
+  font: 12px/18px system-ui, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-window-name[hidden] {
+  display: none;
+}
+
+/* The flex filler stays draggable; only the tabs themselves opt out, or the
+   no-drag difference would subtract the whole caption back out of the region. */
 .runtime-tabs {
   position: relative;
   z-index: var(--runtime-host-layer-tabs);
@@ -43,7 +67,6 @@ body {
   gap: 6px;
   pointer-events: auto;
   flex: 1;
-  -webkit-app-region: no-drag;
 }
 
 .runtime-window-controls {
@@ -56,11 +79,35 @@ body {
 }
 
 .runtime-window-controls button {
+  display: grid;
   width: 46px;
+  padding: 0;
+  place-items: center;
   border: 0;
   color: inherit;
   background: transparent;
-  font: 15px/1 system-ui, sans-serif;
+}
+
+.runtime-window-controls svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 1.15;
+}
+
+.runtime-window-controls [data-window-control-glyph="restore"] {
+  display: none;
+}
+
+:root[data-window-maximized="true"] .runtime-window-controls [data-window-control-glyph="maximize"] {
+  display: none;
+}
+
+:root[data-window-maximized="true"] .runtime-window-controls [data-window-control-glyph="restore"] {
+  display: block;
 }
 
 .runtime-window-controls button:hover {
@@ -84,6 +131,7 @@ body {
   font: 12px/18px system-ui, sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
+  -webkit-app-region: no-drag;
 }
 
 .runtime-tab button {

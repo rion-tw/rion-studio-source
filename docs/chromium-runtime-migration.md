@@ -149,6 +149,23 @@ navigation. Initialization failure closes the unmounted WebContents. This does
 not modify document CSS: transparent document regions reveal the workspace,
 while websites and games retain their own opaque paint. Windows retains Mica,
 a non-transparent resizable HWND, and its single local content background.
+The main application window follows the same rule: frameless, never
+transparent. A layered Windows HWND forfeits the DWM drop shadow, the Windows
+11 rounded corners, and the backdrop material at once, so transparency buys
+nothing a frameless host wants. `windowsMicaSupported` reads the capability
+from the OS build once, the window requests `mica` only when it holds and an
+opaque base colour otherwise, and the renderer mirrors that exact decision
+through `getWindowsMicaEnabled` into `data-windows-mica`, so the translucent
+shell surfaces never paint over a bare window.
+
+The Windows caption is an ordinary draggable region in the host document, not
+native non-client area. Electron unions each `drag` rect into the window's
+region and differences each `no-drag` rect in document order, so a `no-drag`
+rect subtracts whatever the caption already claimed. Only leaf controls may
+declare `no-drag`: the window controls and the individual tabs. A `no-drag`
+flex filler spanning the strip removes the entire caption from the region and
+leaves a bar that cannot move or double-click-maximize its window, while the
+few surviving pixels above and below it still pass a naive pointer test.
 AppKit converts Core's top-left geometry into content coordinates. Resize and
 tab activation retain Core's latest dimensions and hide all inactive Role,
 Website content, and toolbar surfaces. Native window resize preserves normalized

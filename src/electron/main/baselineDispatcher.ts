@@ -30,6 +30,7 @@ export interface ElectronBaselineActions {
   confirmApplicationQuit: (identity: RendererIdentity) => MaybePromise<void>;
   getAppSnapshot: () => MaybePromise<AppSnapshot>;
   getAppVersion: () => string;
+  getWindowsMicaEnabled: () => boolean;
   getApplicationLifecycleStatus: () => MaybePromise<ApplicationLifecycleStatusRecord>;
   getCurrentWindowState: (identity: RendererIdentity) => MaybePromise<NativeWindowStateRecord>;
   getDisplayTopology: () => MaybePromise<DisplayTopology>;
@@ -85,6 +86,9 @@ export function createElectronBaselineDispatcher(
           break;
         case "getAppVersion":
           value = actions.getAppVersion();
+          break;
+        case "getWindowsMicaEnabled":
+          value = actions.getWindowsMicaEnabled();
           break;
         case "getApplicationLifecycleStatus":
           value = await actions.getApplicationLifecycleStatus();

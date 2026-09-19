@@ -134,6 +134,7 @@ export class WindowsRuntimeHostChromeController {
   #tabs: ChromiumRuntimeWindowChromeProjection["tabs"] = Object.freeze([]);
   #moveTargets: readonly WindowsRuntimeHostMoveTargetProjection[] = Object.freeze([]);
   #contentBounds: ChromiumRuntimeWindowChromeProjection["contentBounds"] | null = null;
+  #windowName = "";
   #workspaceBackground: "material" | "black" = "material";
   #workspaceDividers: readonly WindowsRuntimeWorkspaceDividerProjection[] =
     Object.freeze([]);
@@ -154,6 +155,7 @@ export class WindowsRuntimeHostChromeController {
 
   constructor(input: Readonly<{
     documentUrl: string;
+    initialWindowName?: string;
     initialWorkspaceBackground?: "material" | "black";
     native: WindowsRuntimeHostChromeNativePort;
     readProjection: () => ChromiumRuntimeHostProjection;
@@ -180,6 +182,7 @@ export class WindowsRuntimeHostChromeController {
   }>) {
     this.#windowId = input.windowId;
     this.#workspaceBackground = input.initialWorkspaceBackground ?? "material";
+    this.#windowName = input.initialWindowName ?? "";
     this.#resizeIndicators = input.resizeIndicators;
     this.#documentUrl = input.documentUrl;
     this.#native = input.native;
@@ -236,6 +239,27 @@ export class WindowsRuntimeHostChromeController {
       );
     }
     this.#placementObserver = observer;
+  }
+
+  /** Applies the Core-owned Game Window name the control bar shows. */
+  applyWindowName(name: string): string {
+    if (
+      typeof name !== "string" || name.length === 0 || name.length > 512 ||
+      name.trim() !== name || [...name].some((character) => {
+        const code = character.codePointAt(0)!;
+        return code <= 0x1f || code === 0x7f;
+      })
+    ) {
+      throw chromeError(
+        "ELECTRON_WINDOWS_RUNTIME_WINDOW_NAME_INVALID",
+        "Core supplied an invalid Windows runtime-window name."
+      );
+    }
+    if (name === this.#windowName) return this.#windowName;
+    this.#windowName = name;
+    this.#advanceProjection();
+    this.#publish();
+    return this.#windowName;
   }
 
   async applyCoreProjection(
@@ -316,6 +340,8 @@ export class WindowsRuntimeHostChromeController {
       topologyRevision: projection.topologyRevision,
       windowGeneration: projection.windowGeneration,
       windowId: projection.windowId,
+      windowMaximized: this.#native.isMaximized(),
+      windowName: this.#windowName,
       workspaceDividers
     })) {
       throw chromeError(
@@ -1083,6 +1109,8 @@ export class WindowsRuntimeHostChromeController {
       topologyRevision: this.#topologyRevision,
       windowGeneration: this.#windowGeneration,
       windowId: this.#windowId,
+      windowMaximized: this.#native.isMaximized(),
+      windowName: this.#windowName,
       workspaceBackground: this.#workspaceBackground,
       workspaceDividers: this.#workspaceDividers,
       workspaceSlotLoads: (this.#slotLoads.get(this.#activeTabId ?? "") ?? []).filter((slot) => slot.record.phase !== "ready")

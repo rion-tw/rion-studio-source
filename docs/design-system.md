@@ -121,6 +121,16 @@ no runtime favicon service is used.
   `setRuntimeTheme` whenever the resolved theme changes; runtime state is memory-only.
 - The Windows runtime tab document updates `data-theme` and `color-scheme` from
   the projection, so open windows update immediately.
+- The Windows Game Window control bar reads mark, name, then tabs. It leads
+  with the shared `app-icon.png` mark and the Core-owned Game Window name;
+  both are inert and stay in flow beneath the drag layer, so the bar keeps
+  dragging the window across them. An unnamed window shows no label, and a
+  long name ellipsises rather than squeezing the tab row.
+- Both shells draw window controls from the same glyph set: `index.html` and
+  the Windows Game Window document share the minimize, maximize, restore and
+  close paths, centred with `place-items: center` so glyph metrics never
+  decide the rest position. The restore glyph replaces maximize while
+  `data-window-maximized` is true.
 - The Website navigation row on both platforms receives the resolved theme
   through its exact local-shell state. Open and hidden rows follow acknowledged
   setting events; new or reloaded rows receive the current theme. Shared tokens

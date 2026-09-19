@@ -7,7 +7,8 @@ import type {
 } from "../../shared/generated";
 import type { QuickAccessPresentationRequest } from "../../shared/types";
 import {
-  CoreOwnedChromiumRuntimeActionBackend
+  CoreOwnedChromiumRuntimeActionBackend,
+  type WindowsRuntimeChromeWindowNamePort
 } from "./chromiumRuntimeActionBackend";
 import {
   ChromiumRuntimeActionController,
@@ -61,6 +62,7 @@ export interface ChromiumRuntimeActionsFactoryInput {
     factory: MacosAppKitRuntimeHostFactoryPort;
     events: MacosAppKitRendererActionPort;
   }>;
+  readonly windowsChrome?: WindowsRuntimeChromeWindowNamePort;
 }
 
 export interface ChromiumRuntimeActionsServices {
@@ -132,7 +134,10 @@ export function createCoreOwnedChromiumRuntimeActions(
     newWindowMoves,
     quickAccess,
     windowPreferences: input.windowPreferences,
-    ...(input.appKit === undefined ? {} : { appKit: input.appKit })
+    ...(input.appKit === undefined ? {} : { appKit: input.appKit }),
+    ...(input.windowsChrome === undefined
+      ? {}
+      : { windowsChrome: input.windowsChrome })
   });
   const nativeWindows = new ChromiumRuntimeNativeWindowController({
     backend,

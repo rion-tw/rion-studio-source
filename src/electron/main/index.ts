@@ -1146,6 +1146,8 @@ async function bootstrapReadyPhase(
   });
   const launchCoordinator = new ChromiumRuntimeLaunchCoordinator({
     observedSnapshots: true,
+    settleWindowNativeEvents: async windowId =>
+      await restoredTabAppKit?.events.settleWindowEvents(windowId) ?? false,
     settleWindowProjection: windowId => chromiumRuntime!.settleWindowProjection(windowId),
     core: activeCore(),
     launchCompletions: chromiumLaunchCompletions,

@@ -1,3 +1,4 @@
+import { MacosAppKitRuntimeEventBridge } from "../main/macosAppKitRuntimeEventBridge";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ChromiumRuntimeEffectExecutor } from "../main/chromiumRuntimeEffectExecutor";
@@ -32,15 +33,27 @@ export function installRuntimeTargetProjectionBarrier(): void {
     }
     return execute.call(this, effect, context);
   };
-  const coordinator = CoreEffectCoordinator.prototype;
-  const settle = coordinator.settleWindowProjection;
-  coordinator.settleWindowProjection = async function (windowId) {
-    if (held.has(windowId)) {
+  const reported = new Set<string>();
+  const observeWait = async (windowId: string) => {
+    if (held.has(windowId) && !reported.has(windowId)) {
+      reported.add(windowId);
       const response = await fetch(`${origin}/api/event`, { method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ roleId: `target-projection-${windowId}`, kind: "launch-waiting-for-target-projection" }) });
       if (!response.ok) throw new Error("Projection fence observation failed");
     }
+  };
+  const coordinator = CoreEffectCoordinator.prototype;
+  const settle = coordinator.settleWindowProjection;
+  coordinator.settleWindowProjection = async function (windowId) {
+    await observeWait(windowId);
     return settle.call(this, windowId);
+  };
+  // Launch now fences received native events before their emitted projection.
+  const events = MacosAppKitRuntimeEventBridge.prototype;
+  const settleEvents = events.settleWindowEvents;
+  events.settleWindowEvents = async function (windowId) {
+    await observeWait(windowId);
+    return settleEvents.call(this, windowId);
   };
 }

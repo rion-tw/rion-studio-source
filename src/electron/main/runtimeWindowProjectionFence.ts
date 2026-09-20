@@ -14,9 +14,17 @@ export class RuntimeWindowProjectionFence {
       void terminal.then(release, release);
     }
   }
-  async settle(windowId: string): Promise<boolean> {
+  async settle(windowId: string, signal?: AbortSignal): Promise<boolean> {
     const pending = [...this.#pending.get(`window:${windowId}`) ?? []];
-    await Promise.all(pending);
+    if (signal?.aborted) throw signal.reason;
+    if (signal && pending.length > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => reject(signal.reason);
+        signal.addEventListener("abort", abort, { once: true });
+        void Promise.all(pending).then(() => resolve(), reject).finally(() =>
+          signal.removeEventListener("abort", abort));
+      });
+    } else await Promise.all(pending);
     return pending.length > 0;
   }
 }

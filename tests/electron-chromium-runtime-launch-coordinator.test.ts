@@ -5,7 +5,7 @@ import { type ChromiumRuntimeExistingTabActivationFence } from "../src/electron/
 import type { ChromiumRuntimeExecutorSnapshot } from "../src/electron/main/chromiumRuntimeEffectExecutor";
 
 import type { StateGameWindowRecord } from "../src/shared/generated";
-import { CAPTURED_AT, closeRuntimeTab, configureWorkspaceWebLaunch, dualDisplayTopology, OPERATION_ID, RECT, ROLE_ID, TAB_ID, topology, WEB_SLOT_ID, WEB_SURFACE_ID, WINDOW_ID, WORKSPACE_ID, WORKSPACE_OPERATION_ID, WORKSPACE_TAB_ID } from "./support/electronChromiumRuntimeLaunchFixtures";
+import { ATTEMPT_ID, CAPTURED_AT, closeRuntimeTab, configureWorkspaceWebLaunch, dualDisplayTopology, OPERATION_ID, RECT, ROLE_ID, TAB_ID, topology, WEB_SLOT_ID, WEB_SURFACE_ID, WINDOW_ID, WORKSPACE_ID, WORKSPACE_OPERATION_ID, WORKSPACE_TAB_ID } from "./support/electronChromiumRuntimeLaunchFixtures";
 
 import { launchHarness, type LaunchHarness } from "./support/electronChromiumRuntimeLaunchHarness";
 
@@ -649,6 +649,7 @@ describe("Electron Chromium runtime launch coordinator", () => {
       }],
       tabs: [{
         tabId: TAB_ID,
+        attemptGeneration: ATTEMPT_ID,
         windowId: WINDOW_ID,
         audioMuted: false,
         audible: false
@@ -1429,7 +1430,7 @@ describe("Electron Chromium runtime launch coordinator", () => {
     }));
   });
 
-  it("fences a semantic display change after Core admission and leaves no reusable target", async () => {
+  it("rejects a display change during admission but allows a later exact current window", async () => {
     const { coordinator, launchCommands } = launchHarness({
       onLaunch: (_command, harness) => {
         harness.topology = topology(2, { x: 0, y: 30, width: 1440, height: 870 });
@@ -1443,10 +1444,8 @@ describe("Electron Chromium runtime launch coordinator", () => {
     await expect(coordinator.launchWorkspace(WORKSPACE_ID, {
       kind: "game-window",
       windowId: WINDOW_ID
-    })).rejects.toMatchObject({
-      code: "ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE"
-    });
-    expect(launchCommands).toHaveLength(1);
+    })).resolves.toMatchObject({ windowId: WINDOW_ID });
+    expect(launchCommands).toHaveLength(2);
   });
 
   it("rejects a Core admission whose exact tab/window identity is inconsistent", async () => {

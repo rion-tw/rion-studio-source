@@ -1,3 +1,4 @@
+import { RuntimeWindowProjectionFence } from "./runtimeWindowProjectionFence";
 import { forwardMacosRuntimeTabDrag } from "./macosRuntimeTabDrag";
 import type { CoreEventStreamFailure } from "../core/coreAddonClient";
 import { randomUUID } from "node:crypto";
@@ -75,6 +76,7 @@ export interface MacosAppKitRendererActionPort {
   beginSavedWindowRestore: (windowId: string) => void;
   finishSavedWindowRestore: (windowId: string) => Promise<void>;
   settleCurrentEvents: () => Promise<number>;
+  settleWindowEvents: (windowId: string) => Promise<boolean>;
   activateTab: (
     hosts: readonly AppKitRuntimeHostObservationRecord[],
     tabId: string
@@ -524,12 +526,15 @@ implements MacosAppKitRendererActionPort {
     reject: (error: unknown) => void;
   }>();
   readonly #lanes = new Map<string, Promise<void>>();
+  readonly #windowEvents = new RuntimeWindowProjectionFence();
+  readonly #eventWaitAbort = new AbortController();
 
   #priorWindows(ids: readonly string[]): Promise<void> {
     return Promise.all(ids.map(id => this.#lanes.get(id))).then(() => undefined);
   }
 
   #retainWindows(ids: readonly string[], task: Promise<void>): void {
+    this.#windowEvents.retain(ids.map(id => `window:${id}`), task);
     const tail = task.catch(() => undefined);
     for (const id of ids) this.#lanes.set(id, tail);
     void tail.then(() => {
@@ -544,6 +549,8 @@ implements MacosAppKitRendererActionPort {
       (event) => this.#receiveCoreEvent(event)
     );
     this.#unsubscribeCoreFailures = input.core.subscribeCoreEventStreamFailures?.(() => {
+      this.#eventWaitAbort.abort(bridgeError("ELECTRON_MACOS_APPKIT_EVENT_STREAM_FAILED",
+        "The AppKit Core event stream failed before launch admission."));
       this.#state = "draining";
       this.#receiveCoreEvent({ type: "shutdown" });
     });
@@ -786,7 +793,14 @@ implements MacosAppKitRendererActionPort {
     return this.#adapterSequence;
   }
 
+  /** Includes native callbacks received before their Core effects are emitted. */
+  settleWindowEvents(windowId: string): Promise<boolean> {
+    return this.#windowEvents.settle(windowId, this.#eventWaitAbort.signal);
+  }
+
   dispose(): Promise<void> {
+    this.#eventWaitAbort.abort(bridgeError("ELECTRON_MACOS_APPKIT_EVENT_BRIDGE_DRAINING",
+      "The AppKit event bridge stopped before launch admission."));
     if (this.#disposePromise) return this.#disposePromise;
     this.#state = "draining";
     this.#disposePromise = Promise.all([...this.#lanes.values()]).then(async () => {
@@ -1356,7 +1370,13 @@ implements MacosAppKitRendererActionPort {
         };
       });
     const result = start.then(({ terminal }) => terminal);
-    this.#retainWindows(windowIds, start.then(({ release }) => release));
+    this.#retainWindows(windowIds, start.then(({ release }) => release).catch(error => {
+      // A retired passive observation is already a classified supersede in
+      // #enqueue. Its waiter must validate current topology, not revive it as an error.
+      if ((action.type === "layout" || action.type === "windowState") &&
+          normalizeRionBridgeError(error).code === "ELECTRON_MACOS_APPKIT_OBSERVATION_STALE") return;
+      throw error;
+    }));
     this.#terminalResults.add(result);
     void result.then(
       () => this.#terminalResults.delete(result),

@@ -9,6 +9,7 @@ import { ATTEMPT_ID, CAPTURED_AT, emptyCoreSnapshot, OPERATION_ID, RECT, ROLE_ID
 
 export interface HarnessOptions {
   readonly observedSnapshots?: boolean;
+  readonly settleWindowNativeEvents?: (windowId: string) => Promise<boolean>;
   readonly settleWindowProjection?: (windowId: string) => Promise<boolean>;
   readonly settleNativeEvents?: () => Promise<void>;
   readonly settleRuntimeProjection?: () => Promise<number>;
@@ -206,6 +207,7 @@ export function launchHarness(options: HarnessOptions = {}) {
               window.windowId === command.target.windowId ? projectedWindow : window)
           : [...state.nativeSnapshot.windows, projectedWindow],
         tabs: [...state.nativeSnapshot.tabs, {
+          attemptGeneration: attemptId,
           tabId,
           windowId: command.target.windowId,
           audioMuted: false,
@@ -363,6 +365,7 @@ export function launchHarness(options: HarnessOptions = {}) {
   const coordinator = new ChromiumRuntimeLaunchCoordinator({
     observedSnapshots: options.observedSnapshots,
     settleWindowProjection: options.settleWindowProjection,
+    settleWindowNativeEvents: options.settleWindowNativeEvents,
     core: {
       invoke: coreInvoke as unknown as ChromiumRuntimeLaunchCorePort["invoke"]
     },

@@ -1,5 +1,6 @@
-import { canonicalWebSurfaceIdentities, reconcileNativeWebSurfaces, sameWebSurfaceIdentities,
-  type LaunchWebSurfaceIdentity } from "./chromiumRuntimeLaunchWebIdentity";
+import { inspectLaunchWindowFence, type LaunchWindowRevision } from "./chromiumRuntimeLaunchWindowFence";
+import { recordRuntimeTransition } from "./runtimeOperationJournal";
+import { canonicalWebSurfaceIdentities } from "./chromiumRuntimeLaunchWebIdentity";
 import { recordLaunchAdmission, runRecordedLaunch } from "./runtimeLaunchJournal";
 import { RuntimeScopedQueue } from "./runtimeScopedQueue";
 import { randomUUID } from "node:crypto";
@@ -53,6 +54,7 @@ export interface ChromiumRuntimeLaunchCoordinatorInput {
   readonly createId?: () => string;
   /** Presentation snapshots may contain unrelated pending windows. */
   readonly observedSnapshots?: boolean;
+  readonly settleWindowNativeEvents?: (windowId: string) => Promise<boolean>;
   readonly settleWindowProjection?: (windowId: string) => Promise<boolean>;
   readonly settleNativeEvents?: () => Promise<void>;
   readonly settleRuntimeProjection?: () => Promise<number>;
@@ -144,33 +146,14 @@ interface ResolvedLaunchDestination {
   readonly target: EmbeddedLaunchTargetRecord;
 }
 
-interface PendingTargetCacheRecord {
-  readonly admissionTarget: EmbeddedLaunchTargetRecord;
-  readonly attemptId: string;
-  readonly displayTopologyFingerprint: string;
-  readonly displayTopologyRevision: number;
-  readonly sourceId: string;
-  readonly sourceType: LaunchSourceType;
-  readonly tabId: string;
-  readonly webSurfaces: readonly LaunchWebSurfaceIdentity[];
-  readonly windowGeneration: number;
-  readonly topologyRevision: number;
-  readonly state: "pending-native-reconciliation";
-}
-
-interface ReconciledTargetCacheRecord {
+interface TargetCacheRecord extends LaunchWindowRevision {
   readonly persistedName?: string;
-  readonly windowGeneration: number;
-  readonly topologyRevision: number;
-  readonly state: "reconciled";
+  readonly state: "observed";
 }
-
-type TargetCacheRecord = PendingTargetCacheRecord | ReconciledTargetCacheRecord;
 
 interface ValidatedAdmission {
   readonly logicalWindow: CoreAppSnapshotRecord["logicalWindows"][number];
   readonly statuses: BrowserRoleStatusRecord[];
-  readonly webSurfaces: readonly LaunchWebSurfaceIdentity[];
 }
 
 function launchError(code: string, message: string): RionBridgeError {
@@ -410,6 +393,8 @@ function validateSnapshotRevisions(
 export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPort {
   readonly #input: ChromiumRuntimeLaunchCoordinatorInput;
   readonly #targets = new Map<string, TargetCacheRecord>();
+  readonly #observedWindows = new Map<string, LaunchWindowRevision>();
+  readonly #quarantinedWindows = new Set<string>();
   readonly #queue = new RuntimeScopedQueue(MAX_QUEUED_LAUNCHES);
 
   constructor(input: ChromiumRuntimeLaunchCoordinatorInput) {
@@ -859,7 +844,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         ...(saved === null ? {} : { persistedName: saved.name }),
         windowGeneration: logical.windowGeneration,
         topologyRevision: logical.revision,
-        state: "reconciled"
+        state: "observed"
       });
     } catch (error) {
       this.#targets.delete(target.windowId);
@@ -905,6 +890,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         throw new Error("The failed registration still has a Core or native owner.");
       }
     } catch {
+      this.#quarantinedWindows.add(windowId);
       throw launchError(
         "ELECTRON_CHROMIUM_EMPTY_WINDOW_COMPENSATION_INDETERMINATE",
         "The failed empty-window registration could not prove exact Core/native retirement."
@@ -997,24 +983,13 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
       resolved.target,
       restore !== undefined
     );
-    this.#recordPendingTarget(
-      admission,
-      validated.logicalWindow,
-      resolved.target,
-      sourceId,
-      sourceType,
-      expectedTopology,
-      canonicalTopology(expectedTopology),
-      validated.webSurfaces
-    );
-    // One immediate event-bound read is allowed to observe an effect which has
-    // already acknowledged. A still-pending native effect leaves only a
-    // non-reusable cache entry; no delay, retry, or polling promotes it.
+    this.#rememberTarget(validated.logicalWindow, resolved.target);
+    // Observe an already acknowledged effect without making cached admission
+    // metadata a prerequisite for later host reuse.
     try {
       await this.#readCoherentSnapshot(false);
     } catch {
-      // The launch admission remains authoritative. A later user intent may
-      // promote the target only after a fresh exact Core/native projection.
+      // A later intent still validates fresh exact Core/native identities.
     }
     const existingTabId = admission.completion === "completed" &&
       (admission.disposition === "existing" || admission.disposition === "joined")
@@ -1126,8 +1101,13 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
           "The display topology changed while the Chromium launch snapshot was projected."
         );
       }
-      const topologyFingerprint = canonicalTopology(app.displayTopology);
-      this.#reconcileTargetCache(core, app, native, topologyFingerprint);
+      for (const id of new Set([...this.#targets.keys(), ...this.#observedWindows.keys(), ...this.#quarantinedWindows])) {
+        if (!core.logicalWindows.some(window => window.windowId === id)) {
+          this.#targets.delete(id);
+          this.#observedWindows.delete(id);
+          if (runtimeWindowAbsent(core, native, id)) this.#quarantinedWindows.delete(id);
+        }
+      }
       return { app, core, native };
     }
   }
@@ -1237,25 +1217,33 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
   async #awaitLiveTarget(snapshot: CoherentLaunchSnapshot, windowId: string): Promise<CoherentLaunchSnapshot> {
     const generation = snapshot.core.logicalWindows.find(window => window.windowId === windowId)?.windowGeneration;
     while (true) {
+      // Include already-received AppKit events before looking only at emitted effects.
+      const nativeEvents = await this.#input.settleWindowNativeEvents?.(windowId) ?? false;
+      const projection = await this.#input.settleWindowProjection?.(windowId) ?? false;
+      // Re-read even when a receipt finished between the initial snapshot and the fence.
+      snapshot = await this.#readCoherentSnapshot(false);
       if (snapshot.core.logicalWindows.find(window => window.windowId === windowId)?.windowGeneration !== generation) {
         throw launchError("ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE",
           "The requested window closed or changed generation before launch admission.");
       }
-      try { this.#liveTarget(snapshot, windowId); return snapshot; }
+      try { this.#liveTarget(snapshot, windowId, true, {
+        waitedNativeEvents: Number(nativeEvents), waitedProjection: Number(projection)
+      }); return snapshot; }
       catch (error) {
-        if (!(error instanceof RionBridgeError) || error.code !== "ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE" ||
-            !await this.#input.settleWindowProjection?.(windowId)) throw error;
+        if (!(error instanceof RionBridgeError) || error.code !== "ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE") throw error;
+        // A completion may enqueue a successor projection. Only that actual work
+        // permits another read; no polling or elapsed-time reconciliation.
+        if (nativeEvents || projection) continue;
+        throw error;
       }
-      // EventBound: consume only an already-admitted target projection, then
-      // revalidate the same destination. No launch retry or global drain.
-      snapshot = await this.#readCoherentSnapshot(false);
     }
   }
 
   #liveTarget(
     snapshot: CoherentLaunchSnapshot,
     windowId: string,
-    validate = true
+    validate = true,
+    waitEvidence: Readonly<Record<string, number>> = {}
   ): EmbeddedLaunchTargetRecord {
     const cached = this.#targets.get(windowId);
     const live = snapshot.app.embeddedRuntimeState.windows.find(
@@ -1264,22 +1252,25 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     const logical = snapshot.core.logicalWindows.find(
       (window) => window.windowId === windowId
     );
-    const native = snapshot.native.windows.find(window => window.windowId === windowId);
-    const logicalIds = logical?.tabs.map(tab => tab.id) ?? [];
-    if (!live || !logical || (validate && (!cached || cached.state !== "reconciled" ||
-        cached.windowGeneration !== logical.windowGeneration || cached.topologyRevision !== logical.revision ||
-        !native || native.windowGeneration !== logical.windowGeneration ||
-        native.topologyRevision !== logical.revision || !sameOrderedIds(native.tabIds, logicalIds) ||
-        native.activeTabId !== (logical.activeTabId ?? "") ||
-        snapshot.native.tabs.filter(tab => tab.windowId === windowId && !tab.retiring).length !== logicalIds.length))) {
+    const inspection = inspectLaunchWindowFence(snapshot.core, snapshot.native, windowId,
+      this.#observedWindows.get(windowId), this.#quarantinedWindows.has(windowId));
+    if (!live || !logical || (validate && inspection.reason !== null)) {
+      recordRuntimeTransition({ operationId: randomUUID(), action: "launch-window-fence",
+        targetKind: "window", targetId: windowId, stage: "rejected",
+        errorCode: "ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE",
+        fences: { ...inspection.fences, ...waitEvidence, cacheState: cached?.state ?? "absent",
+          cacheGeneration: cached?.windowGeneration ?? -1, cacheRevision: cached?.topologyRevision ?? -1 } });
       throw launchError("ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE",
         "The requested window has not applied its exact Core topology; unrelated windows remain available.");
     }
+    if (validate) this.#observedWindows.set(windowId, {
+      windowGeneration: logical.windowGeneration, topologyRevision: logical.revision
+    });
 
     return this.#currentLiveTarget(
       live,
       snapshot.app.displayTopology,
-      cached?.state === "reconciled" ? cached.persistedName :
+      cached?.persistedName ??
         snapshot.core.state.gameWindows.find(window => window.id === windowId)?.name
     );
   }
@@ -1487,173 +1478,23 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         "Core returned malformed, duplicated, or role-owned Web surface identities."
       );
     }
-    return { logicalWindow, statuses, webSurfaces };
+    return { logicalWindow, statuses };
   }
 
-  #recordPendingTarget(
-    admission: BrowserLaunchAdmissionRecord,
+  #rememberTarget(
     logicalWindow: CoreAppSnapshotRecord["logicalWindows"][number],
-    target: EmbeddedLaunchTargetRecord,
-    sourceId: string,
-    sourceType: LaunchSourceType,
-    topology: DisplayTopologySnapshotRecord,
-    topologyFingerprint: string,
-    webSurfaces: readonly LaunchWebSurfaceIdentity[]
+    target: EmbeddedLaunchTargetRecord
   ): void {
-    const prior = this.#targets.get(target.windowId);
-    // A new tab admission does not revoke an already reconciled host. Its
-    // optional immediate projection may still be pending, then the tab can be
-    // retired before another launch read. Preserve only the same generation
-    // with monotonic Core revision; every later reuse still reads an exact
-    // coherent Core/native projection before resolving this target.
-    const remainsReconciled = prior?.state === "reconciled" &&
-      prior.windowGeneration === logicalWindow.windowGeneration &&
-      prior.topologyRevision <= logicalWindow.revision;
-    if (remainsReconciled) {
-      this.#targets.set(target.windowId, {
-        ...(target.persistedName === undefined
-          ? prior.persistedName === undefined ? {} : { persistedName: prior.persistedName }
-          : { persistedName: target.persistedName }),
-        windowGeneration: logicalWindow.windowGeneration,
-        topologyRevision: logicalWindow.revision,
-        state: "reconciled"
-      });
-      return;
-    }
+    const observed = this.#observedWindows.get(target.windowId);
+    if (!observed || observed.windowGeneration !== logicalWindow.windowGeneration ||
+        observed.topologyRevision < logicalWindow.revision) this.#observedWindows.set(target.windowId, {
+      windowGeneration: logicalWindow.windowGeneration, topologyRevision: logicalWindow.revision
+    });
     this.#targets.set(target.windowId, {
-      admissionTarget: cloneTarget(target),
-      attemptId: admission.attemptId,
-      displayTopologyFingerprint: topologyFingerprint,
-      displayTopologyRevision: topology.revision,
-      sourceId,
-      sourceType,
-      tabId: admission.tabId,
-      webSurfaces: webSurfaces.map((surface) => ({ ...surface })),
+      ...(target.persistedName === undefined ? {} : { persistedName: target.persistedName }),
       windowGeneration: logicalWindow.windowGeneration,
       topologyRevision: logicalWindow.revision,
-      state: "pending-native-reconciliation"
+      state: "observed"
     });
-  }
-
-  #reconcileTargetCache(
-    core: CoreAppSnapshotRecord,
-    app: AppSnapshot,
-    native: ChromiumRuntimeLaunchNativeSnapshot,
-    topologyFingerprint: string
-  ): void {
-    for (const [windowId, cached] of this.#targets) {
-      const live = app.embeddedRuntimeState.windows.find(
-        (window) => window.windowId === windowId
-      );
-      const logical = core.logicalWindows.find((window) => window.windowId === windowId);
-      let currentTarget: EmbeddedLaunchTargetRecord | undefined;
-      try {
-        if (live) {
-          currentTarget = this.#currentLiveTarget(
-            live,
-            app.displayTopology,
-            cached.state === "reconciled"
-              ? cached.persistedName
-              : cached.admissionTarget.persistedName
-          );
-        }
-      } catch {
-        currentTarget = undefined;
-      }
-      if (
-        !live ||
-        !logical ||
-        !currentTarget ||
-        logical.windowGeneration !== cached.windowGeneration ||
-        !targetMatchesDisplay(currentTarget, app.displayTopology)
-      ) {
-        this.#targets.delete(windowId);
-        continue;
-      }
-      if (cached.state === "reconciled") {
-        if (logical.revision < cached.topologyRevision) {
-          this.#targets.delete(windowId);
-          continue;
-        }
-        if (logical.revision > cached.topologyRevision) {
-          this.#targets.set(windowId, {
-            ...cached,
-            topologyRevision: logical.revision
-          });
-        }
-        continue;
-      }
-      const tab = core.browserRuntime.tabs.find((item) => item.id === cached.tabId);
-      const runtimeWindow = core.browserRuntime.windows.find(
-        (window) => window.windowId === windowId
-      );
-      const nativeWindows = native.windows?.filter(
-        (window) => window.windowId === windowId
-      ) ?? [];
-      const nativeWindow = nativeWindows.length === 1 ? nativeWindows[0] : undefined;
-      const logicalTabIds = logical.tabs.map((item) => item.id);
-      const currentWebSurfaces = tab
-        ? canonicalWebSurfaceIdentities(tab, cached.sourceType)
-        : null;
-      // A newly created host has no authoritative topology receipt yet. Keep
-      // its exact admission pending; only a later event-fenced read can promote it.
-      const awaitsFirstNativeTopology = nativeWindows.length === 0 || (nativeWindow?.windowGeneration === 0 &&
-        nativeWindow.topologyRevision === 0);
-      const nativeLag = awaitsFirstNativeTopology || (nativeWindow?.windowGeneration === logical.windowGeneration &&
-        nativeWindow.topologyRevision < logical.revision);
-      // The admission tab can retire after its host was projected, before a
-      // launch snapshot ever promoted the cache. Exact surviving topology owns reuse.
-      const admissionRetired = !tab && !logicalTabIds.includes(cached.tabId);
-      const pendingIdentityMatches =
-        logical.revision >= cached.topologyRevision &&
-        runtimeWindow !== undefined &&
-        (awaitsFirstNativeTopology || nativeWindow !== undefined) &&
-        (nativeLag || (
-          nativeWindow?.windowGeneration === logical.windowGeneration &&
-          nativeWindow.topologyRevision === logical.revision
-        )) &&
-        sameOrderedIds(runtimeWindow.tabIds, logicalTabIds) &&
-        (nativeLag || (nativeWindow !== undefined && sameOrderedIds(nativeWindow.tabIds, logicalTabIds))) &&
-        (admissionRetired || (tab !== undefined &&
-        tab.windowId === windowId &&
-        tab.sourceId === cached.sourceId &&
-        tab.tabType === cached.sourceType &&
-        tab.attemptGeneration === cached.attemptId &&
-        currentWebSurfaces !== null &&
-        sameWebSurfaceIdentities(currentWebSurfaces, cached.webSurfaces))) &&
-        app.displayTopology.revision === cached.displayTopologyRevision &&
-        topologyFingerprint === cached.displayTopologyFingerprint &&
-        currentTarget.displayId === cached.admissionTarget.displayId &&
-        currentTarget.scaleFactor === cached.admissionTarget.scaleFactor &&
-        currentTarget.presentation === cached.admissionTarget.presentation &&
-        sameBounds(currentTarget.workArea, cached.admissionTarget.workArea) &&
-        targetMatchesDisplay(currentTarget, app.displayTopology);
-      if (!pendingIdentityMatches) {
-        this.#targets.delete(windowId);
-        continue;
-      }
-      if (nativeLag) continue;
-      const webSurfaceReconciliation = admissionRetired ? "valid" : reconcileNativeWebSurfaces(
-        cached.webSurfaces,
-        cached.tabId,
-        windowId,
-        native
-      );
-      if (webSurfaceReconciliation === "invalid") {
-        this.#targets.delete(windowId);
-        continue;
-      }
-      // A healthy window accepts another tab while its existing Web slots load.
-      // Existing conflicting native identities still invalidate the target above.
-      if (awaitsFirstNativeTopology) continue;
-      this.#targets.set(windowId, {
-        ...(cached.admissionTarget.persistedName === undefined
-          ? {}
-          : { persistedName: cached.admissionTarget.persistedName }),
-        windowGeneration: cached.windowGeneration,
-        topologyRevision: logical.revision,
-        state: "reconciled"
-      });
-    }
   }
 }

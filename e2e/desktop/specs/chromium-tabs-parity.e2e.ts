@@ -1,3 +1,4 @@
+import { exerciseWindowLaunchReuse } from "./chromium-window-launch-reuse";
 // [journey:CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-TEAROUT-046]
 // [journey:CHROMIUM-WINDOWS-RUNTIME-TAB-TEAROUT-046]
 import { exerciseMixedWorkspaceTearout } from "./chromium-tab-tearout-workspace";
@@ -1102,6 +1103,9 @@ async function seedPhase(input: Readonly<{
     ...input, window: await createGameWindowThroughVisibleUi("Native Launcher Loading Window"), roles,
     launchRole: (role, window, afterSubmit) => launchRoleIntoWindow(role, window, undefined, afterSubmit)
   });
+  await exerciseWindowLaunchReuse({ ...input, roles,
+    window: await createGameWindowThroughVisibleUi("Window Launch Reuse"),
+    launchRole: (role, window) => launchRoleIntoWindow(role, window) });
   const sourceRoles = roles.slice(0, SOURCE_ROLE_DEFINITIONS.length);
   const tabIds: string[] = [];
   let independentTabId: string | undefined;

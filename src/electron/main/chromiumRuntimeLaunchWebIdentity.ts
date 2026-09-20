@@ -1,7 +1,7 @@
 import type { CoreAppSnapshotRecord } from "../../shared/generated";
 import type { ChromiumRuntimeExecutorSnapshot } from "./chromiumRuntimeSnapshot";
 
-export interface LaunchWebSurfaceIdentity {
+interface LaunchWebSurfaceIdentity {
   readonly surfaceId: string;
   readonly slotId: string;
 }
@@ -40,16 +40,6 @@ export function canonicalWebSurfaceIdentities(
   return identities.sort((left, right) =>
     left.surfaceId.localeCompare(right.surfaceId) ||
     left.slotId.localeCompare(right.slotId)
-  );
-}
-
-export function sameWebSurfaceIdentities(
-  left: readonly LaunchWebSurfaceIdentity[],
-  right: readonly LaunchWebSurfaceIdentity[]
-): boolean {
-  return left.length === right.length && left.every((surface, index) =>
-    surface.surfaceId === right[index]?.surfaceId &&
-    surface.slotId === right[index]?.slotId
   );
 }
 

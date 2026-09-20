@@ -308,6 +308,7 @@ describe("macOS AppKit privileged runtime event bridge", () => {
     });
 
     bridge.receiveLayout({ identity, hosts: [primaryObservation()] });
+    await expect(bridge.settleWindowEvents("window-1")).resolves.toBe(true);
     await bridge.dispose();
 
     expect(invoke).not.toHaveBeenCalled();
@@ -336,6 +337,7 @@ describe("macOS AppKit privileged runtime event bridge", () => {
       hosts: [primaryObservation()],
       action: { type: "windowFocusChanged", sourceWindowId: "window-1" }
     });
+    await expect(bridge.settleWindowEvents("window-1")).resolves.toBe(true);
     await bridge.dispose();
 
     expect(invoke).not.toHaveBeenCalled();
@@ -1332,5 +1334,47 @@ describe("macOS AppKit privileged runtime event bridge", () => {
       code: "ELECTRON_MACOS_APPKIT_ACTION_UNSUPPORTED"
     }));
     expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe("target-local native event fence", () => {
+  it.each(["applied", "rejected", "streamFailure", "actorStop"])("settles from %s without waiting on another window", async outcome => {
+    let release!: () => void, entered!: () => void;
+    let failStream!: (failure: never) => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const waiting = new Promise<void>(resolve => { entered = resolve; });
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke: vi.fn(async (command: CoreCommand) => {
+          if (command.type !== "browserAppKitRuntimeEvent") throw new Error("unexpected command");
+          entered(); await gate;
+          if (outcome === "rejected") throw new Error("native event rejected");
+          return receipt(command);
+        }) as never,
+        subscribeCoreEvents: () => () => undefined,
+        subscribeCoreEventStreamFailures: listener => { failStream = listener; return () => undefined; }
+      }, onError: vi.fn()
+    });
+    const action = bridge.activateTab([primaryObservation()], "tab-1");
+    void action.catch(() => undefined);
+    await waiting;
+    await expect(bridge.settleWindowEvents("unrelated-window")).resolves.toBe(false);
+    let settled = false;
+    const fence = bridge.settleWindowEvents("window-1").then(value => { settled = true; return value; });
+    void fence.catch(() => undefined);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    let dispose: Promise<void> | undefined;
+    if (outcome === "streamFailure") failStream({} as never);
+    if (outcome === "actorStop") dispose = bridge.dispose();
+    if (outcome === "streamFailure" || outcome === "actorStop") {
+      await expect(fence).rejects.toMatchObject({ code: outcome === "streamFailure"
+        ? "ELECTRON_MACOS_APPKIT_EVENT_STREAM_FAILED" : "ELECTRON_MACOS_APPKIT_EVENT_BRIDGE_DRAINING" });
+    }
+    release();
+    if (outcome === "rejected") await expect(fence).rejects.toThrow("native event rejected");
+    if (outcome === "applied") await expect(fence).resolves.toBe(true);
+    await action.catch(() => undefined);
+    await (dispose ?? bridge.dispose());
   });
 });

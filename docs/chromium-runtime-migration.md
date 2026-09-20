@@ -189,7 +189,7 @@ their top edge. Pointer end/cancel, tab changes, host teardown, stream failure,
 and supersede retire the presentation. Exact gesture and paint revisions prevent
 late events from reviving it. These changes do not alter portable or SQLite schemas.
 
-The active runtime contract is version 44. Version 23 remains the first
+The active runtime contract is version 45. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -1139,3 +1139,11 @@ The additive event/receipt records are generated from Rust. No SQLite, portable,
 role-storage, updater, or v22/v23 consumed-data schema changes are required.
 Desktop journey 046 uses real desktop input and inspects the floating window
 while the button remains held on each supported platform.
+
+## Chromium v45 physical modifier reconciliation
+
+A trusted physical keyboard event with a cleared modifier-family flag releases
+stale page-observed sides before shortcut admission. Core ownership remains
+intact; only the last holder sends an exact-target release. Armed macro input,
+projection input and forwarded events cannot provide physical release evidence.
+See [Compatible Macro Input](contracts/system-runtime/compatible-macro-input.md).

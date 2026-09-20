@@ -47,3 +47,30 @@
       droppedTransitionCount: compatibleDroppedModifierTransitions
     };
   }
+
+  // A later trusted physical event can prove a missed release without racing
+  // the native snapshot against Chromium's queued DOM events. This is page
+  // delivery metadata only; Core's logical modifier ownership is unchanged.
+  const reconciledPhysicalModifierCodes = new Set();
+
+  function reconcilePhysicalModifiers(event) {
+    if (isDisposed) return;
+    const families = [["Alt", "altKey"], ["Control", "ctrlKey"],
+      ["Meta", "metaKey"], ["Shift", "shiftKey"]];
+    for (const code of physicalModifierCodes().reverse()) {
+      if (code === event.code) continue;
+      if (!families.some(([prefix, flag]) => code.startsWith(prefix) && event[flag] === false)) continue;
+      reconciledPhysicalModifierCodes.add(code);
+      runtimeTabShortcutModifierCodes.delete(code);
+      releasePhysicalGameKey(code, "physical-reconcile");
+    }
+  }
+
+  function consumeReconciledPhysicalModifierKeyUp(event) {
+    if (!reconciledPhysicalModifierCodes.delete(event.code)) return false;
+    // Let Chromium update its native flags, but do not deliver a second release
+    // to the page (which may now have a Core-owned holder of the same side).
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    return true;
+  }

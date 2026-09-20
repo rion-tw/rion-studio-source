@@ -410,8 +410,8 @@
     });
   }
 
-  function currentPhysicalModifierSnapshot(snapshot) {
-    const codes = physicalModifierCodes();
+  function currentGameModifierSnapshot(snapshot) {
+    const codes = [...physicalModifierCodes(), ...macroModifierOwnership.keys()];
     return {
       ...snapshot,
       altKey: codes.some((code) => code.startsWith("Alt")),
@@ -422,11 +422,13 @@
     };
   }
 
-  function dispatchPhysicalGameKeyUp(active) {
+  function dispatchPhysicalGameKeyUp(active, requireConnectedTarget = false) {
+    if (requireConnectedTarget && (isDisposed || !active.target.isConnected ||
+        active.target.ownerDocument !== document)) return;
     if (active.delivered === false) return;
     if (typeof window.KeyboardEvent !== "function") return;
     try {
-      const snapshot = currentPhysicalModifierSnapshot(active.snapshot);
+      const snapshot = currentGameModifierSnapshot(active.snapshot);
       const event = new window.KeyboardEvent("keyup", {
         altKey: snapshot.altKey,
         bubbles: true,
@@ -446,22 +448,24 @@
       });
       forwardedMacroGameEvents.add(event);
       active.target.dispatchEvent(event);
+      return event;
     } catch (error) {
       console.warn("Unable to release a physical game key after focus loss.", error);
     }
   }
 
-  function releasePhysicalGameKey(code) {
+  function releasePhysicalGameKey(code, source = "focus-cleanup") {
     const active = physicalGameKeys.get(code);
     if (!active) return;
     physicalGameKeys.delete(code);
     const macroOwnership = macroModifierOwnership.get(code);
-    recordCompatibleModifierTransition("focus-cleanup", code, "keyUp", macroOwnership ? "retained" : "dispatch");
     if (macroOwnership) {
       macroOwnership.delivered = true;
+      recordCompatibleModifierTransition(source, code, "keyUp", "retained");
       return;
     }
-    dispatchPhysicalGameKeyUp(active);
+    const release = dispatchPhysicalGameKeyUp(active, source === "physical-reconcile");
+    recordCompatibleModifierTransition(source, code, "keyUp", release ? "dispatch" : "retained", release);
   }
 
   function releasePhysicalGameKeys({ deferModifiers = false } = {}) {
@@ -913,6 +917,8 @@
       reportObservedMacroKey(macroKeyGuard, event, true, delivery);
       return;
     }
+    reconcilePhysicalModifiers(event);
+    reconciledPhysicalModifierCodes.delete(event.code);
     // A non-repeat keydown starts a new physical ownership cycle. This also
     // retires ownership left behind when a prior keyup occurred after blur and
     // never reached this document.
@@ -1056,6 +1062,9 @@
       reportObservedMacroKey(macroKeyGuard, event, true, delivery);
       return;
     }
+    reconcilePhysicalModifiers(event);
+    updateRuntimeTabShortcutModifier(event, false);
+    if (consumeReconciledPhysicalModifierKeyUp(event)) return;
     const managedShortcuts = [...activeKeyboardShortcuts.entries()].filter(
       ([, active]) => active.code === event.code && !active.mainReleased
     );
@@ -1067,7 +1076,6 @@
       return;
     }
     const consumedShortcutKeyUp = consumedPhysicalShortcutCodes.delete(event.code);
-    updateRuntimeTabShortcutModifier(event, false);
     const consumedModifierKeyUp = consumeOverlappingPhysicalModifierKeyUp(event);
     if (consumedShortcutKeyUp && !consumedModifierKeyUp) consumeShortcutEvent(event);
     if (!consumedModifierKeyUp) forgetPhysicalGameKey(event.code, event);

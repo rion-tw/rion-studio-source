@@ -4,7 +4,7 @@
 pub struct CompatibleModifierTransitionRecord {
     #[ts(type = "number")]
     pub sequence: u64,
-    #[ts(type = "\"physical\" | \"compatible\" | \"focus-cleanup\"")]
+    #[ts(type = "\"physical\" | \"compatible\" | \"focus-cleanup\" | \"physical-reconcile\"")]
     pub source: String,
     pub code: String,
     #[ts(type = "\"rawKeyDown\" | \"keyUp\"")]
@@ -35,7 +35,22 @@ pub struct CompatibleModifierEvidenceRecord {
 
 #[cfg(test)]
 mod compatible_modifier_tests {
-    use super::TrustedInputTerminalEvidenceRecord;
+    use super::{CompatibleModifierTransitionRecord, TrustedInputTerminalEvidenceRecord};
+
+    #[test]
+    fn physical_reconcile_transition_round_trips_without_changing_legacy_sources() {
+        for source in ["physical", "compatible", "focus-cleanup", "physical-reconcile"] {
+            let evidence = serde_json::json!({
+                "sequence": 1, "source": source, "code": "AltLeft", "phase": "keyUp",
+                "disposition": "dispatch", "physicalCodes": [], "coreCodes": [],
+                "eventModifierMask": 0
+            });
+            let decoded: CompatibleModifierTransitionRecord =
+                serde_json::from_value(evidence.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), evidence);
+        }
+    }
+
 
     #[test]
     fn old_terminal_without_compatible_evidence_remains_readable() {

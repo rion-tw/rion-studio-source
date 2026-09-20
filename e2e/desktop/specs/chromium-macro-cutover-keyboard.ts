@@ -1,3 +1,4 @@
+import { exerciseModifierReconciliation } from "./chromium-macro-modifier-reconciliation";
 import { expect } from "@wdio/globals";
 import { Key } from "webdriverio";
 import { exerciseCompatibleAltShortcuts } from "./chromium-macro-compatible-alt";
@@ -514,6 +515,10 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     launchUrl: roleA.launchUrl!, mainWindowHandle: context.mainWindowHandle,
     platform: context.platform, roleId: roleA.id, roleName: roleA.name,
     fixtureRoleId: ROLE_A_FIXTURE, windowId: WINDOW_ID
+  });
+  await exerciseModifierReconciliation({
+    platform: context.platform, roleId: roleA.id, roleName: roleA.name, fixtureRoleId: ROLE_A_FIXTURE,
+    windowId: WINDOW_ID, launchUrl: roleA.launchUrl!
   });
   const popupFenceFixture = await fixtureCursor();
   const trustedInputBeforePopup = await electronDesktopE2eTrustedInputRuntime(roleA.id);

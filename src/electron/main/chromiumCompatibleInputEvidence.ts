@@ -29,7 +29,7 @@ export function validCompatibleInputEvidence(command: Command, receipt: Receipt)
   let sequence = 0;
   for (const entry of evidence.transitions) {
     if (!entry || !Number.isSafeInteger(entry.sequence) || entry.sequence <= sequence ||
-        !["physical", "compatible", "focus-cleanup"].includes(entry.source) ||
+        !["physical", "compatible", "focus-cleanup", "physical-reconcile"].includes(entry.source) ||
         typeof entry.code !== "string" || !isChromiumModifierCode(entry.code) ||
         !["rawKeyDown", "keyUp"].includes(entry.phase) ||
         !["dispatch", "adoptPhysical", "releaseOwnership", "retained"].includes(entry.disposition) ||

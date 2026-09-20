@@ -71,6 +71,15 @@ describe.each(["darwin", "win32"] as const)("%s compatible input receipts", plat
     expect(test.send).toHaveBeenCalledOnce();
   });
 
+  it("accepts bounded physical-reconcile transitions in the authenticated receipt", async () => {
+    const test = setup(async command => ({ ...receipt(command), modifierEvidence: {
+      ...compatibleModifierEvidenceForTest(command).modifierEvidence!,
+      transitions: [{ sequence: 1, source: "physical-reconcile", code: "MetaLeft", phase: "keyUp",
+        disposition: "dispatch", physicalCodes: [], coreCodes: [], eventModifierMask: 0 }]
+    } }));
+    expect(await test.dispatch()).toMatchObject({ status: "applied" });
+  });
+
   it("deadline is indeterminate and never retries", async () => {
     const test = setup(() => new Promise(() => undefined));
     const operation = test.dispatch();

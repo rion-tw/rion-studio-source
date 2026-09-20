@@ -20,7 +20,8 @@ app.whenReady().then(async () => {
       for (const type of ['keydown','keyup']) document.querySelector('canvas').addEventListener(type, event => {
         if (type === 'keydown') pressed.add(event.keyCode); else pressed.delete(event.keyCode);
         received.push({ type, code: event.code, keyCode: event.keyCode, which: event.which,
-          charCode: event.charCode, altKey: event.altKey, altState: event.getModifierState('Alt'),
+          charCode: event.charCode, altKey: event.altKey, ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey, shiftKey: event.shiftKey, altState: event.getModifierState('Alt'),
           pressed: [...pressed], isTrusted: event.isTrusted });
       }); document.querySelector('canvas').focus();`);
     const manifest = resolve("src/shared/browser-overlay/macroOverlayRuntime.js");
@@ -68,6 +69,7 @@ app.whenReady().then(async () => {
       code: 'AltLeft', key: 'Alt', keyCode: 18, which: 18, altKey: true, bubbles: true }));`);
     await window.webContents.executeJavaScriptInIsolatedWorld(999, [{ code: "window.dispatchEvent(new Event('blur'))" }]);
     const events = await window.webContents.executeJavaScript("received");
-    writeFileSync(reportPath, JSON.stringify({ platform: process.platform, chromium: process.versions.chrome, receipts, events }));
+    const reconciliation = await require("./probeChromiumModifierReconciliation.cjs")(window.webContents);
+    writeFileSync(reportPath, JSON.stringify({ platform: process.platform, chromium: process.versions.chrome, receipts, events, reconciliation }));
   } finally { window.destroy(); app.quit(); }
 }).catch(error => { console.error(error); app.exit(1); });

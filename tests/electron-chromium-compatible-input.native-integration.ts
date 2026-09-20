@@ -30,5 +30,24 @@ it("preserves compatible legacy fields in the main-world consumer across 100 hel
       }
     }
     expect(report.events.at(-1).pressed).toEqual([]);
+    const corrected = report.reconciliation;
+    expect(corrected.receipts).toHaveLength(2);
+    for (const receipt of corrected.receipts) {
+      expect(receipt).toMatchObject({ status: "applied", modifierEvidence: { eventModifierMask: 0 } });
+      expect(receipt.modifierEvidence.transitions.filter((entry: { source: string }) =>
+        entry.source === "physical-reconcile")).toHaveLength(2);
+    }
+    expect(corrected.events.map((event: { type: string; code: string }) => `${event.type}:${event.code}`))
+      .toEqual(["keydown:MetaLeft", "keydown:ShiftLeft", "keyup:ShiftLeft", "keyup:MetaLeft",
+        "keydown:KeyO", "keydown:Digit0", "keyup:Digit0", "keyup:KeyO"]);
+    for (const event of corrected.events) {
+      const keyCode = ({ MetaLeft: 91, ShiftLeft: 16, KeyO: 79, Digit0: 48 } as Record<string, number>)[event.code];
+      expect(event.keyCode).toBe(keyCode);
+      expect(event.which).toBe(keyCode);
+      if (event.code === "Digit0") expect(event).toMatchObject({
+        metaKey: false, shiftKey: false, altKey: false, ctrlKey: false, isTrusted: false
+      });
+    }
+    expect(corrected.events.at(-1).pressed).toEqual([]);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

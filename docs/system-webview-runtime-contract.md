@@ -2,7 +2,7 @@
 
 Contract version 22 preserves the shared compatibility semantics documented in
 the linked parts. The active Electron registration uses Chromium contract
-version 44; Core retains version 22 only for consumed legacy data and fixtures.
+version 45; Core retains version 22 only for consumed legacy data and fixtures.
 
 The System Runtime contract retains Rust-owned semantics across the migration
 from v22 WebView2/WKWebView to v23 Chromium. Electron is now the sole repository
@@ -49,3 +49,11 @@ ownership handling, including zero-event adoption and ownership-release receipts
 See [Compatible Macro Input](contracts/system-runtime/compatible-macro-input.md) for v43 ordering and bounded diagnostic evidence.
 The v42 physical modifier inheritance and existing second-press stop behavior
 remain in effect.
+
+## Chromium v45 physical modifier reconciliation
+
+A trusted physical keyboard event with a cleared modifier-family flag releases
+stale page-observed sides before shortcut admission. Core ownership remains
+intact; only the last holder sends an exact-target release. Armed macro input,
+projection input and forwarded events cannot provide physical release evidence.
+See [Compatible Macro Input](contracts/system-runtime/compatible-macro-input.md).

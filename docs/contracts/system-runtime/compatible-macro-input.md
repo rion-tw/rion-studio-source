@@ -81,3 +81,25 @@ forwarded input and focus cleanup. Defining JavaScript properties on an isolated
 world wrapper does not preserve those values in the game's main world. Native
 regression tests must read both legacy fields in that main-world consumer;
 isolated-world readback or a `code`-only pressed set cannot prove compatibility.
+
+## v45 event-bound physical modifier reconciliation
+
+A trusted physical keydown or keyup can prove a missing modifier release when
+its family flag is false. After excluding forwarded, armed macro and modifier
+projection events, the page removes stale physical sides in reverse press order
+before admitting the triggering shortcut. The current event's exact modifier
+side remains owned by the ordinary handler; a true family flag never identifies
+which side was released. Native snapshot absence alone cannot trigger cleanup.
+
+Core retains logical ownership. A remaining Core holder adopts page delivery
+without a keyup; otherwise one synthetic release goes only to the original
+connected document target, with current physical and Core flags and legacy key
+codes. A subsequent delayed physical keyup is hidden from page listeners once,
+without preventing Chromium's native flag update. A new physical keydown starts
+a fresh cycle. Disposal removes the event handlers; retired targets never
+redirect a corrective release to another Canvas. No timer or polling is used.
+
+The bounded transition journal adds `physical-reconcile` as a source, retaining
+actual corrective event flags or null for ownership-only/undelivered cleanup.
+Existing terminal records remain decodable. Overlay revision `2026-09-20.1` and
+Chromium contract v45 identify this ordering guarantee on both desktop platforms.

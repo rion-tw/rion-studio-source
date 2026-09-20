@@ -8,6 +8,7 @@ h1 { margin: 12px 0; font-size: var(--type-page-title-size); line-height: var(--
 .hint { margin: 0; font-size: var(--type-body-size); line-height: var(--type-body-line); color: hsl(var(--muted-foreground)); }
 .site-groups { display: grid; gap: 32px; }
 .site-group h2 { margin: 0 0 12px; font-size: var(--type-title-size); line-height: var(--type-title-line); font-weight: 600; }
+.drm-notice { margin-bottom: 16px; }
 .sites { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
 .site { display: grid; gap: 16px; min-width: 0; padding: 16px; text-decoration: none; color: inherit; border: 1px solid hsl(var(--border) / .6); border-radius: var(--radius-lg); background: hsl(var(--glass-panel)); box-shadow: 0 4px 16px hsl(var(--glass-shadow)); }
 .site:hover { background: hsl(var(--glass-panel-strong)); border-color: hsl(var(--border)); }

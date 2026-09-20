@@ -1,3 +1,5 @@
+import { verifyTwoRoleWorkspaceWebRecovery } from "../support/workspace-web-mixed-recovery";
+import { installRuntimeTabShellErrorJournal } from "../support/native-runtime-tabs";
 import { clickWorkspaceSlot } from "../support/ui";
 import { clickMacosVisibleRoleControl } from "../support/macos-appkit-ui";
 import { $, browser, expect } from "@wdio/globals";
@@ -1194,6 +1196,7 @@ async function runPhase(
   restart: boolean
 ): Promise<void> {
   const role = await findRole();
+  await installRuntimeTabShellErrorJournal();
   let workspace = restart ? await findWorkspace() : await createWorkspace(role);
   expect(workspace.slots.find((slot) => slot.web !== undefined)?.web).toEqual(
     restart ? { lastUrl: configuredWebUrl() } : {}
@@ -1238,6 +1241,7 @@ async function runPhase(
     platform,
     tabId: launched.tabId
   });
+  if (!restart) await verifyTwoRoleWorkspaceWebRecovery(platform, role);
 }
 
 describe("Chromium Workspace Web contained fullscreen exact replacement", () => {

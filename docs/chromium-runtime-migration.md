@@ -189,7 +189,7 @@ their top edge. Pointer end/cancel, tab changes, host teardown, stream failure,
 and supersede retire the presentation. Exact gesture and paint revisions prevent
 late events from reviving it. These changes do not alter portable or SQLite schemas.
 
-The active runtime contract is version 46. Version 23 remains the first
+The active runtime contract is version 47. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -1155,3 +1155,27 @@ empty cleanup. Only matching release receipts or authoritative document/surface
 retirement remove that uncertainty. Rejected receipt diagnostics identify the
 exact failing check and distinguish reported counts from validated delivery; see
 [Compatible Macro Input](contracts/system-runtime/compatible-macro-input.md).
+
+## Chromium v47 Workspace Web navigation receipts
+
+Workspace Web load failures return a dedicated Core receipt with operation,
+window/generation, tab/attempt, surface/generation, committed runtime revision,
+and accepted/superseded status. The ownership-only BrowserRuntimeSnapshot has
+no window topology and must never serve as a failure acknowledgement. Rust
+serializes ownership checks and degradation through its runtime sequence; stale
+observations do not affect a replacement owner. Electron validates every receipt
+field and logs bounded identifiers, event source and error code without URLs.
+
+Chromium document and main-frame in-page commits complete toolbar navigation.
+Loading is separate presentation state. Each WebContents has one current
+navigation; a new action supersedes the previous observer before submission.
+Cancellation (including ERR_ABORTED), destruction and renderer termination settle
+pending work explicitly. Old loadURL rejections and mismatched URL events cannot
+complete newer navigation. The toolbar does not queue Home behind a network
+response and uses no polling, retries or deadlines. Navigation failures remain
+visible in the slot's trusted chrome, retaining Home and Reload; Web errors do
+not reveal the main application window.
+
+The entrance's media section explains in all four locales that DRM-dependent
+services can require a supported external browser. This release does not add a
+CDM or claim Netflix playback. Existing DRM permission policy stays unchanged.

@@ -1,3 +1,4 @@
+import { verifyWorkspaceWebNavigation } from "../support/workspace-web-navigation";
 import { clickWorkspaceSlot } from "../support/ui";
 import { exerciseWorkspaceWebThemes, expectWorkspaceWebTheme } from "../support/workspace-web-theme";
 import { $, browser, expect } from "@wdio/globals";
@@ -623,6 +624,8 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   expect((await rendererCall("listGameWindows"))
     .some((window) => window.id === transientTab.windowId)).toBe(false);
   expect(await runtimeTabShellErrors()).toEqual([]);
+  // Complete healthy layout evidence before deliberately degrading this tab.
+  await verifyWorkspaceWebNavigation({ ...transientAfter.web, mainWindowHandle, roleIds: [role.id] });
   await stopCutoverWindow({ mainWindowHandle, platform, tab: transientTab });
   // The native close must finish resource retirement as well as remove the tab.
   await browser.waitUntil(async () => !(await rendererCall("listRoleStatuses"))

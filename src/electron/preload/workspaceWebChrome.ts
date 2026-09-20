@@ -59,6 +59,14 @@ ipcRenderer.on(
     document.documentElement.style.colorScheme = state.resolvedTheme;
     const navigationChanged = committedUrl !== state.url;
     committedUrl = state.url;
+    const status = document.querySelector<HTMLElement>("#navigation-status");
+    if (status) {
+      status.textContent = state.statusText ?? "";
+      status.title = state.statusText ?? "";
+      status.hidden = !state.statusText;
+      status.dataset.failed = String(state.errorCode !== undefined);
+    }
+    document.querySelector("nav")?.setAttribute("aria-busy", String(state.loading === true));
     const controls = elements();
     if (navigationChanged) {
       applyAddress?.(state.url);

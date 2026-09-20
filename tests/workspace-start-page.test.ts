@@ -15,6 +15,10 @@ describe("packaged website entrance", () => {
     expect(readFileSync(`${process.cwd()}/src/shared/generated/workspace-start.html`, "utf8")).toBe(html);
     const page = new DOMParser().parseFromString(html, "text/html");
     expect(page.querySelector("script,input,iframe")).toBeNull();
+    for (const language of ["en", "zh-TW", "zh-CN", "ja"]) {
+      expect(page.querySelector(`[data-workspace-drm-notice] [data-language="${language}"]`)?.textContent).toContain("DRM");
+    }
+    expect(page.querySelectorAll("[data-workspace-drm-notice]")).toHaveLength(1);
     expect([...page.querySelectorAll("a")].map((card) => [card.dataset.workspaceStartSite, card.getAttribute("href")]))
       .toEqual(catalog.map((site) => [site.id, site.startUrl]));
     const groups = [...page.querySelectorAll<HTMLElement>("[data-workspace-start-category]")];

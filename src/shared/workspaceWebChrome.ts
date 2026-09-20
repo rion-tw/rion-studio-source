@@ -29,6 +29,9 @@ export interface WorkspaceWebChromeState {
   readonly url: string;
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;
+  readonly loading?: boolean;
+  readonly errorCode?: number;
+  readonly statusText?: string;
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -102,12 +105,18 @@ export function parseWorkspaceWebChromeState(
   if (
     !isRecord(value) ||
     !exactKeys(value, [
-      "surfaceId", "generation", "url", "canGoBack", "canGoForward", "resolvedTheme"
+      "surfaceId", "generation", "url", "canGoBack", "canGoForward", "resolvedTheme",
+      ...("loading" in value ? ["loading"] : []),
+      ...("errorCode" in value ? ["errorCode"] : []),
+      ...("statusText" in value ? ["statusText"] : [])
     ]) ||
     !validIdentifier(value.surfaceId) ||
     !Number.isSafeInteger(value.generation) ||
     (value.generation as number) < 1 ||
     !(canonicalUrlInput(value.url) || (typeof value.url === "string" && isWorkspaceStartUrl(value.url))) ||
+    ("loading" in value && typeof value.loading !== "boolean") ||
+    ("errorCode" in value && !Number.isSafeInteger(value.errorCode)) ||
+    ("statusText" in value && (typeof value.statusText !== "string" || value.statusText.length > 512)) ||
     typeof value.canGoBack !== "boolean" ||
     typeof value.canGoForward !== "boolean" ||
     (value.resolvedTheme !== "light" && value.resolvedTheme !== "dark")
@@ -118,6 +127,9 @@ export function parseWorkspaceWebChromeState(
     url: value.url,
     resolvedTheme: value.resolvedTheme,
     canGoBack: value.canGoBack,
-    canGoForward: value.canGoForward
+    canGoForward: value.canGoForward,
+    ...(value.loading === undefined ? {} : { loading: value.loading as boolean }),
+    ...(value.errorCode === undefined ? {} : { errorCode: value.errorCode as number }),
+    ...(value.statusText === undefined ? {} : { statusText: value.statusText as string })
   });
 }

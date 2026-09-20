@@ -114,6 +114,7 @@ class FakeContents implements ChromiumRoleSurfaceWebContentsPort {
   }
 
   finish(url: string): void {
+    this.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false, url });
     this.currentUrl = url;
     if (url.startsWith("http")) {
       if (this.history[this.historyIndex] !== url) {
@@ -460,6 +461,49 @@ describe("Chromium paired Workspace Web presentation", () => {
       channel: WORKSPACE_WEB_CHROME_STATE_CHANNEL,
       value: expect.objectContaining({ url: "rion-start://home/" })
     });
+  });
+
+  it.each(["darwin", "win32"] as const)("keeps back, forward and home usable after in-page history on %s", async platform => {
+    const subject = harness(null, platform);
+    const { shell, content } = await finishCreate(subject);
+    content.history = ["https://fixture.test/start", "https://fixture.test/start#next"];
+    content.historyIndex = 1;
+    content.currentUrl = content.history[1]!;
+    for (const type of ["back", "forward"] as const) {
+      subject.emitAction(shell, { surfaceId: "web-tab-1-1", generation: 1, type });
+      content.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true, url: content.currentUrl });
+      content.emit("did-navigate-in-page", {}, content.currentUrl, true, 1, 1);
+      await Promise.resolve();
+      expect(shell.sent.at(-1)?.value).toMatchObject({ url: content.currentUrl, loading: false });
+    }
+    subject.emitAction(shell, { surfaceId: "web-tab-1-1", generation: 1, type: "home" });
+    expect(content.loadedUrls.at(-1)).toBe("rion-start://home/");
+    content.finish("rion-start://home/");
+    await Promise.resolve();
+    expect(subject.errors).not.toHaveBeenCalled();
+  });
+
+  it.each(["darwin", "win32"] as const)("supersedes slow loads and presents failures locally on %s", async platform => {
+    const subject = harness(null, platform);
+    const { shell, content } = await finishCreate(subject);
+    const action = (type: "navigate" | "home", url?: string) => subject.emitAction(shell, {
+      surfaceId: "web-tab-1-1", generation: 1, type, ...(url ? { url } : {})
+    });
+    action("navigate", "https://slow.test/");
+    action("home");
+    expect(content.loadedUrls.at(-1)).toBe("rion-start://home/");
+    content.emit("did-fail-load", {}, -105, "late", "https://slow.test/", true, 1, 1);
+    content.finish("rion-start://home/");
+    action("navigate", "https://offline.test/");
+    content.emit("did-start-navigation", { url: "https://offline.test/", isMainFrame: true, isSameDocument: false });
+    content.emit("did-fail-load", {}, -105, "offline", "https://offline.test/", true, 1, 1);
+    expect(shell.sent.at(-1)?.value).toMatchObject({ errorCode: -105, loading: false,
+      statusText: "Page could not load. Reload or go home." });
+    action("home");
+    content.finish("rion-start://home/");
+    await Promise.resolve();
+    expect(shell.sent.at(-1)?.value).toMatchObject({ url: "rion-start://home/", statusText: "" });
+    expect(subject.errors).not.toHaveBeenCalled();
   });
 
   it("rejects a forged local-shell identity backed by persistent native storage", () => {

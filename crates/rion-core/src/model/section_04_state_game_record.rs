@@ -370,6 +370,25 @@ pub struct BrowserWorkspaceWebNavigationCommitReceiptRecord {
     pub last_url: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserWorkspaceWebFailureReceiptRecord {
+    pub operation_id: String,
+    #[ts(type = "\"accepted\" | \"superseded\"")]
+    pub status: String,
+    pub window_id: String,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    pub tab_id: String,
+    pub attempt_generation: String,
+    pub surface_id: String,
+    #[ts(type = "number")]
+    pub surface_generation: u64,
+    #[ts(type = "number")]
+    pub runtime_revision: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]

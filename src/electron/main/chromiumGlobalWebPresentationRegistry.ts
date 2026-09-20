@@ -1,4 +1,5 @@
 import { createTransparentRuntimeView } from "./transparentRuntimeView";
+import { workspaceWebStatus } from "./workspaceWebStatus";
 import { WORKSPACE_START_URL } from "../../shared/workspaceStartPage";
 import { readWorkspaceWebTheme, subscribeWorkspaceWebTheme } from "./workspaceWebTheme";
 import { pathToFileURL } from "node:url";
@@ -122,7 +123,7 @@ interface ChromeRecord {
   loadSettled: boolean;
   destroyedObserved: boolean;
   state: ChromeState;
-  actionLane: Promise<void>;
+  actionSequence: number;
   closePromise: Promise<boolean> | null;
 }
 
@@ -644,7 +645,7 @@ export class ChromiumGlobalWebPresentationRegistry {
       loadSettled: false,
       destroyedObserved: false,
       state: "opening" as ChromeState,
-      actionLane: Promise.resolve(),
+      actionSequence: 0,
       closePromise: null
     };
     record.listeners = {
@@ -941,10 +942,14 @@ export class ChromiumGlobalWebPresentationRegistry {
           "The local Web chrome action lost its exact surface sender fence."
         );
       }
-      record.actionLane = record.actionLane.then(
-        () => this.#applyAction(record, action),
-        () => this.#applyAction(record, action)
-      ).catch((error: unknown) => {
+      const sequence = ++record.actionSequence;
+      void this.#applyAction(record, action, sequence).catch((error: unknown) => {
+        if (sequence !== record.actionSequence || record.state !== "active") return;
+        const code = (error as { code?: string } | null)?.code;
+        if (code === "ELECTRON_GLOBAL_WEB_NAVIGATION_SUPERSEDED" ||
+            code === "ELECTRON_GLOBAL_WEB_NAVIGATION_CANCELLED" ||
+            code === "ELECTRON_GLOBAL_WEB_NAVIGATION_FAILED" ||
+            code === "ELECTRON_GLOBAL_WEB_NAVIGATION_DESTROYED") return;
         this.#onError(normalizeRionBridgeError(
           error,
           "ELECTRON_WORKSPACE_WEB_CHROME_ACTION_FAILED"
@@ -960,7 +965,8 @@ export class ChromiumGlobalWebPresentationRegistry {
 
   async #applyAction(
     record: ChromeRecord,
-    action: WorkspaceWebChromeAction
+    action: WorkspaceWebChromeAction,
+    sequence: number
   ): Promise<void> {
     if (record.state !== "active") return;
     let evidence: ChromiumGlobalWebSurfaceRuntimeEvidence;
@@ -992,7 +998,7 @@ export class ChromiumGlobalWebPresentationRegistry {
         );
         break;
     }
-    if (record.state === "active") this.#publishState(record, evidence);
+    if (record.state === "active" && sequence === record.actionSequence) this.#publishState(record, evidence);
   }
 
   #refreshChromeState(record: ChromeRecord): void {
@@ -1015,7 +1021,10 @@ export class ChromiumGlobalWebPresentationRegistry {
       url: evidence.currentUrl,
       resolvedTheme: readWorkspaceWebTheme(),
       canGoBack: evidence.canGoBack,
-      canGoForward: evidence.canGoForward
+      canGoForward: evidence.canGoForward,
+      loading: evidence.loading,
+      statusText: workspaceWebStatus(evidence),
+      ...(evidence.errorCode === undefined ? {} : { errorCode: evidence.errorCode })
     });
   }
 

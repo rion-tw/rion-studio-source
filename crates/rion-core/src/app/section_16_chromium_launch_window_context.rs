@@ -366,17 +366,17 @@ impl AppCore {
     fn report_chromium_workspace_web_surface_failed(
         &self,
         input: ChromiumWorkspaceWebSurfaceFailureInput,
-    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
+    ) -> CoreResult<crate::model::BrowserWorkspaceWebFailureReceiptRecord> {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
             return Err(chromium_launch_window_context_error(
                 "CHROMIUM_WORKSPACE_WEB_FAILURE_UNAVAILABLE",
-                "Workspace Web failure authority requires Chromium runtime contract v23.",
+                "Workspace Web failure receipts require the current Chromium runtime contract.",
             ));
         }
-        let operation_id = crate::OperationId::new(input.operation_id)
+        let operation_id = crate::OperationId::new(input.operation_id.clone())
             .map_err(CoreError::InvalidInput)?
             .into_string();
-        let tab_id = crate::RuntimeTabId::new(input.tab_id).map_err(CoreError::InvalidInput)?;
+        let tab_id = crate::RuntimeTabId::new(input.tab_id.clone()).map_err(CoreError::InvalidInput)?;
         if input.surface_id.trim().is_empty()
             || input.expected_attempt_generation.trim().is_empty()
             || input.surface_generation < 1
@@ -386,60 +386,55 @@ impl AppCore {
                 "Chromium Workspace Web failure identity is invalid.".to_owned(),
             ));
         }
+        let receipt = |status: &str, revision| crate::model::BrowserWorkspaceWebFailureReceiptRecord {
+            operation_id: operation_id.clone(),
+            status: status.to_owned(),
+            window_id: input.window_id.clone(),
+            window_generation: input.expected_window_generation,
+            tab_id: input.tab_id.clone(),
+            attempt_generation: input.expected_attempt_generation.clone(),
+            surface_id: input.surface_id.clone(),
+            surface_generation: input.surface_generation,
+            runtime_revision: revision,
+        };
+        let _lane = self.embedded_runtime_sequence.acquire()?;
         let before = self.browser_runtime.snapshot()?;
-        let window = before.windows.get(&input.window_id).ok_or_else(|| {
-            chromium_launch_window_context_error(
-                "CHROMIUM_WORKSPACE_WEB_FAILURE_STALE",
-                "The failed Workspace Web window is no longer live.",
-            )
-        })?;
-        let browser_tab = before
-            .browser_runtime
-            .tabs
-            .iter()
-            .find(|tab| tab.id == tab_id.as_str() && tab.window_id == input.window_id)
-            .ok_or_else(|| {
-                chromium_launch_window_context_error(
-                    "CHROMIUM_WORKSPACE_WEB_FAILURE_STALE",
-                    "The failed Workspace Web tab is no longer live.",
-                )
-            })?;
-        let activation = before.tab_activations.get(tab_id.as_str()).ok_or_else(|| {
-            chromium_launch_window_context_error(
-                "CHROMIUM_WORKSPACE_WEB_FAILURE_STALE",
-                "The failed Workspace Web tab has no current activation.",
-            )
-        })?;
+        let stale = || receipt("superseded", before.revision);
+        let Some(window) = before.windows.get(&input.window_id) else {
+            return Ok(stale());
+        };
+        let Some(browser_tab) = before.browser_runtime.tabs.iter().find(|tab| {
+            tab.id == tab_id.as_str() && tab.window_id == input.window_id
+        }) else {
+            return Ok(stale());
+        };
+        let Some(activation) = before.tab_activations.get(tab_id.as_str()) else {
+            return Ok(stale());
+        };
         if window.window_generation != input.expected_window_generation
+            || !window.contains_tab(tab_id.as_str())
             || activation.owner_window_id != input.window_id
             || activation.window_generation.0 != input.expected_window_generation
             || browser_tab.tab_type != "workspace"
             || browser_tab.attempt_generation.as_deref()
                 != Some(input.expected_attempt_generation.as_str())
-            || !browser_tab
-                .web_surfaces
-                .iter()
-                .any(|surface| surface.surface_id == input.surface_id)
+            || !browser_tab.web_surfaces.iter().any(|surface| surface.surface_id == input.surface_id)
         {
-            return Err(chromium_launch_window_context_error(
-                "CHROMIUM_WORKSPACE_WEB_FAILURE_STALE",
-                "The failed Workspace Web surface lost its exact Core owner.",
-            ));
+            return Ok(stale());
         }
         let commit = self.apply_runtime_intent(crate::RuntimeIntent::SetTabActivationPhase {
             activation_attempt_id: activation.attempt_id.clone(),
-            operation_id,
+            operation_id: operation_id.clone(),
             phase: crate::model::RuntimeTabActivationPhaseRecord::Degraded,
             tab_id,
         })?;
         if commit.status == crate::RuntimeCommitStatus::Superseded {
-            return Err(chromium_launch_window_context_error(
-                "CHROMIUM_WORKSPACE_WEB_FAILURE_STALE",
-                "The Workspace Web activation changed before failure commit.",
-            ));
+            return Ok(receipt("superseded", commit.revision));
         }
-        self.project_embedded_runtime_snapshot_without_persistence(None)
+        self.project_embedded_runtime_snapshot_without_persistence(Some(&operation_id))?;
+        Ok(receipt("accepted", commit.revision))
     }
+
 }
 
 fn chromium_launch_window_context_error(code: &'static str, message: &str) -> CoreError {

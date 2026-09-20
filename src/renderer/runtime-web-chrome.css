@@ -94,3 +94,6 @@ button svg {
 #location[aria-invalid="true"] {
   border-color: hsl(var(--destructive));
 }
+
+#navigation-status { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: hsl(var(--muted-foreground)); }
+#navigation-status[data-failed="true"] { color: hsl(var(--destructive)); }

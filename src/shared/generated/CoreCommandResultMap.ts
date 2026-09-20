@@ -9,6 +9,7 @@ import type { BrowserFontInstallResultRecord } from "./BrowserFontInstallResultR
 import type { BrowserFontRuntimePayloadRecord } from "./BrowserFontRuntimePayloadRecord";
 import type { BrowserRuntimeRegistrationRecord } from "./BrowserRuntimeRegistrationRecord";
 import type { WorkspaceSlotLoadRecord } from "./WorkspaceSlotLoadRecord";
+import type { BrowserWorkspaceWebFailureReceiptRecord } from "./BrowserWorkspaceWebFailureReceiptRecord";
 import type { BrowserWorkspaceWebNavigationCommitReceiptRecord } from "./BrowserWorkspaceWebNavigationCommitReceiptRecord";
 import type { BrowserRuntimeSnapshot } from "./BrowserRuntimeSnapshot";
 import type { BrowserWorkspaceStatusRecord } from "./BrowserWorkspaceStatusRecord";
@@ -210,7 +211,7 @@ type TypedCoreCommandResultMap = {
   browserRoleSlotClaim: BrowserRuntimeSnapshot;
   workspaceSlotLoadReport: WorkspaceSlotLoadRecord | null;
   workspaceSlotRetry: boolean;
-  browserWorkspaceWebSurfaceFailed: BrowserRuntimeSnapshot;
+  browserWorkspaceWebSurfaceFailed: BrowserWorkspaceWebFailureReceiptRecord;
   browserWorkspaceWebNavigationCommitted: BrowserWorkspaceWebNavigationCommitReceiptRecord;
   browserTabAudioMute: SystemRuntimeOperationSummaryRecord;
   browserRuntimeTabReload: BrowserTabReloadReceiptRecord;

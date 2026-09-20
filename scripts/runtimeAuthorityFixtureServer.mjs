@@ -1335,6 +1335,32 @@ const server = createServer(async (request, response) => {
       sendRolePage(response, roleId);
       return;
     }
+    if (request.method === "GET" && url.pathname === "/web-navigation") {
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(`<!doctype html><html><head><title>Workspace Web navigation</title></head>
+        <body><h1>Workspace Web navigation</h1>
+        <p><a id="history-one" href="#one">First section</a></p>
+        <p><a id="history-two" href="#two">Second section</a></p>
+        <p><a id="slow-page" href="/web-navigation/slow">Slow page</a></p>
+        <p><a id="failed-page" href="/web-navigation/fail">Failed page</a></p>
+        <script>document.querySelector('#history-two').addEventListener('click', event => {
+          event.preventDefault(); history.pushState({}, '', '#two');
+        });</script>
+        </body></html>`);
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/web-navigation/slow") {
+      recordFixtureEvent({ kind: "web-navigation-slow-started", roleId: "workspace-web-navigation" });
+      // EventBound: the test cancels this exact transport through visible Home.
+      response.once("close", () => recordFixtureEvent({
+        kind: "web-navigation-slow-cancelled", roleId: "workspace-web-navigation"
+      }));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/web-navigation/fail") {
+      response.destroy();
+      return;
+    }
     const roleMatch = request.method === "GET" && url.pathname.match(/^\/role\/([a-z0-9-]+)$/);
     if (roleMatch) {
       const roleId = roleMatch[1];

@@ -1,3 +1,4 @@
+import { ChromiumWorkspaceWebNavigation, type WorkspaceWebFailureSource } from "./chromiumWorkspaceWebNavigation";
 import { createTransparentRuntimeView } from "./transparentRuntimeView";
 import { observeWorkspaceStartPage } from "./workspaceStartPage";
 import { isWorkspaceStartUrl } from "../../shared/workspaceStartPage";
@@ -113,6 +114,8 @@ export interface ChromiumWorkspaceWebNavigationCommit {
 export interface ChromiumGlobalWebActiveMainFrameFailure {
   readonly attemptGeneration: string;
   readonly errorCode: number;
+  readonly source?: WorkspaceWebFailureSource;
+  readonly networkError?: string;
   readonly surfaceGeneration: number;
   readonly surfaceId: string;
   readonly tabId: string;
@@ -143,6 +146,8 @@ export interface ChromiumGlobalWebSurfaceRuntimeEvidence {
   readonly canGoForward: boolean;
   readonly contentProfilePath: string;
   readonly currentUrl: string;
+  readonly loading: boolean;
+  readonly errorCode?: number;
   /** Internal identity fence used to prove the local chrome shell is isolated. */
   readonly contentSession: ChromiumGlobalWebSurfaceLease["session"];
 }
@@ -170,6 +175,9 @@ interface SurfaceListeners {
   readonly didCreateWindow: ChromiumRoleSurfaceEventMap["did-create-window"];
   readonly didStartNavigation: ChromiumRoleSurfaceEventMap["did-start-navigation"];
   readonly didFinishLoad: () => void;
+  readonly didFailProvisionalLoad: ChromiumRoleSurfaceEventMap["did-fail-load"];
+  readonly didRedirectNavigation: ChromiumRoleSurfaceEventMap["did-redirect-navigation"];
+  readonly renderProcessGone: ChromiumRoleSurfaceEventMap["render-process-gone"];
   readonly didNavigate: ChromiumRoleSurfaceEventMap["did-navigate"];
   readonly didNavigateInPage: ChromiumRoleSurfaceEventMap["did-navigate-in-page"];
   readonly didFailLoad: ChromiumRoleSurfaceEventMap["did-fail-load"];
@@ -193,6 +201,7 @@ interface SurfaceRecord {
   readonly windowGeneration: number;
   readonly windowId: string;
   readonly initialUrl: string;
+  readonly navigation: ChromiumWorkspaceWebNavigation;
   readonly sessionLease: ChromiumGlobalWebSurfaceLease;
   readonly view: ChromiumRoleWebContentsViewPort;
   readonly contents: ChromiumRoleSurfaceWebContentsPort;
@@ -679,7 +688,9 @@ export class ChromiumGlobalWebSurfaceRegistry {
       canGoBack: contents.navigationHistory.canGoBack(),
       canGoForward: contents.navigationHistory.canGoForward(),
       contentProfilePath: record.sessionLease.chromiumUserDataDir,
-      currentUrl: canonicalWebUrl(contents.getURL()),
+      currentUrl: canonicalWebUrl(record.navigation.url ?? (contents.getURL() || record.initialUrl)),
+      loading: record.navigation.loading,
+      ...(record.navigation.errorCode === undefined ? {} : { errorCode: record.navigation.errorCode }),
       contentSession: record.sessionLease.session
     });
   }
@@ -909,6 +920,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
         "The global Web surface generation is stale."
       ));
     }
+    record.navigation.cancel("DESTROYED");
     record.state = "closing";
     return (this.#navigationCommits?.drain() ?? Promise.resolve())
       .then(() => this.#beginTerminalClose(record));
@@ -953,6 +965,11 @@ export class ChromiumGlobalWebSurfaceRegistry {
       windowGeneration: input.windowGeneration,
       windowId: input.windowId,
       initialUrl,
+      navigation: new ChromiumWorkspaceWebNavigation(contents, () => {
+        if (record.state === "active" && !record.destroyed) {
+          input.onNavigationChange?.(this.runtimeEvidence(record.surfaceId, record.generation));
+        }
+      }, (code, url, source, networkError) => this.#reportActiveMainFrameFailure(record, code, url, source, networkError)),
       sessionLease,
       view,
       contents,
@@ -1008,29 +1025,41 @@ export class ChromiumGlobalWebSurfaceRegistry {
         }), popupWindow, details);
       },
       didStartNavigation: (details) => {
-        if (details.isMainFrame && !details.isSameDocument) {
+        if (details.isMainFrame) {
           record.activeFailureReported = false;
+          record.navigation.started(details.url);
         }
+      },
+      didRedirectNavigation: (_event, url, _inPlace, isMainFrame) => {
+        if (isMainFrame) record.navigation.redirected(url);
       },
       didFinishLoad: () => {
         this.#finishInitialLoad(record, input);
+        record.navigation.finished();
       },
-      didNavigate: (_event, url) => this.#commitNavigation(record, input, url),
+      didNavigate: (_event, url) => {
+        if (record.navigation.committed(url)) this.#commitNavigation(record, input, url);
+      },
       didNavigateInPage: (_event, url, isMainFrame) => {
-        if (isMainFrame) this.#commitNavigation(record, input, url);
+        if (isMainFrame && record.navigation.committed(url)) {
+          record.navigation.finished();
+          this.#commitNavigation(record, input, url);
+        }
       },
-      didFailLoad: (
-        _event,
-        _errorCode,
-        _errorDescription,
-        _validatedUrl,
-        isMainFrame
-      ) => {
+      didFailLoad: (_event, code, _description, url, isMainFrame) => {
         if (!isMainFrame) return;
-        if (record.state === "opening") {
-          this.#failInitialLoad(record);
-        } else if (record.state === "active") {
-          this.#reportActiveMainFrameFailure(record, _errorCode, _validatedUrl);
+        if (record.state === "opening") this.#failInitialLoad(record);
+        else if (record.state === "active") record.navigation.fail(code, url, "did-fail-load");
+      },
+      didFailProvisionalLoad: (_event, code, _description, url, isMainFrame) => {
+        if (isMainFrame && record.state === "active") {
+          record.navigation.fail(code, url, "did-fail-provisional-load");
+        }
+      },
+      renderProcessGone: () => {
+        if (record.state === "opening") this.#failInitialLoad(record);
+        else if (record.state === "active") {
+          record.navigation.fail(0, record.navigation.url ?? contents.getURL(), "render-process-gone");
         }
       },
       enteredHtmlFullscreen: () => input.onContainedFullscreenChange?.(true),
@@ -1079,6 +1108,9 @@ export class ChromiumGlobalWebSurfaceRegistry {
     contents.on("will-navigate", record.listeners.willNavigate);
     contents.on("will-redirect", record.listeners.willRedirect);
     contents.on("did-start-navigation", record.listeners.didStartNavigation);
+    contents.on("did-redirect-navigation", record.listeners.didRedirectNavigation);
+    contents.on("did-fail-provisional-load", record.listeners.didFailProvisionalLoad);
+    contents.on("render-process-gone", record.listeners.renderProcessGone);
     contents.on("did-finish-load", record.listeners.didFinishLoad);
     contents.on("did-navigate", record.listeners.didNavigate);
     contents.on("did-navigate-in-page", record.listeners.didNavigateInPage);
@@ -1212,6 +1244,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
 
   #beginTerminalClose(record: SurfaceRecord): Promise<boolean> {
     if (record.closePromise) return record.closePromise;
+    record.navigation.cancel("DESTROYED");
     record.state = "closing";
     record.terminalFailure = null;
     const completion = deferred<boolean>();
@@ -1273,6 +1306,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
   #onDestroyed(record: SurfaceRecord): void {
     if (record.destroyed) return;
     record.destroyed = true;
+    record.navigation.cancel("DESTROYED");
     record.state = "closing";
     if (!record.loadSettled) {
       record.loadSettled = true;
@@ -1428,81 +1462,18 @@ export class ChromiumGlobalWebSurfaceRegistry {
     begin: () => void | Promise<void>,
     requestedUrl?: string
   ): Promise<ChromiumGlobalWebSurfaceRuntimeEvidence> {
-    const completion = deferred<ChromiumGlobalWebSurfaceRuntimeEvidence>();
-    let settled = false;
     record.activeFailureReported = false;
-    const remove = () => {
-      record.contents.removeListener("did-finish-load", didFinishLoad);
-      record.contents.removeListener("did-fail-load", didFailLoad);
-      record.contents.removeListener("destroyed", destroyed);
-    };
-    const reject = (code: string, message: string) => {
-      if (settled) return;
-      settled = true;
-      remove();
-      completion.reject(surfaceError(code, message));
-    };
-    const failActiveMainFrame = (errorCode: number, validatedUrl: string) => {
-      if (settled) return;
-      this.#reportActiveMainFrameFailure(record, errorCode, validatedUrl);
-      reject(
-        "ELECTRON_GLOBAL_WEB_NAVIGATION_FAILED",
-        "Chromium rejected the remote Web navigation."
-      );
-    };
-    const didFinishLoad = () => {
-      if (settled) return;
-      try {
-        const evidence = this.runtimeEvidence(record.surfaceId, record.generation);
-        settled = true;
-        remove();
-        completion.resolve(evidence);
-      } catch {
-        reject(
-          "ELECTRON_GLOBAL_WEB_NAVIGATION_READBACK_FAILED",
-          "Chromium did not acknowledge the exact remote Web navigation."
-        );
-      }
-    };
-    const didFailLoad: ChromiumRoleSurfaceEventMap["did-fail-load"] = (
-      _event,
-      errorCode,
-      _errorDescription,
-      validatedUrl,
-      isMainFrame
-    ) => {
-      if (isMainFrame) failActiveMainFrame(errorCode, validatedUrl);
-    };
-    const destroyed = () => reject(
-      "ELECTRON_GLOBAL_WEB_NAVIGATION_DESTROYED",
-      "The remote Web surface closed before navigation completed."
+    return record.navigation.run(begin, requestedUrl).then(() =>
+      this.runtimeEvidence(record.surfaceId, record.generation)
     );
-    record.contents.on("did-finish-load", didFinishLoad);
-    record.contents.on("did-fail-load", didFailLoad);
-    record.contents.on("destroyed", destroyed);
-    try {
-      const terminal = begin();
-      if (terminal) {
-        void terminal.catch((error: unknown) => {
-          // EventBound: Electron documents loadURL rejection as the exact
-          // did-fail-load terminal for the requested main-frame navigation.
-          const errorCode = typeof error === "object" && error !== null &&
-            Number.isSafeInteger((error as { errorCode?: unknown }).errorCode)
-            ? (error as { errorCode: number }).errorCode
-            : 0;
-          failActiveMainFrame(errorCode, requestedUrl ?? record.contents.getURL());
-        });
-      }
-    } catch {
-      failActiveMainFrame(0, requestedUrl ?? record.contents.getURL());
-    }
-    return completion.promise;
   }
 
   #reportActiveMainFrameFailure(
     record: SurfaceRecord,
     errorCode: number,
-    validatedUrl: string
+    validatedUrl: string,
+    source: WorkspaceWebFailureSource,
+    networkError?: string
   ): void {
     if (
       record.state !== "active" || record.destroyed ||
@@ -1515,6 +1486,8 @@ export class ChromiumGlobalWebSurfaceRegistry {
     this.#activeMainFrameFailures?.report(Object.freeze({
       attemptGeneration: record.attemptGeneration,
       errorCode,
+      source,
+      ...(networkError === undefined ? {} : { networkError }),
       surfaceGeneration: record.generation,
       surfaceId: record.surfaceId,
       tabId: record.tabId,
@@ -1548,7 +1521,12 @@ export class ChromiumGlobalWebSurfaceRegistry {
           ? this.#surfaceByWebContentsId.get(details.webContentsId!)
           : undefined;
       const record = surfaceId ? this.#records.get(surfaceId) : undefined;
-      if (record) this.#reportActiveMainFrameFailure(record, 0, details.url);
+      // The main-frame observer owns terminality. This fallback is admitted only
+      // for its current URL; aborted requests are cancellations, never failures.
+      if (record && record.state === "active") {
+        record.navigation.fail(details.error === "net::ERR_ABORTED" ? -3 : 0,
+          details.url, "network", /^net::ERR_[A-Z_]{1,80}$/u.test(details.error) ? details.error : undefined);
+      }
     });
     this.#networkFailureSession = candidate as GlobalWebNetworkFailureSessionPort;
   }
@@ -1630,6 +1608,10 @@ export class ChromiumGlobalWebSurfaceRegistry {
   }
 
   #removeAllListeners(record: SurfaceRecord): void {
+    record.navigation.cancel("DESTROYED");
+    record.contents.removeListener("did-redirect-navigation", record.listeners.didRedirectNavigation);
+    record.contents.removeListener("did-fail-provisional-load", record.listeners.didFailProvisionalLoad);
+    record.contents.removeListener("render-process-gone", record.listeners.renderProcessGone);
     this.#removeLoadListeners(record);
     record.contents.removeListener(
       "before-input-event",

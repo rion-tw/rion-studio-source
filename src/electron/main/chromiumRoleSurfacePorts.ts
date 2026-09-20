@@ -51,8 +51,10 @@ export interface ChromiumRoleSurfaceEventMap {
     details: Readonly<{
       isMainFrame: boolean;
       isSameDocument: boolean;
+      url?: string;
     }>
   ) => void;
+  readonly "did-redirect-navigation": ChromiumRoleSurfaceEventMap["will-redirect"];
   readonly "did-finish-load": () => void;
   readonly "did-create-window": (
     window: ChromiumPopupWindowPort,

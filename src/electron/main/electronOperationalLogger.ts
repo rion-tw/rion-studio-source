@@ -79,6 +79,11 @@ export class ElectronOperationalLogger {
       error, error.code);
   }
 
+  workspaceWebDiagnostic(context: LogContext): void {
+    this.info("browser", "workspace_web_navigation_failure",
+      "Workspace Web failure observation advanced.", context);
+  }
+
   fatalTerminationError(error: { code: string; message: string }): void {
     this.error("main", "fatal_termination_error", "Fatal termination encountered an error.",
       error, error.code);

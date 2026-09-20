@@ -162,6 +162,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   }
 
   finish(url: string): void {
+    this.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false, url });
     this.currentUrl = url;
     this.emit("did-navigate", {}, url, 200, "OK");
     this.emit("did-finish-load");
@@ -461,6 +462,7 @@ describe("Electron Chromium global Web surface registry", () => {
 
     contents.finish("https://example.test/redirected?q=1#top");
     contents.currentUrl = "https://example.test/redirected?q=1#details";
+    contents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true, url: contents.currentUrl });
     contents.emit("did-navigate-in-page", {}, contents.currentUrl, true, 1, 1);
     contents.emit(
       "did-navigate-in-page",
@@ -808,6 +810,7 @@ describe("Electron Chromium global Web surface registry", () => {
       1,
       "https://offline.example.test/"
     );
+    contents.emit("did-start-navigation", { url: "https://offline.example.test/", isMainFrame: true, isSameDocument: false });
     contents.emit(
       "did-fail-load",
       {} as never,
@@ -826,6 +829,7 @@ describe("Electron Chromium global Web surface registry", () => {
     expect(report).toHaveBeenCalledWith({
       attemptGeneration: "attempt-web-tab-1-1",
       errorCode: -105,
+      source: "did-fail-load",
       surfaceGeneration: 1,
       surfaceId: "web-tab-1-1",
       tabId: "tab-web-tab-1-1",
@@ -869,6 +873,7 @@ describe("Electron Chromium global Web surface registry", () => {
     contents.finish("https://web-tab-1-1.example.test/start");
     await created;
 
+    contents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false, url: "https://offline.example.test/" });
     subject.nativeSession.emitNetworkError({
       error: "net::ERR_CONNECTION_RESET",
       resourceType: "mainFrame",

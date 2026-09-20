@@ -127,7 +127,7 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 46;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 47;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(
@@ -323,6 +323,8 @@ export interface ChromiumRuntimeBootstrapInput {
   readonly onError: ConstructorParameters<typeof CoreEffectCoordinator>[0]["onError"];
   /** Slot-local failures are logged without revealing the main window. */
   readonly onRolePlaceholderError?: ChromiumRuntimeBootstrapInput["onError"];
+  readonly onWorkspaceWebError?: ChromiumRuntimeBootstrapInput["onError"];
+  readonly onWorkspaceWebDiagnostic?: (context: Readonly<Record<string, unknown>>) => void;
   readonly onManagedShortcutDiagnostic?: (
     context: Readonly<Record<string, unknown>>
   ) => void;
@@ -751,12 +753,13 @@ export class ChromiumRuntimeBootstrap {
     const workspaceWebNavigationFailureReporter =
       new ChromiumWorkspaceWebNavigationFailureReporter({
         core: input.core,
-        onError: input.onError
+        onError: input.onWorkspaceWebError ?? input.onError,
+        onDiagnostic: input.onWorkspaceWebDiagnostic
       });
     const workspaceWebNavigationCommitReporter =
       new ChromiumWorkspaceWebNavigationCommitReporter({
         core: input.core,
-        onError: input.onError
+        onError: input.onWorkspaceWebError ?? input.onError
       });
     // Shared by every surface hosted inside a Game Window. Role surfaces use
     // the whole port; a Website slot consumes only its fullscreen lane.
@@ -804,7 +807,7 @@ export class ChromiumRuntimeBootstrap {
           views: input.views,
           nativeAttachments: globalNativeAttachments,
           shell: input.webChromeShell,
-          onError: (error) => input.onError(error)
+          onError: input.onWorkspaceWebError ?? input.onError
         })
       : contentWebSurfaces;
     let trustedInput: ChromiumRuntimeTrustedInputPort | null = null;

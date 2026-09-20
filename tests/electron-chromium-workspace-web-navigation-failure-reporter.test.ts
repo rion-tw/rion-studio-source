@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type {
-  BrowserRuntimeSnapshot,
+  BrowserWorkspaceWebFailureReceiptRecord,
   CoreCommand,
   CoreCommandResult
 } from "../src/shared/generated";
@@ -11,7 +11,6 @@ import {
   "../src/electron/main/chromiumWorkspaceWebNavigationFailureReporter";
 import type { ChromiumGlobalWebActiveMainFrameFailure } from
   "../src/electron/main/chromiumGlobalWebSurfaceRegistry";
-import { RionBridgeError } from "../src/electron/ipc/errors";
 
 function failure(
   overrides: Partial<ChromiumGlobalWebActiveMainFrameFailure> = {}
@@ -29,48 +28,27 @@ function failure(
   };
 }
 
-function exactSnapshot(
-  overrides: Partial<BrowserRuntimeSnapshot> = {}
-): BrowserRuntimeSnapshot {
+function exactReceipt(): BrowserWorkspaceWebFailureReceiptRecord {
   return {
-    windows: [{
-      windowId: "window-web-1",
-      activeTabId: "tab-web-1",
-      tabIds: ["tab-web-1"]
-    }],
-    roles: [],
-    tabs: [{
-      id: "tab-web-1",
-      audioMuted: false,
-      attemptGeneration: "attempt-web-1",
-      sourceId: "workspace-1",
-      name: "Web Workspace",
-      windowId: "window-web-1",
-      tabType: "workspace",
-      workspaceId: "workspace-1",
-      slots: [],
-      webSurfaces: [{
-        surfaceId: "web-tab-1-1",
-        slotId: "web-slot-1"
-      }],
-      hidden: false
-    }],
-    workspaces: [],
-    ...overrides
+    operationId: "assigned-by-core", status: "accepted", runtimeRevision: 42,
+    windowId: "window-web-1", windowGeneration: 7,
+    tabId: "tab-web-1", attemptGeneration: "attempt-web-1",
+    surfaceId: "web-tab-1-1", surfaceGeneration: 4
   };
 }
 
 class FakeCore {
   readonly commands: CoreCommand[] = [];
-  result: BrowserRuntimeSnapshot = exactSnapshot();
+  result: BrowserWorkspaceWebFailureReceiptRecord = exactReceipt();
   error: unknown = null;
+  echoOperationId = true;
 
   async invoke<Command extends CoreCommand>(
     command: Command
   ): Promise<CoreCommandResult<Command>> {
     this.commands.push(command);
     if (this.error) throw this.error;
-    return this.result as CoreCommandResult<Command>;
+    return { ...this.result, ...(this.echoOperationId ? { operationId: (command as { operationId: string }).operationId } : {}) } as CoreCommandResult<Command>;
   }
 }
 
@@ -102,7 +80,7 @@ describe("ChromiumWorkspaceWebNavigationFailureReporter", () => {
 
   it("fails closed when Core omits the exact failed surface receipt", async () => {
     const core = new FakeCore();
-    core.result = exactSnapshot({ tabs: [] });
+    core.result.surfaceId = "another-surface";
     const onError = vi.fn();
     const reporter = new ChromiumWorkspaceWebNavigationFailureReporter({
       core,
@@ -119,10 +97,7 @@ describe("ChromiumWorkspaceWebNavigationFailureReporter", () => {
 
   it("treats Core ownership supersession as terminal", async () => {
     const core = new FakeCore();
-    core.error = new RionBridgeError({
-      code: "CHROMIUM_WORKSPACE_WEB_FAILURE_STALE",
-      message: "The Workspace Web surface moved before failure commit."
-    });
+    core.result.status = "superseded";
     const onError = vi.fn();
     const reporter = new ChromiumWorkspaceWebNavigationFailureReporter({
       core,
@@ -135,4 +110,21 @@ describe("ChromiumWorkspaceWebNavigationFailureReporter", () => {
     expect(core.commands).toHaveLength(1);
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it.each(["operationId", "status", "windowId", "windowGeneration", "tabId", "attemptGeneration", "surfaceId", "surfaceGeneration", "runtimeRevision"] as const)(
+    "rejects a mismatched %s without logging the remote URL", async field => {
+      const core = new FakeCore();
+      core.echoOperationId = field !== "operationId";
+      Object.assign(core.result, { [field]: field === "runtimeRevision" ? -1 : null });
+      const onError = vi.fn();
+      const onDiagnostic = vi.fn();
+      const reporter = new ChromiumWorkspaceWebNavigationFailureReporter({ core, onError, onDiagnostic });
+      reporter.report(failure({ validatedUrl: "https://private.test/path?token=secret" }));
+      await reporter.closeAndDrain();
+      expect(onError).toHaveBeenCalledOnce();
+      expect(onDiagnostic).toHaveBeenLastCalledWith(expect.objectContaining({ invalidFields: [field] }));
+      expect(JSON.stringify(onDiagnostic.mock.calls)).not.toContain("private.test");
+      expect(JSON.stringify(onDiagnostic.mock.calls)).not.toContain("secret");
+    }
+  );
 });

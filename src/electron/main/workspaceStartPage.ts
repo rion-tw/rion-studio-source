@@ -9,6 +9,8 @@ const sessions = new WeakSet<ChromiumRoleSessionPort>();
 const contents = new Set<ChromiumRoleSurfaceWebContentsPort>();
 let language = "en";
 
+export function readWorkspaceWebLanguage(): string { return language; }
+
 export function installWorkspaceStartProtocol(session: ChromiumRoleSessionPort): void {
   if (sessions.has(session)) return;
   session.protocol.handle("rion-start", (request) => new Response(

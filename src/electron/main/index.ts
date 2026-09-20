@@ -808,6 +808,8 @@ async function bootstrapReadyPhase(
       sessionIdentity: RUNTIME_ROLE_PLACEHOLDER_SHELL_SESSION
     },
     onRolePlaceholderError: (err) => runtimeLogs.shellError(err),
+    onWorkspaceWebError: (err) => runtimeLogs.shellError(err),
+    onWorkspaceWebDiagnostic: (context) => runtimeLogs.workspaceWebDiagnostic(context),
     onRuntimeTabQuickAccess: (tabId) => {
       const begin = beginRuntimeTabQuickAccess;
       if (!begin) {

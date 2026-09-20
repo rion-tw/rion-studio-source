@@ -485,7 +485,10 @@ fn v23_multiple_web_slots_share_one_profile_and_retain_exact_surface_slot_identi
 #[test]
 fn active_workspace_web_failure_is_generation_fenced_and_projected_as_degraded() {
     for platform in ["darwin", "win32"] {
-        let (_directory, core) = chromium_web_core(platform);
+        let (_directory, core) = core_for_runtime_contract(platform, CHROMIUM_RUNTIME_CONTRACT_VERSION);
+        let mut registration = chromium_registration(platform, true);
+        registration.contract_version = CHROMIUM_RUNTIME_CONTRACT_VERSION;
+        core.invoke(CoreCommand::BrowserRuntimeRegister { registration }).unwrap();
         let workspace_id = create_web_only_workspace(&core, &format!("Failure Web {platform}"));
         let (_launch, launch_actions) = drive_command(
             Arc::clone(&core),
@@ -523,16 +526,19 @@ fn active_workspace_web_failure_is_generation_fenced_and_projected_as_degraded()
             None,
         );
 
-        let receipt: crate::model::BrowserRuntimeSnapshot =
+        let receipt: crate::model::BrowserWorkspaceWebFailureReceiptRecord =
             serde_json::from_value(receipt.unwrap()).unwrap();
-        assert!(receipt.tabs.iter().any(|candidate| {
-            candidate.id == tab_id
-                && candidate.attempt_generation.as_deref() == Some(attempt_generation.as_str())
-                && candidate
-                    .web_surfaces
-                    .iter()
-                    .any(|surface| surface.surface_id == surface_id)
-        }));
+        assert_eq!(receipt.status, "accepted");
+        assert_eq!(receipt.operation_id, format!("workspace-web-failure-{platform}"));
+        assert_eq!(receipt.tab_id, tab_id);
+        assert_eq!(receipt.window_id, window_id);
+        assert_eq!(receipt.window_generation, window_generation);
+        assert_eq!(receipt.attempt_generation, attempt_generation);
+        assert_eq!(receipt.surface_id, surface_id);
+        assert_eq!(receipt.surface_generation, 1);
+        assert!(receipt.runtime_revision > 0);
+        // The ownership-only snapshot is intentionally not an acknowledgement.
+        assert!(core.browser_runtime_snapshot().unwrap().windows.is_empty());
         assert!(
             failure_actions.iter().any(|action| matches!(
                 action,
@@ -554,6 +560,36 @@ fn active_workspace_web_failure_is_generation_fenced_and_projected_as_degraded()
             "{platform}"
         );
 
+        let (duplicate, _, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::BrowserWorkspaceWebSurfaceFailed {
+                operation_id: format!("workspace-web-failure-{platform}"),
+                surface_id: surface_id.clone(), surface_generation: 1,
+                tab_id: tab_id.clone(), window_id: window_id.clone(),
+                expected_attempt_generation: attempt_generation.clone(),
+                expected_window_generation: window_generation,
+            }, None,
+        );
+        let duplicate: crate::model::BrowserWorkspaceWebFailureReceiptRecord =
+            serde_json::from_value(duplicate.unwrap()).unwrap();
+        assert_eq!(duplicate.status, "accepted");
+        for (wrong_surface, wrong_generation) in [(true, false), (false, true)] {
+            let (rejected, actions, _) = drive_async_command(
+                Arc::clone(&core),
+                CoreCommand::BrowserWorkspaceWebSurfaceFailed {
+                    operation_id: format!("wrong-web-owner-{platform}-{wrong_surface}"),
+                    surface_id: if wrong_surface { "missing-surface".to_owned() } else { surface_id.clone() },
+                    surface_generation: 1, tab_id: tab_id.clone(), window_id: window_id.clone(),
+                    expected_attempt_generation: attempt_generation.clone(),
+                    expected_window_generation: window_generation + u64::from(wrong_generation),
+                }, None,
+            );
+            let rejected: crate::model::BrowserWorkspaceWebFailureReceiptRecord =
+                serde_json::from_value(rejected.unwrap()).unwrap();
+            assert_eq!(rejected.status, "superseded");
+            assert!(actions.is_empty());
+        }
+
         let (stale, stale_actions, _) = drive_async_command(
             Arc::clone(&core),
             CoreCommand::BrowserWorkspaceWebSurfaceFailed {
@@ -567,11 +603,9 @@ fn active_workspace_web_failure_is_generation_fenced_and_projected_as_degraded()
             },
             None,
         );
-        assert_eq!(
-            stale.unwrap_err().code(),
-            "CHROMIUM_WORKSPACE_WEB_FAILURE_STALE",
-            "{platform}"
-        );
+        let stale: crate::model::BrowserWorkspaceWebFailureReceiptRecord =
+            serde_json::from_value(stale.unwrap()).unwrap();
+        assert_eq!(stale.status, "superseded", "{platform}");
         assert!(stale_actions.is_empty(), "{platform}");
         core.shutdown();
     }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type {
-  BrowserRuntimeSnapshot,
+  BrowserWorkspaceWebFailureReceiptRecord,
   CoreCommand,
   CoreCommandResult
 } from "../../shared/generated";
@@ -21,23 +21,22 @@ function failureError(code: string, message: string): RionBridgeError {
   return new RionBridgeError({ code, message });
 }
 
-function hasExactOwner(
-  snapshot: BrowserRuntimeSnapshot,
-  failure: ChromiumGlobalWebActiveMainFrameFailure
-): boolean {
-  const window = snapshot.windows.find((candidate) =>
-    candidate.windowId === failure.windowId &&
-    candidate.tabIds.includes(failure.tabId)
-  );
-  const tab = snapshot.tabs.find((candidate) =>
-    candidate.id === failure.tabId &&
-    candidate.windowId === failure.windowId &&
-    candidate.attemptGeneration === failure.attemptGeneration &&
-    candidate.webSurfaces.some((surface) =>
-      surface.surfaceId === failure.surfaceId
-    )
-  );
-  return window !== undefined && tab !== undefined;
+function invalidReceiptFields(
+  receipt: BrowserWorkspaceWebFailureReceiptRecord,
+  failure: ChromiumGlobalWebActiveMainFrameFailure,
+  operationId: string
+): string[] {
+  const expected = {
+    operationId, windowId: failure.windowId, windowGeneration: failure.windowGeneration,
+    tabId: failure.tabId, attemptGeneration: failure.attemptGeneration,
+    surfaceId: failure.surfaceId, surfaceGeneration: failure.surfaceGeneration
+  };
+  const invalid = Object.entries(expected).filter(([key, value]) =>
+    receipt?.[key as keyof typeof expected] !== value
+  ).map(([key]) => key);
+  if (!["accepted", "superseded"].includes(receipt?.status)) invalid.push("status");
+  if (!Number.isSafeInteger(receipt?.runtimeRevision) || receipt.runtimeRevision < 0) invalid.push("runtimeRevision");
+  return invalid;
 }
 
 /**
@@ -49,23 +48,35 @@ export class ChromiumWorkspaceWebNavigationFailureReporter
 implements ChromiumGlobalWebActiveMainFrameFailurePort {
   readonly #core: ChromiumWorkspaceWebFailureCorePort;
   readonly #onError: (error: RionBridgeError) => void;
+  readonly #onDiagnostic: (context: Readonly<Record<string, unknown>>) => void;
   #accepting = true;
   #tail: Promise<void> = Promise.resolve();
 
   constructor(input: Readonly<{
     core: ChromiumWorkspaceWebFailureCorePort;
     onError: (error: RionBridgeError) => void;
+    onDiagnostic?: (context: Readonly<Record<string, unknown>>) => void;
   }>) {
     this.#core = input.core;
     this.#onError = input.onError;
+    this.#onDiagnostic = input.onDiagnostic ?? (() => undefined);
   }
 
   report(failure: ChromiumGlobalWebActiveMainFrameFailure): void {
     if (!this.#accepting) return;
     this.#tail = this.#tail.then(async () => {
-      const snapshot = await this.#core.invoke({
+      const operationId = randomUUID();
+      const diagnostic = {
+        operationId, surfaceId: failure.surfaceId, surfaceGeneration: failure.surfaceGeneration,
+        tabId: failure.tabId, windowId: failure.windowId, windowGeneration: failure.windowGeneration,
+        attemptGeneration: failure.attemptGeneration, navigationErrorCode: failure.errorCode,
+        eventSource: failure.source ?? "did-fail-load",
+        ...(failure.networkError === undefined ? {} : { networkError: failure.networkError })
+      };
+      this.#onDiagnostic({ ...diagnostic, stage: "observed" });
+      const receipt = await this.#core.invoke({
         type: "browserWorkspaceWebSurfaceFailed",
-        operationId: randomUUID(),
+        operationId,
         surfaceId: failure.surfaceId,
         surfaceGeneration: failure.surfaceGeneration,
         tabId: failure.tabId,
@@ -73,7 +84,10 @@ implements ChromiumGlobalWebActiveMainFrameFailurePort {
         expectedAttemptGeneration: failure.attemptGeneration,
         expectedWindowGeneration: failure.windowGeneration
       });
-      if (!hasExactOwner(snapshot, failure)) {
+      const invalidFields = invalidReceiptFields(receipt, failure, operationId);
+      this.#onDiagnostic({ ...diagnostic, stage: invalidFields.length ? "invalid-receipt" : receipt.status,
+        invalidFields, runtimeRevision: receipt?.runtimeRevision });
+      if (invalidFields.length) {
         throw failureError(
           "ELECTRON_WORKSPACE_WEB_FAILURE_RECEIPT_INVALID",
           "Core did not acknowledge the exact failed Workspace Web surface."

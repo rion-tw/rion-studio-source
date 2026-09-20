@@ -1416,3 +1416,5 @@ mod tests {
         assert_eq!(core_version(), rion_core::CORE_VERSION);
     }
 }
+
+pub mod windows_tab_drag;

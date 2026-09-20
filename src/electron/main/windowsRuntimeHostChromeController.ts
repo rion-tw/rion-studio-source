@@ -1,3 +1,5 @@
+import { WindowsRuntimeTabDragGeometry } from "./windowsRuntimeTabDragGeometry";
+import type { RuntimeTabDragStart } from "./runtimeTabDragController";
 import { randomUUID } from "node:crypto";
 
 import type {
@@ -99,6 +101,8 @@ function nativePresentation(
  * lane. It never commits Core state; only the requesting Rust effect may do so.
  */
 export class WindowsRuntimeHostChromeController {
+  readonly tabDragGeometry: WindowsRuntimeTabDragGeometry;
+  readonly #requestTabDrag: ((start: RuntimeTabDragStart) => void) | undefined;
   readonly #resizeIndicators: import("./windowsWorkspaceResizeIndicators").WorkspaceResizeIndicatorPort | undefined;
   readonly #windowId: string;
   readonly #documentUrl: string;
@@ -153,6 +157,7 @@ export class WindowsRuntimeHostChromeController {
   } | null = null;
 
   constructor(input: Readonly<{
+    requestTabDrag?: (start: RuntimeTabDragStart) => void;
     documentUrl: string;
     initialWindowName?: string;
     initialWorkspaceBackground?: "material" | "black";
@@ -179,6 +184,8 @@ export class WindowsRuntimeHostChromeController {
     windowId: string;
     resizeIndicators?: import("./windowsWorkspaceResizeIndicators").WorkspaceResizeIndicatorPort;
   }>) {
+    this.#requestTabDrag = input.requestTabDrag;
+    this.tabDragGeometry = new WindowsRuntimeTabDragGeometry(input.native.getContentBounds.bind(input.native));
     this.#windowId = input.windowId;
     this.#workspaceBackground = input.initialWorkspaceBackground ?? "material";
     this.#windowName = input.initialWindowName ?? "";
@@ -453,16 +460,38 @@ export class WindowsRuntimeHostChromeController {
         candidate.type === "workspaceDividerPointer" &&
         candidate.phase !== "start" &&
         this.#dividerGestures.has(candidate.gestureId);
+      // A superseded paint report is expected during rapid native projections.
+      // It must neither overwrite current geometry nor turn into a domain error.
+      if (validCommand && candidate.type === "tabDragGeometry" && url === this.#documentUrl &&
+          candidate.windowId === this.#windowId && candidate.projectionRevision < this.#projectionRevision) return;
+      const currentDragStart = validCommand && candidate.type === "tabDragStart" &&
+        candidate.windowGeneration === this.#windowGeneration && candidate.projectionRevision <= this.#projectionRevision;
       if (
         url !== this.#documentUrl || !validCommand ||
         candidate.windowId !== this.#windowId ||
         (candidate.projectionRevision !== this.#projectionRevision &&
-          !activeDividerContinuation)
+          !activeDividerContinuation && !currentDragStart)
       ) {
         throw chromeError(
           "ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE",
           `The bundled toolbar command did not match its exact sender projection: ${JSON.stringify(validCommand ? { type: candidate.type, submitted: candidate.projectionRevision, current: this.#projectionRevision, windowId: candidate.windowId } : { malformed: true })}.`
         );
+      }
+      if (candidate.type === "tabDragGeometry") {
+        if (!candidate.tabs.every(tab => this.#tabs.some(t => t.tabId === tab.tabId))) {
+          throw chromeError("RUNTIME_TAB_DRAG_GEOMETRY_STALE", "The drag geometry references a retired tab.");
+        }
+        this.tabDragGeometry.apply(candidate);
+        return;
+      }
+      if (candidate.type === "tabDragStart") {
+        const point = this.#readCursorScreenPoint?.();
+        if (!currentDragStart || !point || !this.#requestTabDrag || !this.#tabs.some(t => t.tabId === candidate.tabId)) {
+          throw chromeError("RUNTIME_TAB_DRAG_UNAVAILABLE", "The exact native tab drag source is unavailable.");
+        }
+        this.#requestTabDrag({ sessionId: candidate.sessionId, sourceWindowId: this.#windowId,
+          tabId: candidate.tabId, ratio: candidate.ratio, point });
+        return;
       }
       if (candidate.type === "retryWorkspaceSlot") {
         if (candidate.record.tabId !== this.#activeTabId || !this.#slotRetry) return;
@@ -1113,6 +1142,7 @@ export class WindowsRuntimeHostChromeController {
         "The Windows host refused to publish malformed native geometry."
       );
     }
+    this.tabDragGeometry.invalidate();
     this.#send(WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL, projection);
     this.#paintResizeIndicators();
   }

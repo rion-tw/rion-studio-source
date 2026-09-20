@@ -189,7 +189,7 @@ their top edge. Pointer end/cancel, tab changes, host teardown, stream failure,
 and supersede retire the presentation. Exact gesture and paint revisions prevent
 late events from reviving it. These changes do not alter portable or SQLite schemas.
 
-The active runtime contract is version 43. Version 23 remains the first
+The active runtime contract is version 44. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -1105,3 +1105,37 @@ ownership handling, including zero-event adoption and ownership-release receipts
 See [Compatible Macro Input](contracts/system-runtime/compatible-macro-input.md) for v43 ordering and bounded diagnostic evidence.
 The v42 physical modifier inheritance and existing second-press stop behavior
 remain in effect.
+
+## Chromium v44 live tab tearout
+
+RuntimeKernel owns the event-bound drag session, original host generation,
+monotonic event sequence, current logical tab owner, and one provisional host.
+The retained AppKit dragging callbacks and the scoped Windows native desktop
+pointer stream feed the same privileged controller. Motion may coalesce, but
+release, cancellation, supersede, and stream retirement are terminal barriers.
+Windows renderer projections do not cancel a held gesture. Geometry comes from
+the authenticated local toolbar; Role/Website pages cannot submit drag intents.
+
+Leaving all live tab strips creates one transient window for a multi-tab source;
+a single-tab source retains its window identity. The real Chromium surfaces move
+without navigation or Session replacement. Re-entry commits the destination's
+order and selection through Core. Provisional windows do not invoke saved-window
+creation; the existing menu's explicit new-window save remains separate. Empty
+source/provisional hosts retire only after the source gesture ends. Native mouse
+pass-through leases are exact-session scoped and released on every terminal path.
+Cancellation retains the last committed topology rather than restoring a source
+snapshot. Unknown native transfer results remain failures or indeterminate; no
+polling, deadline success, or transport fallback is introduced.
+
+A held Chromium tab retains its pending activation attempt across accepted host
+transfers; eventual readiness and persistence resolve its current Core owner.
+Workspace layout specifications follow the committed host before loading overlays
+are projected. A failure after native commit quarantines the affected hosts;
+it never retries the transfer or claims an untouched source. Geometry reads
+respect native desktop occlusion, and the primary display origin preserves
+negative coordinates for monitors above or left of it.
+
+The additive event/receipt records are generated from Rust. No SQLite, portable,
+role-storage, updater, or v22/v23 consumed-data schema changes are required.
+Desktop journey 046 uses real desktop input and inspects the floating window
+while the button remains held on each supported platform.

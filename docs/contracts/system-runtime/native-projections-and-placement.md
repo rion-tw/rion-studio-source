@@ -165,56 +165,29 @@ restores the setting and layout; unprovable compensation quarantines the host
 and reports `indeterminate`.
 
 For v38 native backgrounds, mounted/loading Websites, and resize indicators, see [the Chromium contract](../../chromium-runtime-migration.md).
-A runtime tab drag has one stable tab identity and a lifecycle fence from
-pointer-down to drop. Gesture completion is not receipt- or deadline-gated;
-duplicate and late semantic events are silent `superseded`. A newer user gesture supersedes older background projection;
-old source order, Core order, persistence revision, or native readback cannot
-reject the final order currently visible in the UI. An accepted AppKit or HTML
-drop is never visually compensated by a later Core, surface-transfer, or SQLite
-failure. Core advances role ownership only, WebView transfer retries toward the
-committed host, and the retained live-window revision retries durability
-independently.
+The active Chromium drag contract is v44; see
+[Live tab tearout](../../chromium-runtime-migration.md#chromium-v44-live-tab-tearout).
+RuntimeKernel is the single logical writer. A gesture retains its original native
+source generation while resolving the tab's current owner after each transfer.
+Native callbacks never synchronously re-enter Core. AppKit owns held native UI;
+the Windows bundled toolbar starts a scoped native desktop-pointer subscription.
+Latest motion samples may coalesce, but terminal barriers cannot be overwritten.
 
-On macOS, AppKit owns the held gesture and updates in-strip reorder previews and
-insertion indicators synchronously. Each changed preview reports its complete
-visible order; the native callback commits that order under one short
-`LiveWindowTabStore` lock and schedules persistence without querying Core,
-SQLite, WebViews, or native readback. The equivalent Windows HTML preview emits
-the same complete-order intent. Hover intents are coalesced and SQLite writes
-are debounced latest-wins, so intermediate orders may be skipped on disk but
-never applied backward to the UI. Leaving every tab-strip hit region uses the
-original live native-window preview: coalesced pointer samples enter only the
-in-memory SystemRuntime lane, which creates or positions the provisional native
-window and moves the real WKWebView surface. It never captures a frozen game
-viewport or tab bitmap and never consults Core or SQLite. The AppKit dragging
-item stays transparent so only the current titlebar's real tab UI is visible.
-Returning to a tab strip reparents
-the same surface into the hovered live host. The macOS live-drag transfer never
-hides a WKWebView before reparenting, never makes the held AppKit tab transparent
-when it exits a strip, and promotes the target insertion slot to the real tab in
-the same native layout pass. Full role/divider layout runs only after that visible
-transfer; transient move and hover samples are latest-wins across both event
-types. These native transitions run behind the AppKit callback, so no receipt,
-persistence result, Core layout, or topology readback can block pointer delivery.
-The terminal drop only closes the drag lifecycle and materializes any pending
-cross-window surface transfer. It does not reorder AppKit again: the visible
-order is already live and persistence continues on its independent latest-wins
-background lane. Cancellation only releases drag cursor, motion, and
-pointer-pass-through resources. The last topology already visible in AppKit or
-HTML remains live; cancellation never restores a source snapshot.
-Pointer pass-through is a session- and window-generation-scoped lease. A
-terminal callback atomically retires only its own lease, immediately restores
-mouse handling on every involved host, and reasserts a newer lease if another
-drag started during the native call.
+Both adapters show the real live Chromium window outside all tab strips. One
+provisional transient host is reused throughout a multi-tab gesture; single-tab
+motion reuses the original host. Re-entry transfers the existing surfaces through
+revision-fenced Core projections. No capture bitmap, page reload, implicit saved
+window, or native topology writer is introduced. Exact native release/cancel,
+supersede, host retirement, or stream failure completes the gesture resources.
+Cancellation preserves accepted topology and does not restore an old snapshot.
+Session-scoped pointer pass-through is restored before any asynchronous cleanup;
+late callbacks cannot release a newer session's lease. Persistence failure must
+not visually compensate an already accepted drag destination. Unknown transfer
+outcomes remain failed/indeterminate rather than retrying toward convergence.
 
-Activation, native tab-menu lookup, and close resolve a tab's window from
-`LiveWindowTabStore`. A temporarily stale Core/surface owner can only schedule a
-background surface move toward that live owner; it cannot move the live tab back
-to the runtime's older window. Native close commits the live tombstone in the
-AppKit callback turn before Core stop and controller release continue in the
-background.
-
-A newly observed native drag session supersedes an abandoned macOS session whose
-terminal destination callback was not delivered. Late callbacks for a completed,
-superseded, or never-accepted session are idempotent no-ops and never surface a
-`TAURI_TAB_DRAG_STALE` user error.
+Activation, native tab-menu lookup, and close resolve the current owner from
+Core's logical topology and validate the exact native projection. There is no
+legacy shell tab store or background ownership reconciliation. A newer gesture
+supersedes the old session; callbacks for retired sessions are silent no-ops.
+Empty floating hosts are hidden on re-entry, retained through the physical
+terminal callback, and retired through the existing exact Core provision fence.

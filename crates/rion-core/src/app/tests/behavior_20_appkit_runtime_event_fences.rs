@@ -586,6 +586,7 @@ fn appkit_projection_quarantine_failures_retire_exact_core_window_and_tab_topolo
     for failure_code in [
         "MACOS_APPKIT_CHROMIUM_PROJECTION_HOST_QUARANTINED",
         "MACOS_APPKIT_CHROMIUM_PROJECTION_COMPENSATION_FAILED",
+        "ELECTRON_MACOS_APPKIT_PROJECTION_COMPLETION_INDETERMINATE",
     ] {
         let (_directory, core) = core_for_runtime_contract("darwin", 23);
         let window_id = format!("appkit-quarantine-{failure_code}");
@@ -618,7 +619,11 @@ fn appkit_projection_quarantine_failures_retire_exact_core_window_and_tab_topolo
             serde_json::from_value(result.unwrap()).unwrap();
         assert_eq!(
             receipt.status,
-            crate::model::SystemRuntimeOperationStatus::Failed
+            if failure_code == "ELECTRON_MACOS_APPKIT_PROJECTION_COMPLETION_INDETERMINATE" {
+                crate::model::SystemRuntimeOperationStatus::Indeterminate
+            } else {
+                crate::model::SystemRuntimeOperationStatus::Failed
+            }
         );
         assert!(!receipt.topology_committed);
         assert!(!receipt.native_applied);

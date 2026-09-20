@@ -525,14 +525,6 @@ fn validate_appkit_runtime_event_platform(core: &AppCore) -> CoreResult<()> {
     Ok(())
 }
 
-fn appkit_projection_failure_requires_quarantine(code: &str) -> bool {
-    matches!(
-        code,
-        "MACOS_APPKIT_CHROMIUM_PROJECTION_HOST_QUARANTINED"
-            | "MACOS_APPKIT_CHROMIUM_PROJECTION_COMPENSATION_FAILED"
-    )
-}
-
 fn validate_appkit_runtime_event_shape(
     event: &crate::model::AppKitRuntimeEventRecord,
 ) -> CoreResult<()> {

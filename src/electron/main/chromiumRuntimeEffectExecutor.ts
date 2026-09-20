@@ -189,6 +189,14 @@ export class ChromiumRuntimeEffectExecutor {
   desktopE2eStatusPresentation(windowId: string): number | undefined {
     return this.#windows.get(windowId)?.host.desktopE2eStatusPresentation?.(); }
 
+  tabDragHost(windowId: string, generation: number) {
+    const record = this.#windows.get(windowId);
+    if (!record || record.windowGeneration !== generation || record.host.isDestroyed() || !record.host.tabDrag) {
+      throw runtimeError("RUNTIME_TAB_DRAG_HOST_STALE", "The drag host generation is no longer live.");
+    }
+    return record.host.tabDrag;
+  }
+
   beginSavedWindowRestore(windowId: string, foreground = false): void {
     requireIdentifier(windowId, "saved-window restore");
     if (this.#state !== "open") {

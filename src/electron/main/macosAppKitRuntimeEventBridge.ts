@@ -1,3 +1,4 @@
+import { forwardMacosRuntimeTabDrag } from "./macosRuntimeTabDrag";
 import type { CoreEventStreamFailure } from "../core/coreAddonClient";
 import { randomUUID } from "node:crypto";
 
@@ -37,6 +38,7 @@ interface AppKitCoreCommandPort extends ElectronCoreCommandPort {
 }
 
 export interface MacosAppKitRuntimeEventBridgeInput {
+  readonly onTabDrag?: (input: import("./runtimeTabDragController").RuntimeTabDragInput) => void;
   readonly onDividerTerminal?: (identity: AppKitRuntimeHostIdentity, gestureId: string) => void;
   readonly core: AppKitCoreCommandPort;
   readonly preparePassiveEventDispatch?: (
@@ -89,6 +91,7 @@ export interface MacosAppKitRendererActionPort {
       targetWindowId: string;
       beforeTabId?: string;
       orderedTabIds: readonly string[];
+      refreshHosts?: boolean;
     }>
   ) => Promise<AppKitRuntimeEventReceiptRecord>;
   reorderTab: (
@@ -694,6 +697,7 @@ implements MacosAppKitRendererActionPort {
       targetWindowId: string;
       beforeTabId?: string;
       orderedTabIds: readonly string[];
+      refreshHosts?: boolean;
     }>
   ): Promise<AppKitRuntimeEventReceiptRecord> {
     const hosts = this.#rendererHosts(rawHosts);
@@ -723,7 +727,7 @@ implements MacosAppKitRendererActionPort {
         : { beforeTabId: requireIdentifier(input.beforeTabId, "before tab") }),
       orderedTabIds: requireOrderedTabIds(input.orderedTabIds),
       phase: "drop"
-    });
+    }, input.refreshHosts === true);
   }
 
   reorderTab(
@@ -813,6 +817,7 @@ implements MacosAppKitRendererActionPort {
         "The AppKit action source does not match the emitting host generation."
       );
     }
+    if (this.#input.onTabDrag && forwardMacosRuntimeTabDrag(event.action, this.#input.onTabDrag)) return;
     switch (actionType) {
       case "activate":
         this.#enqueue(hosts, {
@@ -1265,7 +1270,8 @@ implements MacosAppKitRendererActionPort {
 
   #submit(
     hosts: AppKitRuntimeHostObservationRecord[],
-    action: AppKitRuntimeEventActionRecord
+    action: AppKitRuntimeEventActionRecord,
+    refreshHosts = false
   ): Promise<AppKitRuntimeEventReceiptRecord> {
     if (this.#state !== "open") {
       return Promise.reject(bridgeError(
@@ -1284,7 +1290,7 @@ implements MacosAppKitRendererActionPort {
             "The privileged AppKit event lane was disposed before completion."
           );
         }
-        const currentHosts = action.type === "layout" || action.type === "windowState"
+        const currentHosts = refreshHosts || action.type === "layout" || action.type === "windowState"
           ? await this.#preparePassiveHostsForDispatch(hosts)
           : hosts;
         const event = Object.freeze({

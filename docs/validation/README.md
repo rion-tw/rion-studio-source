@@ -14,6 +14,8 @@ be treated as current evidence.
   classification and real iq.com playback acceptance.
 - [Windows Game Window Placement](runbooks/windows-game-window-placement.md):
   W1-W11 placement, persistence, display, DPI, and generation-fence acceptance.
+- [Live Tab Tearout](runbooks/runtime-tab-tearout.md): native held-pointer journeys,
+  temporary-window lifecycle, failure paths, and platform validation limits.
 
 Desktop smoke, full, and extended profile policy remains in
 [Desktop E2E Strategy](../e2e-strategy.md). Journey and phase membership remains

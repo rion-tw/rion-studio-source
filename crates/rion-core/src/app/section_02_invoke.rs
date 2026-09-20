@@ -962,6 +962,11 @@ impl AppCore {
                 serde_json::to_value(self.commit_windows_runtime_window_placement(event)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
+            CoreCommand::RuntimeTabDrag { event } => {
+                let epoch = self.application_lifecycle_epoch.load(Ordering::Acquire);
+                serde_json::to_value(self.browser_runtime.tab_drag(event, epoch)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
             CoreCommand::EmbeddedWindowProvisionForTabMove {
                 operation_id,
                 tab_id,

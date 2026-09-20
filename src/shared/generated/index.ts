@@ -291,6 +291,8 @@ export type { RuntimeRestoreSessionRecord } from "./RuntimeRestoreSessionRecord"
 export type { RuntimeRestoreTabRecord } from "./RuntimeRestoreTabRecord";
 export type { RuntimeRestoreWindowRecord } from "./RuntimeRestoreWindowRecord";
 export type { RuntimeWindowPreferencesRecord } from "./RuntimeWindowPreferencesRecord";
+export type { RuntimeTabDragEventRecord } from "./RuntimeTabDragEventRecord";
+export type { RuntimeTabDragReceiptRecord } from "./RuntimeTabDragReceiptRecord";
 export type { RuntimeWindowProvisionReceiptRecord } from "./RuntimeWindowProvisionReceiptRecord";
 export type { RuntimeWindowProvisionTargetRecord } from "./RuntimeWindowProvisionTargetRecord";
 export type { RuntimeWindowZoomNativeReceiptRecord } from "./RuntimeWindowZoomNativeReceiptRecord";

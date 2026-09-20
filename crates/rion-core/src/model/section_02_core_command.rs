@@ -571,6 +571,9 @@ pub enum CoreCommand {
         #[ts(type = "\"in\" | \"out\" | \"reset\"")]
         action: String,
     },
+    RuntimeTabDrag {
+        event: RuntimeTabDragEventRecord,
+    },
     EmbeddedWindowProvisionForTabMove {
         operation_id: String,
         tab_id: String,

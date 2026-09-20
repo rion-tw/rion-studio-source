@@ -20,6 +20,7 @@ const RETAINED_OPERATION_TRACES: usize = 512;
 
 #[derive(Clone, Default)]
 struct RuntimeKernelState {
+    drag: tab_drag::DragState,
     applied_operation_ids: HashSet<String>,
     operation_order: VecDeque<String>,
     operations: HashMap<String, RuntimeOperationRecord>,
@@ -37,6 +38,11 @@ pub struct RuntimeKernel {
 }
 
 enum RuntimeKernelRequest {
+    TabDrag(
+        crate::model::RuntimeTabDragEventRecord,
+        u64,
+        SyncSender<CoreResult<crate::model::RuntimeTabDragReceiptRecord>>,
+    ),
     Apply(Box<RuntimeIntent>, SyncSender<CoreResult<RuntimeCommit>>),
     Snapshot(SyncSender<CoreResult<RuntimeSnapshot>>),
     Audit(SyncSender<CoreResult<RuntimeInvariantAudit>>),
@@ -51,6 +57,9 @@ impl Default for RuntimeKernel {
                 let mut state = RuntimeKernelState::default();
                 while let Ok(request) = receiver.recv() {
                     match request {
+                        RuntimeKernelRequest::TabDrag(event, epoch, reply) => {
+                            let _ = reply.send(tab_drag::apply(&mut state, event, epoch));
+                        }
                         RuntimeKernelRequest::Apply(intent, reply) => {
                             let _ = reply.send(apply_to_state(&mut state, *intent));
                         }
@@ -68,7 +77,24 @@ impl Default for RuntimeKernel {
     }
 }
 
+#[path = "state/tab_drag.rs"]
+mod tab_drag;
+
 impl RuntimeKernel {
+    pub fn tab_drag(
+        &self,
+        event: crate::model::RuntimeTabDragEventRecord,
+        epoch: u64,
+    ) -> CoreResult<crate::model::RuntimeTabDragReceiptRecord> {
+        let (reply, receiver) = mpsc::sync_channel(1);
+        self.sender
+            .send(RuntimeKernelRequest::TabDrag(event, epoch, reply))
+            .map_err(|_| CoreError::Internal("runtime kernel actor stopped".into()))?;
+        receiver
+            .recv()
+            .map_err(|_| CoreError::Internal("runtime drag reply dropped".into()))?
+    }
+
     pub fn apply(&self, intent: RuntimeIntent) -> CoreResult<RuntimeCommit> {
         let (reply, receiver) = mpsc::sync_channel(1);
         self.sender
@@ -1352,12 +1378,20 @@ fn apply_topology(
         {
             continue;
         }
-        if matches!(
-            activation.phase,
-            RuntimeTabActivationPhaseRecord::Activating
-                | RuntimeTabActivationPhaseRecord::Attaching
-                | RuntimeTabActivationPhaseRecord::Loading
-        ) {
+        // A Core-admitted live Chromium gesture reuses the same document and
+        // launch attempt. Its readiness completion is attempt-fenced, not bound
+        // to a retired native attach operation. Legacy native callbacks retain
+        // their original generation fence and must still be cancelled below.
+        let live_drag_transfer =
+            state.drag.transfers_tab(tab_id) && activation.native_operation_id.is_none();
+        if !live_drag_transfer
+            && matches!(
+                activation.phase,
+                RuntimeTabActivationPhaseRecord::Activating
+                    | RuntimeTabActivationPhaseRecord::Attaching
+                    | RuntimeTabActivationPhaseRecord::Loading
+            )
+        {
             activation.phase = RuntimeTabActivationPhaseRecord::Failed;
             if let Some(native_operation_id) = activation.native_operation_id.take()
                 && let Some(operation) = state.operations.get_mut(native_operation_id.as_str())

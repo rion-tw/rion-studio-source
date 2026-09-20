@@ -64,6 +64,7 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
   const send = vi.fn();
   const requestWindowControl = vi.fn(async () => undefined);
   const requestTabControl = vi.fn(async () => undefined);
+  const requestTabDrag = vi.fn();
   const requestTabReload = vi.fn(async (): Promise<void> => undefined);
   const requestWorkspaceDividerPointer = vi.fn(async (event) => ({
     eventId: event.eventId,
@@ -102,6 +103,7 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
     requestWindowControl,
     requestTabControl,
     requestTabReload,
+    requestTabDrag,
     requestWorkspaceDividerPointer,
     resizeIndicators,
     send,
@@ -111,7 +113,7 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
   controller.bindLayout(relayout);
   return {
     resizeIndicators, controller, native, readProjection, relayout, requestWindowControl,
-    requestTabControl, requestTabReload, requestWorkspaceDividerPointer, send, state
+    requestTabControl, requestTabReload, requestTabDrag, requestWorkspaceDividerPointer, send, state
   };
 }
 
@@ -358,6 +360,22 @@ describe("Windows runtime-host chrome controller", () => {
     })).rejects.toMatchObject({
       code: "ELECTRON_WINDOWS_RUNTIME_LAYOUT_PHASE_FENCE_STALE"
     });
+  });
+
+  it("admits a held tab through paint updates but rejects a replaced window generation", async () => {
+    const subject = harness(() => ({ x: 200, y: 90 }));
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    const revision = subject.controller.readObservation().projectionRevision;
+    const command = { type: "tabDragStart", windowId, windowGeneration: 1,
+      projectionRevision: revision, sessionId: gestureId, tabId, ratio: { x: 0.5, y: 0.5 } };
+    subject.controller.applyWindowName("Updated while held");
+    await subject.controller.handleCommand(documentUrl, command);
+    expect(subject.requestTabDrag).toHaveBeenCalledExactlyOnceWith({ sessionId: gestureId,
+      sourceWindowId: windowId, tabId, ratio: command.ratio, point: { x: 200, y: 90 } });
+    await expect(subject.controller.handleCommand(documentUrl, { ...command, windowGeneration: 2 }))
+      .rejects.toMatchObject({ code: "ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE" });
+    expect(subject.requestTabDrag).toHaveBeenCalledOnce();
   });
 
   it("routes visible tab activation and close through the ordered Core lane", async () => {

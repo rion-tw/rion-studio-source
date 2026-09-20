@@ -1,3 +1,6 @@
+import { readWindowsShortcutDiagnostic } from "./windowsRuntimeShortcutDiagnostics";
+import { capturePassiveAppKitHosts, closeAppKitInputHost } from "./macosAppKitRuntimeEventPorts";
+import { createRuntimeTabDragBootstrap } from "./runtimeTabDragBootstrap";
 import { requireChromiumRuntimeSnapshot } from "./chromiumRuntimeSnapshotCapture";
 import { createWindowsRuntimeWindows } from "./windowsWorkspaceResizeIndicators";
 import { coreRendererPublishers } from "./coreRendererPublishers";
@@ -202,6 +205,7 @@ let fatalTermination: ElectronFatalTerminationCoordinator | null = null;
 let fatalEventStreamDetected = false;
 let applicationIcon: ReturnType<typeof initializeIcon> | null = null;
 let quickMenu: ElectronQuickMenuComposition | null = null;
+let runtimeTabDrag: ReturnType<typeof createRuntimeTabDragBootstrap> | null = null;
 let disposeOperationalLogHooks: (() => void) | null = null;
 const identities = new RendererIdentityRegistry((contents) =>
   BrowserWindow.fromWebContents(contents as Electron.WebContents)
@@ -241,16 +245,9 @@ function createMacosAppKitAdapter(
     let hostFactory: MacosAppKitChromiumRuntimeHostFactory | null = null;
     const eventBridge = new MacosAppKitRuntimeEventBridge({
       core: coreClient,
+      onTabDrag: input => runtimeTabDrag?.receive(input),
       onDividerTerminal: (id, gesture) => hostFactory?.retireWorkspaceDividerGesture(id, gesture),
-      preparePassiveEventDispatch: async (capturedHosts) => {
-        if (!hostFactory) {
-          throw new RionBridgeError({
-            code: "ELECTRON_MACOS_APPKIT_HOST_UNAVAILABLE",
-            message: "The AppKit event host is unavailable."
-          });
-        }
-        return hostFactory.captureHostObservations(capturedHosts.map((host) => host.identity.logicalWindowId));
-      },
+      preparePassiveEventDispatch: captured => capturePassiveAppKitHosts(hostFactory, captured),
       ...callbacks,
       onError: revealShellError
     });
@@ -266,15 +263,7 @@ function createMacosAppKitAdapter(
         },
         onCloseRequested: (identity, hosts) =>
           eventBridge.receiveCloseRequested(identity, hosts),
-        onHostClosing: (binding) => {
-          if (!attachments) {
-            return Promise.reject(new RionBridgeError({
-              code: "ELECTRON_MACOS_APPKIT_INPUT_HOST_UNAVAILABLE",
-              message: "The AppKit input host is unavailable."
-            }));
-          }
-          return attachments.closeHost(binding);
-        },
+        onHostClosing: binding => closeAppKitInputHost(attachments, binding),
         attachedWebSurfaces: id =>
           chromiumRuntime?.attachedWebSurfaceObservations(id) ?? [],
         onLayout: (event) => eventBridge.receiveLayout(event),
@@ -416,25 +405,8 @@ export function focusElectronMainWindow(): void {
   window.focus();
 }
 
-export function readWindowsRuntimeShortcutOwnerDiagnostic(
-  parentNativeHostId: number
-): WindowsRuntimeShortcutOwnerDiagnostic | null {
-  if (process.platform !== "win32") return null;
-  if (!Number.isSafeInteger(parentNativeHostId) || parentNativeHostId < 1) {
-    throw new RionBridgeError({
-      code: "ELECTRON_RUNTIME_SHORTCUT_DIAGNOSTIC_HOST_INVALID",
-      message: "The Windows shortcut diagnostic requires one exact native host."
-    });
-  }
-  const addon = nativeAddon;
-  const owner = BrowserWindow.fromId(parentNativeHostId);
-  if (!addon || !owner || owner.isDestroyed()) {
-    throw new RionBridgeError({
-      code: "ELECTRON_RUNTIME_SHORTCUT_DIAGNOSTIC_OWNER_MISSING",
-      message: "The Windows shortcut diagnostic owner is no longer active."
-    });
-  }
-  return addon.readWindowsRuntimeShortcutOwner(owner.getNativeWindowHandle());
+export function readWindowsRuntimeShortcutOwnerDiagnostic(parentNativeHostId: number): WindowsRuntimeShortcutOwnerDiagnostic | null {
+  return readWindowsShortcutDiagnostic(parentNativeHostId, nativeAddon);
 }
 
 function activeRuntimeRestoreSession(): ChromiumRuntimeRestoreSessionCoordinator {
@@ -480,6 +452,7 @@ async function disposeShellAfterFatalTermination(): Promise<void> {
   chromiumUpdater?.dispose();
   unsubscribeDisplayTopology?.(); unsubscribeDisplayTopology = null;
   displayTopology?.dispose(); displayTopology = null;
+  await runtimeTabDrag?.dispose(); runtimeTabDrag = null;
   await applicationLifecycle?.dispose();
   coreRendererEvents?.dispose();
   chromiumLaunchCompletions?.dispose(); chromiumLaunchCompletions = null;
@@ -785,6 +758,7 @@ async function bootstrapReadyPhase(
   const fatalEventStream = new ElectronFatalEventStreamRouter({
     onFatalDetected: () => {
       fatalEventStreamDetected = true;
+      runtimeTabDrag?.failEventStream();
       coreRendererEvents?.dispose();
       unsubscribeDisplayTopology?.();
       chromiumRuntime?.beginFatalEventStreamFailure();
@@ -809,6 +783,7 @@ async function bootstrapReadyPhase(
     rolePreloadPath: join(import.meta.dirname, "../preload/role.cjs"),
     startupSignal: startupQuitFence.signal,
     onNativeProjectionChanged: () => {
+      runtimeTabDrag?.observeNativeProjection();
       coreRendererEvents?.observeNativeProjectionChanged();
       quickMenu?.observeNativeProjectionChanged();
     },
@@ -916,6 +891,7 @@ async function bootstrapReadyPhase(
               }
               return request(windowId, action);
             },
+            onTabDrag: start => runtimeTabDrag?.startWindows(start),
             onTabControl: (tabId, action) => {
               const request = requestRuntimeTabControl;
               if (!request) {
@@ -1302,6 +1278,10 @@ async function bootstrapReadyPhase(
         }
       : {})
   });
+  runtimeTabDrag = createRuntimeTabDragBootstrap({ core: activeCore(), platform: runtimePlatform,
+    runtime: () => chromiumRuntime, addon: () => nativeAddon, appKit: appKit ?? undefined,
+    displays: () => activeDisplayTopology().snapshot(), epoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,
+    onError: error => revealShellError(normalizeRionBridgeError(error)) });
   if (!runtimeActionServices) {
     throw new RionBridgeError({
       code: "ELECTRON_CHROMIUM_RUNTIME_ACTIONS_UNAVAILABLE",
@@ -1523,6 +1503,7 @@ async function bootstrapReadyPhase(
     platform: platform(),
     core: {
       shutdown: async () => {
+        await runtimeTabDrag?.dispose(); runtimeTabDrag = null;
         quickMenu?.dispose();
         quickMenu = null;
         chromiumUpdater?.dispose();

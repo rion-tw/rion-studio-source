@@ -1,3 +1,4 @@
+import { createRuntimeTabDragHost } from "./runtimeTabDragHost";
 import type {
   AppKitRuntimeHostIdentityRecord,
   AppKitRuntimeHostObservationRecord,
@@ -577,6 +578,18 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       readProjection
     });
     record.host = Object.freeze({
+      tabDrag: createRuntimeTabDragHost({ native,
+        contains: point => this.#withCurrent(record as HostRecord, () => {
+          const controller = requireNativeController(record as HostRecord, "drag hit test");
+          if (!controller.containsDragPoint) throw new Error("Native drag geometry is unavailable.");
+          return controller.containsDragPoint(identity, point.x, point.y);
+        }),
+        anchor: (tabId, ratio) => this.#withCurrent(record as HostRecord, () => {
+          const controller = requireNativeController(record as HostRecord, "drag anchor");
+          if (!controller.dragAnchor) throw new Error("Native drag anchor is unavailable.");
+          return controller.dragAnchor(identity, tabId, ratio.x, ratio.y);
+        })
+      }),
       id: nativeId,
       logicalWindowId: identity.logicalWindowId,
       appKitIdentity: identity,

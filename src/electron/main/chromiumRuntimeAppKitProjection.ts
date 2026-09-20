@@ -544,15 +544,28 @@ export async function applyChromiumRuntimeAppKitProjection(
     // All loading slots must use the same confirmed appearance as native dividers.
     for (const tabId of windowProjection.logicalTabIds) {
       const tab = tabs.get(tabId)!;
-      tab.specification = { ...tab.specification,
+      tab.specification = { ...tab.specification, target: window.hostTarget,
         workspaceAppearance: { ...windowProjection.workspaceAppearance } };
     }
   }
-  for (const { transaction } of committedHosts) transaction.finalize?.();
-  for (const [tabId, windowId] of projectedWindowByTab) {
-    const tab = tabs.get(tabId)!;
-    if (tab.slotLoads) projectWorkspaceSlotLoads(tab, windows.get(windowId)!,
-      await ports.layout.resolveRoleBounds(tab.specification, windows.get(windowId)!.host));
+  try {
+    for (const { transaction } of committedHosts) transaction.finalize?.();
+    for (const [tabId, windowId] of projectedWindowByTab) {
+      const tab = tabs.get(tabId)!;
+      if (tab.slotLoads) projectWorkspaceSlotLoads(tab, windows.get(windowId)!,
+        await ports.layout.resolveRoleBounds(tab.specification, windows.get(windowId)!.host));
+    }
+  } catch {
+    // Native ownership is already committed. A failed completion cannot be
+    // retried or rolled back as if no transfer happened.
+    try {
+      await input.quarantineWindows([...touchedWindowIds]);
+    } catch {
+      // Even teardown failure must retain the terminal classification so Core
+      // reconciles only these hosts instead of accepting a degraded projection.
+    }
+    throw runtimeError("ELECTRON_MACOS_APPKIT_PROJECTION_COMPLETION_INDETERMINATE",
+      "The committed AppKit transfer could not finish presentation; its exact hosts require quarantine.");
   }
   // The native transaction is committed. Focus failure must never roll it back.
   if (projection.contentFocusTabId !== undefined) {

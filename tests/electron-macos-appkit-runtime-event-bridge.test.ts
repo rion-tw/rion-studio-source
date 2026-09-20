@@ -1024,6 +1024,31 @@ describe("macOS AppKit privileged runtime event bridge", () => {
     });
   });
 
+  it("refreshes a held drag after earlier native layout events without replacing its host identity", async () => {
+    let revision = 7;
+    const commands: Extract<CoreCommand, { type: "browserAppKitRuntimeEvent" }>[] = [];
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: { invoke: async command => {
+        const event = command as Extract<CoreCommand, { type: "browserAppKitRuntimeEvent" }>;
+        commands.push(event);
+        revision = 8;
+        return receipt(event) as never;
+      }, subscribeCoreEvents: () => () => undefined },
+      preparePassiveEventDispatch: async hosts => hosts.map(host => ({ ...host, topologyRevision: revision })),
+      onError: vi.fn()
+    });
+    const source = primaryObservation();
+    const activate = bridge.activateTab([source], "tab-1");
+    const move = bridge.moveTab([observation("window-2", 4), source], {
+      sessionId: "held", tabId: "tab-1", sourceWindowId: "window-1", targetWindowId: "window-2",
+      orderedTabIds: ["tab-2", "tab-1"], refreshHosts: true
+    });
+    await activate; await move;
+    expect(commands[1]!.event.hosts.map(host => host.topologyRevision)).toEqual([8, 8]);
+    expect(commands[1]!.event.hosts[1]!.identity).toEqual(source.identity);
+    await bridge.dispose();
+  });
+
   it("releases the ordered lane on exact visibility dispatch before the first native acknowledgement", async () => {
     const commands: Extract<CoreCommand, {
       type: "browserAppKitRuntimeEvent";

@@ -852,12 +852,12 @@ describe("Electron Chromium runtime bootstrap", () => {
 
   it("registers the exact conservative v27 capability fixtures", () => {
     const versions = { electronVersion: "43.6.0", chromiumVersion: "150.0.7871.250" };
-    expect(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION).toBe(43);
+    expect(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION).toBe(44);
     expect(buildChromiumRuntimeRegistration({
       platform: "win32",
       ...versions
     })).toEqual({
-      contractVersion: 43,
+      contractVersion: 44,
       platform: "windows",
       engine: "chromium",
       adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
@@ -885,7 +885,7 @@ describe("Electron Chromium runtime bootstrap", () => {
       platform: "darwin",
       ...versions
     })).toEqual({
-      contractVersion: 43,
+      contractVersion: 44,
       platform: "macos",
       engine: "chromium",
       adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
@@ -930,7 +930,7 @@ describe("Electron Chromium runtime bootstrap", () => {
     });
     expect(options).toEqual({
       userDataDir: "/RionData",
-      runtimeContractVersion: 43
+      runtimeContractVersion: 44
     });
     expect(Object.isFrozen(options)).toBe(true);
   });

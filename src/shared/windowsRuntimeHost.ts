@@ -1,3 +1,4 @@
+import { isRuntimeTabDragCommand, type RuntimeTabDragGeometry, type RuntimeTabDragStartCommand } from "./runtimeTabDrag";
 import { isWorkspaceSlotLoadPresentation, isWorkspaceSlotLoadRecord, type WorkspaceSlotLoadPresentation } from "./workspaceSlotLoading";
 
 export const WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL =
@@ -114,6 +115,7 @@ export type WindowsRuntimeHostSlotRetryCommand = Readonly<{
 }>;
 
 export type WindowsRuntimeHostCommand =
+  | RuntimeTabDragGeometry | RuntimeTabDragStartCommand
   | WindowsRuntimeHostSlotRetryCommand
   | WindowsRuntimeHostToolbarCommand
   | WindowsRuntimeHostTabCommand
@@ -264,6 +266,7 @@ export function isWindowsRuntimeHostCommand(
       Number(value.projectionRevision) < 1) {
     return false;
   }
+  if (value.type === "tabDragGeometry" || value.type === "tabDragStart") return isRuntimeTabDragCommand(value);
   if (value.type === "retryWorkspaceSlot") {
     return Object.keys(value).length === 4 && isWorkspaceSlotLoadRecord(value.record) &&
       value.record.windowId === value.windowId && value.record.phase === "failed" && value.record.retryable;

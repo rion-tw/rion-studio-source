@@ -173,10 +173,9 @@ describe("Windows runtime-host renderer", () => {
     second.dispatchEvent(pointer("pointermove", { clientX: 10 }));
     second.dispatchEvent(pointer("pointerup", { clientX: 10 }));
     expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({
-      beforeTabId: firstTabId,
-      orderedVisibleTabIds: [secondTabId, firstTabId],
+      ratio: { x: 0.5, y: 1 / 3 },
       tabId: secondTabId,
-      type: "reorderTab"
+      type: "tabDragStart"
     }));
 
     items[0]!.dispatchEvent(new MouseEvent("contextmenu", {
@@ -387,11 +386,12 @@ describe("Windows runtime-host renderer", () => {
     const enter = () => document.querySelector("[data-runtime-reveal-edge]")!
       .dispatchEvent(new Event("pointerenter"));
     project(value);
+    submit.mockClear();
     leave(); enter();
-    expect(submit).not.toHaveBeenCalled();
+    expect(submit.mock.calls.filter(([c]) => c.type !== "tabDragGeometry")).toHaveLength(0);
     project({ ...value, fullscreen: true, alwaysShowToolbarInFullScreen: true });
     leave(); enter();
-    expect(submit).not.toHaveBeenCalled();
+    expect(submit.mock.calls.filter(([c]) => c.type !== "tabDragGeometry")).toHaveLength(0);
     project({ ...value, fullscreen: true });
     leave();
     expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({ type: "hideToolbar" }));

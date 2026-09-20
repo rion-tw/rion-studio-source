@@ -1,3 +1,12 @@
+fn appkit_projection_failure_requires_quarantine(code: &str) -> bool {
+    matches!(
+        code,
+        "MACOS_APPKIT_CHROMIUM_PROJECTION_HOST_QUARANTINED"
+            | "MACOS_APPKIT_CHROMIUM_PROJECTION_COMPENSATION_FAILED"
+            | "ELECTRON_MACOS_APPKIT_PROJECTION_COMPLETION_INDETERMINATE"
+    )
+}
+
 impl AppCore {
     fn finish_appkit_projection(
         &self,
@@ -50,7 +59,13 @@ impl AppCore {
                     Ok(()) => self.appkit_receipt(
                         &event,
                         &primary,
-                        crate::model::SystemRuntimeOperationStatus::Failed,
+                        if native_failure_code
+                            == "ELECTRON_MACOS_APPKIT_PROJECTION_COMPLETION_INDETERMINATE"
+                        {
+                            crate::model::SystemRuntimeOperationStatus::Indeterminate
+                        } else {
+                            crate::model::SystemRuntimeOperationStatus::Failed
+                        },
                         false,
                         false,
                         Some(native_failure_code),

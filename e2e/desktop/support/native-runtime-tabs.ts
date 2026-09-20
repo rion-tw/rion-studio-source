@@ -485,32 +485,18 @@ export async function dragVisibleWindowsRuntimeTab(input: Readonly<{
   if (process.platform !== "win32") {
     throw new Error("The bundled Windows tab drag is Windows-only");
   }
-  await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
-    const source = await $(
-      `[data-runtime-tab-activate][data-tab-id='${input.tabId}']`
-    );
-    await source.waitForClickable({ timeout: 10_000 });
-    const target = input.beforeTabId === undefined
-      ? await $("[data-runtime-tabs]")
-      : await $(
-          `[data-runtime-tab-activate][data-tab-id='${input.beforeTabId}']`
-        );
-    await target.waitForDisplayed({ timeout: 10_000 });
-    const targetSize = await target.getSize();
-    await browser.action("pointer", { parameters: { pointerType: "mouse" } })
-      .move({ origin: source, x: 0, y: 0 })
-      .down("left")
-      .move({
-        duration: 500,
-        origin: target,
-        x: input.beforeTabId === undefined
-          ? Math.max(1, Math.floor(targetSize.width / 2) - 8)
-          : -Math.max(8, Math.floor(targetSize.width / 4)),
-        y: 0
-      })
-      .up("left")
-      .perform();
-  });
+  const { nativeTabPoint, nativeTabPointer } = await import("./native-tab-tearout");
+  const context = await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, () => browser.execute((before) => ({
+    windowId: document.documentElement.dataset.runtimeWindowId!,
+    targetId: before ?? [...document.querySelectorAll<HTMLElement>(".runtime-tab[data-tab-id]")].at(-1)!.dataset.tabId!
+  }), input.beforeTabId ?? null));
+  const source = await nativeTabPoint({ platform: "windows", mainWindowHandle: input.mainWindowHandle,
+    windowId: context.windowId, tabId: input.tabId, tabName: "", focus: true });
+  const target = await nativeTabPoint({ platform: "windows", mainWindowHandle: input.mainWindowHandle,
+    windowId: context.windowId, tabId: context.targetId, tabName: "" });
+  target.x += input.beforeTabId ? -20 : 20;
+  try { await nativeTabPointer("windows", "start", source, target); }
+  finally { await nativeTabPointer("windows", "end", target, target); }
 }
 
 export async function selectVisibleWindowsRuntimeTabMenuAction(input: Readonly<{

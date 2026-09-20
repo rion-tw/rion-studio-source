@@ -127,7 +127,7 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 43;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 44;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(
@@ -354,6 +354,7 @@ export interface ChromiumRuntimeBootstrapInput {
       windowId: string,
       action: "closeWindow" | "toggleMaximizeWindow"
     ) => Promise<void>;
+    onTabDrag?: (start: import("./runtimeTabDragController").RuntimeTabDragStart) => void;
     onTabControl?: (
       tabId: string,
       action: ChromiumRuntimeNativeTabAction
@@ -645,6 +646,7 @@ export class ChromiumRuntimeBootstrap {
               return nativeActionIngress.run(() =>
                 input.windows!.onWindowControl(windowId, action));
             },
+            onTabDrag: input.windows!.onTabDrag,
             onTabControl: (tabId, action) => {
               requireNativeActionIngress();
               const request = input.windows!.onTabControl;
@@ -1379,6 +1381,10 @@ export class ChromiumRuntimeBootstrap {
       await managedShortcuts?.dispose().catch(() => undefined);
       throw error;
     }
+  }
+
+  tabDragHost(windowId: string, generation: number) {
+    return this.#executor.tabDragHost(windowId, generation);
   }
 
   attachedWebSurfaceObservations(windowId: string) {

@@ -30,3 +30,5 @@ include!("section_22_compatible_modifier_evidence.rs");
 
 #[cfg(test)]
 mod retired_performance_tests;
+
+include!("section_23_runtime_tab_drag.rs");

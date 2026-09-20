@@ -52,6 +52,7 @@ import type { RoleSessionMigrationRecord } from "./RoleSessionMigrationRecord";
 import type { RuntimeWindowPersistenceReceiptRecord } from "./RuntimeWindowPersistenceReceiptRecord";
 import type { RuntimeWindowPersistenceBatchReceiptRecord } from "./RuntimeWindowPersistenceBatchReceiptRecord";
 import type { RuntimeWindowPreferencesRecord } from "./RuntimeWindowPreferencesRecord";
+import type { RuntimeTabDragReceiptRecord } from "./RuntimeTabDragReceiptRecord";
 import type { RuntimeWindowProvisionReceiptRecord } from "./RuntimeWindowProvisionReceiptRecord";
 import type { RuntimeWindowZoomReceiptRecord } from "./RuntimeWindowZoomReceiptRecord";
 import type { BrowserTabReloadReceiptRecord } from "./BrowserTabReloadReceiptRecord";
@@ -195,6 +196,7 @@ type TypedCoreCommandResultMap = {
   embeddedWindowVisibility: SystemRuntimeOperationSummaryRecord;
   embeddedWindowPresentation: SystemRuntimeOperationSummaryRecord;
   browserRuntimeWindowZoom: RuntimeWindowZoomReceiptRecord;
+  runtimeTabDrag: RuntimeTabDragReceiptRecord;
   embeddedWindowProvisionForTabMove: RuntimeWindowProvisionReceiptRecord;
   embeddedWindowProvisionResume: RuntimeWindowProvisionReceiptRecord | null;
   embeddedTabActivate: SystemRuntimeOperationSummaryRecord;

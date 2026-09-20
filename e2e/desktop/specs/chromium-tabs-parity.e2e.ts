@@ -1,3 +1,7 @@
+// [journey:CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-TEAROUT-046]
+// [journey:CHROMIUM-WINDOWS-RUNTIME-TAB-TEAROUT-046]
+import { exerciseMixedWorkspaceTearout } from "./chromium-tab-tearout-workspace";
+import { exerciseVisibleTabTearout } from "./chromium-tab-tearout";
 import { exerciseMacosLauncherDuringLoading } from "./chromium-launcher-loading";
 import { runMacosTabFocusRegression } from "./chromium-tab-content-focus-setup";
 import { expectLoadingTabPresentation, expectReadyTabAboveLoadingSibling } from "./chromium-loading-tab-evidence";
@@ -1067,6 +1071,26 @@ async function launchWithPendingTargetProjection(input: Readonly<{
   } finally { await fixtureRequest("/api/release", { roleId: projectionGateId }); }
 }
 
+async function tearoutPhase(input: { mainWindowHandle: string; platform: Platform; processId: number }): Promise<void> {
+  await fixtureRequest("/api/reset", {});
+  const { gameWindow, roles } = await createEntitiesThroughVisibleUi();
+  const tabIds: string[] = [];
+  for (const role of roles.slice(0, 2)) tabIds.push(await launchRoleIntoWindow(role, gameWindow));
+  const loadingRole = roles[2]!;
+  tabIds.push(await launchRoleIntoWindow(loadingRole, gameWindow, { ...input,
+    duringLoading: async () => {
+      const tab = (await rendererCall("getEmbeddedRuntimeState")).tabs.find(t => t.sourceId === loadingRole.id)!;
+      await exerciseVisibleTabTearout({ ...input, windowId: gameWindow.id,
+        tabId: tab.id, tabName: loadingRole.name, roleId: loadingRole.id,
+        verifyOwner: async windowId => expect(await visibleRuntimeTabPhase({ ...input,
+          windowId, tabId: tab.id, tabName: loadingRole.name })).toBe("loading") });
+    } }));
+  await exerciseVisibleTabTearout({ ...input, windowId: gameWindow.id,
+    tabId: tabIds[2]!, tabName: roles[2]!.name, roleId: roles[2]!.id });
+  await exerciseMixedWorkspaceTearout({ ...input, windowId: gameWindow.id, role: roles[3]! });
+  expect(await runtimeTabShellErrors()).toEqual([]);
+}
+
 async function seedPhase(input: Readonly<{
   mainWindowHandle: string;
   platform: Platform;
@@ -1178,6 +1202,9 @@ async function seedPhase(input: Readonly<{
     roles,
     stage: "baseline"
   });
+
+  await exerciseVisibleTabTearout({ ...input, windowId: gameWindow.id,
+    tabId: tabIds[2]!, tabName: sourceRoles[2]!.name, roleId: sourceRoles[2]!.id });
 
   expect(independentTabId).toBeDefined();
   const targetTabId = independentTabId!;
@@ -1490,6 +1517,7 @@ describe("Chromium native tab lifecycle parity", () => {
       processId: probe.processId
     };
     if (phase === "chromium-tabs-visible-seed") await seedPhase(input);
+    else if (phase === "chromium-tab-tearout") await tearoutPhase(input);
     else if (phase === "chromium-tabs-visible-restart") await restartPhase(input);
     else throw new Error(`Unexpected Chromium tabs phase ${phase}`);
   });

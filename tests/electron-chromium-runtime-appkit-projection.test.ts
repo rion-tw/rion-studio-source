@@ -308,6 +308,31 @@ describe("Chromium AppKit projection transaction", () => {
     expect(subject.setWebBounds).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])("quarantines an exact committed host when loading-layout completion becomes unknown (teardown fails: %s)", async (teardownFails) => {
+    const nativeHost = host("window-1", 1);
+    const tab = tabRecord("tab-1", "window-1"); tab.slotLoads = new Map();
+    const subject = ports();
+    vi.mocked(subject.executorPorts.layout.resolveRoleBounds).mockRejectedValue(new Error("layout completion failed"));
+    const projection: AppKitRuntimeProjectionEffectRecord = { eventId: "completion-failure", windows: [{
+      identity: nativeHost.appKitIdentity!, adapterSequence: 1, windowGeneration: 3, topologyRevision: 8,
+      logicalTabIds: ["tab-1"], hiddenTabIds: [], activeTabId: "tab-1",
+      tabs: [{ tabId: "tab-1", name: "Workspace", phase: "loading", tabType: "workspace", audioMuted: false }],
+      roles: [], webSurfaces: [], workspaceDividers: [], workspaceAppearance: { gap: 4, background: "material" }, windowVisible: true
+    }] };
+    const window = windowRecord(nativeHost, ["tab-1"]);
+    const quarantineWindows = vi.fn(async () => {
+      if (teardownFails) throw new Error("native teardown failed");
+    });
+    await expect(applyChromiumRuntimeAppKitProjection({ effect: effect("window-1", projection), projection,
+      ports: subject.executorPorts, windows: new Map([["window-1", window]]), tabs: new Map([["tab-1", tab]]),
+      roles: new Map(), webSurfaces: new Map(), quarantineWindows })).rejects.toMatchObject({
+      code: "ELECTRON_MACOS_APPKIT_PROJECTION_COMPLETION_INDETERMINATE"
+    });
+    expect(quarantineWindows).toHaveBeenCalledExactlyOnceWith(["window-1"]);
+    expect(window.topologyRevision).toBe(8);
+    expect(nativeHost.projectionTransactions[0]!.rollback).not.toHaveBeenCalled();
+  });
+
   it("does not rewrite unchanged Chromium surface projections", async () => {
     const nativeHost = host("window-1", 1);
     const windows = new Map<string, ChromiumRuntimeWindowRecord>([
@@ -513,6 +538,7 @@ describe("Chromium AppKit projection transaction", () => {
       ["web-tab-1", tabRecord("web-tab-1", "web-window-1")],
       ["web-tab-2", tabRecord("web-tab-2", "web-window-2")]
     ]);
+    tabs.get("web-tab-1")!.slotLoads = new Map();
     const webSurfaces = new Map<string, ChromiumRuntimeWebSurfaceRecord>([
       ["web-surface-1", webRecord("web-surface-1", "web-tab-1", "web-window-1")],
       ["web-surface-2", webRecord("web-surface-2", "web-tab-2", "web-window-2")]
@@ -570,6 +596,9 @@ describe("Chromium AppKit projection transaction", () => {
     expect(subject.setWebVisible).toHaveBeenCalledWith("web-surface-2", 1, false);
     expect(subject.setWebVisible).toHaveBeenCalledTimes(1);
     expect(webSurfaces.get("web-surface-1")!.windowId).toBe("web-window-2");
+    expect(subject.executorPorts.layout.resolveRoleBounds).toHaveBeenCalledWith(
+      expect.objectContaining({ target: windows.get("web-window-2")!.hostTarget }), targetHost);
+    expect(tabs.get("web-tab-1")!.specification.target.windowId).toBe("web-window-2");
 
     subject.reparentWebSurface.mockClear();
     subject.setWebBounds.mockClear();

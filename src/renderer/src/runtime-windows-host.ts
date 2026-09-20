@@ -1,3 +1,4 @@
+import { createRuntimeTabDrag } from "./runtimeTabDrag";
 import type {
   WindowsRuntimeHostCommand,
   WindowsRuntimeHostProjection,
@@ -43,17 +44,6 @@ document.body.prepend(workspaceBackground);
 
 let current: WindowsRuntimeHostProjection | null = null;
 let resizeEventCount = 0;
-let activeTabDrag: Readonly<{
-  element: HTMLElement;
-  gestureId: string;
-  item: HTMLElement;
-  originalOrder: readonly string[];
-  pointerId: number;
-  projectionRevision: number;
-  startX: number;
-  startY: number;
-  tabId: string;
-}> & { dragging: boolean } | null = null;
 const suppressedClicks = new Set<string>();
 const dividerElements = new Map<string, HTMLButtonElement>();
 const activePointers = new Map<number, {
@@ -192,102 +182,8 @@ function openTabMenu(event: MouseEvent, tabId: string): void {
   tabMenu.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
 }
 
-function visibleTabElements(): HTMLElement[] {
-  return [...tabs!.querySelectorAll<HTMLElement>(".runtime-tab[data-tab-id]")];
-}
-
-function visibleTabOrder(): string[] {
-  return visibleTabElements().map((element) => element.dataset.tabId!);
-}
-
-function releaseTabPointer(active: NonNullable<typeof activeTabDrag>): void {
-  active.element.dataset.dragging = "false";
-  if (active.element.hasPointerCapture(active.pointerId)) {
-    active.element.releasePointerCapture(active.pointerId);
-  }
-}
-
-function cancelTabDrag(): void {
-  const active = activeTabDrag;
-  activeTabDrag = null;
-  if (!active) return;
-  releaseTabPointer(active);
-}
-
-function previewTabDrag(event: PointerEvent): void {
-  const active = activeTabDrag;
-  if (!active || active.pointerId !== event.pointerId) return;
-  if (!active.dragging) {
-    const distance = Math.abs(event.clientX - active.startX) +
-      Math.abs(event.clientY - active.startY);
-    if (distance < 8) return;
-    active.dragging = true;
-    active.element.dataset.dragging = "true";
-  }
-  const siblings = visibleTabElements().filter((element) => element !== active.item);
-  const before = siblings.find((element) => {
-    const bounds = element.getBoundingClientRect();
-    return event.clientX < bounds.left + bounds.width / 2;
-  });
-  tabs!.insertBefore(active.item, before ?? null);
-  event.preventDefault();
-}
-
-function finishTabDrag(event: PointerEvent, cancelled: boolean): void {
-  const active = activeTabDrag;
-  if (!active || active.pointerId !== event.pointerId) return;
-  activeTabDrag = null;
-  releaseTabPointer(active);
-  if (!active.dragging || cancelled) return;
-  suppressedClicks.add(active.tabId);
-  const orderedVisibleTabIds = visibleTabOrder();
-  if (
-    orderedVisibleTabIds.length === active.originalOrder.length &&
-    orderedVisibleTabIds.every((tabId, index) => tabId === active.originalOrder[index])
-  ) {
-    return;
-  }
-  const index = orderedVisibleTabIds.indexOf(active.tabId);
-  const beforeTabId = orderedVisibleTabIds[index + 1];
-  const projection = current;
-  if (!projection || projection.projectionRevision !== active.projectionRevision) return;
-  bridge!.submit({
-    ...(beforeTabId === undefined ? {} : { beforeTabId }),
-    gestureId: active.gestureId,
-    orderedVisibleTabIds,
-    projectionRevision: active.projectionRevision,
-    tabId: active.tabId,
-    type: "reorderTab",
-    windowId: projection.windowId
-  });
-}
-
-function bindTabPointer(
-  element: HTMLElement,
-  item: HTMLElement,
-  tabId: string
-): void {
-  element.addEventListener("pointerdown", (event) => {
-    if (!event.isPrimary || event.button !== 0 || activeTabDrag || !current) return;
-    closeTabMenu();
-    activeTabDrag = {
-      dragging: false,
-      element,
-      gestureId: crypto.randomUUID(),
-      item,
-      originalOrder: visibleTabOrder(),
-      pointerId: event.pointerId,
-      projectionRevision: current.projectionRevision,
-      startX: event.clientX,
-      startY: event.clientY,
-      tabId
-    };
-    element.setPointerCapture(event.pointerId);
-  });
-  element.addEventListener("pointermove", previewTabDrag);
-  element.addEventListener("pointerup", (event) => finishTabDrag(event, false));
-  element.addEventListener("pointercancel", (event) => finishTabDrag(event, true));
-}
+const tabDrag = createRuntimeTabDrag({ toolbar, tabs, current: () => current,
+  submit: command => bridge!.submit(command), suppressClick: tabId => suppressedClicks.add(tabId), closeMenu: closeTabMenu });
 
 function dividerKey(
   divider: Pick<WindowsRuntimeWorkspaceDividerProjection, "tabId" | "dividerIndex">
@@ -490,7 +386,6 @@ function renderSlotLoads(projection: WindowsRuntimeHostProjection): void {
 
 function render(projection: WindowsRuntimeHostProjection): void {
   renderSlotLoads(projection);
-  cancelTabDrag();
   closeTabMenu();
   current = projection;
   workspaceBackground.style.background = projection.workspaceBackground === "black" ? "#000" : "transparent";
@@ -512,7 +407,7 @@ function render(projection: WindowsRuntimeHostProjection): void {
     activate.dataset.tabId = tab.tabId;
     activate.setAttribute("aria-label", `Activate ${tab.name}`);
     activate.setAttribute("aria-pressed", String(tab.active));
-    bindTabPointer(activate, item, tab.tabId);
+    tabDrag.bind(activate, tab.tabId);
     const label = document.createElement("span");
     label.textContent = tab.name;
     activate.append(label);
@@ -575,6 +470,7 @@ function render(projection: WindowsRuntimeHostProjection): void {
   document.documentElement.dataset.runtimeWindowGeneration =
     String(projection.windowGeneration);
   document.documentElement.dataset.runtimeWindowId = projection.windowId;
+  tabDrag.geometry();
 }
 
 revealEdge.addEventListener("pointerenter", () => submit("revealToolbar"));

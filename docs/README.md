@@ -42,6 +42,7 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [Preserve-session Recovery](validation/session-recovery.md) | Active runbook | Single-role recovery authority, source support list, UI and native acceptance |
 | [Web App DRM](validation/runbooks/web-app-drm.md) | Active runbook | HTTPS permission evidence and iq.com playback acceptance |
 | [Windows Game Window Placement](validation/runbooks/windows-game-window-placement.md) | Active runbook | Physical Windows placement, DPI, and generation acceptance |
+| [Live Tab Tearout](validation/runbooks/runtime-tab-tearout.md) | Active runbook | Native tab-drag journeys, failure paths, and platform validation limits |
 
 | [Chromium Extensions](extensions.md) | Active, additive capability | Extension packages, role leases, store presentation, and native validation |
 

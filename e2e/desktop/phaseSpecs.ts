@@ -81,6 +81,7 @@ export const desktopE2eSpecByPhase: Readonly<Record<string, string>> = {
   "chromium-system-settings-restart":
     "e2e/desktop/specs/chromium-system-settings.e2e.ts",
   "chromium-tabs-visible-restart": "e2e/desktop/specs/chromium-tabs-parity.e2e.ts",
+  "chromium-tab-tearout": "e2e/desktop/specs/chromium-tabs-parity.e2e.ts",
   "chromium-tabs-visible-seed": "e2e/desktop/specs/chromium-tabs-parity.e2e.ts",
   "chromium-native-window-display-extended":
     "e2e/desktop/specs/chromium-native-window-display.e2e.ts",

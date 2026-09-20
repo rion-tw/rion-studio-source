@@ -1813,3 +1813,5 @@ fn finite_number(value: f64) -> Option<f64> {
 
 #[cfg(test)]
 mod tests;
+
+mod tab_drag;

@@ -122,6 +122,8 @@ export interface WindowsRuntimeHostWebContentsPort {
 }
 
 export interface WindowsRuntimeHostWindowPort {
+  setBounds?: (bounds: ChromiumRoleSurfaceBounds) => void;
+  setIgnoreMouseEvents?: (ignore: boolean) => void;
   readonly id: number;
   readonly contentView: ChromiumRuntimeHostPort["contentView"];
   readonly webContents: WindowsRuntimeHostWebContentsPort;

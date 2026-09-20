@@ -1725,3 +1725,6 @@ mod tests {
         assert!(cleared_output);
     }
 }
+
+mod tab_drag;
+pub use tab_drag::{runtime_tab_drag_anchor, runtime_tab_drag_contains};

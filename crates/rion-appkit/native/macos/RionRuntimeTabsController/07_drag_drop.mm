@@ -479,7 +479,19 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
       RionTopLeftScreenPoint(NSMakePoint(NSMinX(screenRect), NSMaxY(screenRect)));
   NSRect topLeftRect = NSMakeRect(topLeft.x, topLeft.y,
                                  screenRect.size.width, screenRect.size.height);
-  return RionRuntimePointInHalfOpenRect(point, topLeftRect);
+  if (!RionRuntimePointInHalfOpenRect(point, topLeftRect)) return NO;
+  // Use the desktop hit-test, including other applications, rather than the
+  // iteration order of Core windows. Mouse-transparent floating hosts are not
+  // destinations and do not obscure the tab row behind them.
+  NSInteger number = [NSWindow windowNumberAtPoint:RionTopLeftScreenPoint(point)
+                        belowWindowWithWindowNumber:0];
+  NSWindow *hit = [NSApp windowWithWindowNumber:number];
+  while (number > 0 && hit.ignoresMouseEvents) {
+    number = [NSWindow windowNumberAtPoint:RionTopLeftScreenPoint(point)
+                      belowWindowWithWindowNumber:number];
+    hit = [NSApp windowWithWindowNumber:number];
+  }
+  return number == _window.windowNumber || number == root.window.windowNumber;
 }
 
 - (BOOL)dragAnchorForTabIdentifier:(NSString *)tabIdentifier

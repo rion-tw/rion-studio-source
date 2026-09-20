@@ -42,6 +42,8 @@ export interface RawAppKitDesktopE2ETabAnchor {
 }
 
 export interface RawNativeAppKitRuntimeHost {
+  containsDragPoint?: (expected: AppKitRuntimeHostIdentity, x: number, y: number) => boolean;
+  dragAnchor?: (expected: AppKitRuntimeHostIdentity, tabId: string, x: number, y: number) => Readonly<{ x: number; y: number }>;
   readonly logicalWindowId: string;
   readonly launchGeneration: string;
   readonly nativeGeneration: number;
@@ -148,6 +150,8 @@ export interface MacosAppKitPreventableWindowEvent {
 }
 
 export interface MacosAppKitBaseWindowPort {
+  setBounds?: (bounds: ChromiumRoleSurfaceBounds) => void;
+  setIgnoreMouseEvents?: (ignore: boolean) => void;
   setWindowButtonVisibility: (visible: boolean) => void;
   readonly id: number;
   readonly contentView: ChromiumRuntimeHostPort["contentView"] & { setBackgroundColor: (color: string) => void };

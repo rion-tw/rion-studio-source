@@ -34,6 +34,10 @@ export interface LoadedRionNodeAddon
     WindowsRuntimeForegroundProbePort, WindowsRuntimeShortcutOwnerPort,
     WindowsRuntimeShortcutOwnerDiagnosticPort {
   /** Same clock domain as Core Macro scheduledAtMs and deadlineMs. */
+  startWindowsTabDrag: (handle: Buffer, sessionId: string, wake: (sessionId: string) => void) => void;
+  takeWindowsTabDragSample: (sessionId: string) => string | null;
+  windowsTabDragHitTest: (handle: Buffer, x: number, y: number) => boolean;
+  endWindowsTabDrag: (sessionId: string) => void;
   macroInputEpochMillis: () => number;
   readGraphicsSettingsAtStartup: (userDataDir: string) => string;
 }

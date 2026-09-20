@@ -183,7 +183,8 @@ describe("Chromium native tab exact replacements", () => {
     expect(renderer).toContain('submitTab(tab.tabId, "activateTab")');
     expect(renderer).toContain('submitTab(tab.tabId, "closeTab")');
     expect(renderer).toContain('openTabMenu(event, tab.tabId)');
-    expect(renderer).toContain('type: "reorderTab"');
+    expect(renderer).toContain("createRuntimeTabDrag");
+    expect(await source("src/renderer/src/runtimeTabDrag.ts")).toContain('type: "tabDragStart"');
     expect(controller).toContain("#commandLane");
     expect(controller).toContain('type: "moveTab"');
     expect(controller).toContain('type: "reorderTab"');

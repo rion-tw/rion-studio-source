@@ -98,10 +98,11 @@ static NSString * _Nullable RionStringFromUTF8(
 }
 
 static NSPoint RionTopLeftScreenPoint(NSPoint screenPoint) {
-  CGFloat desktopTop = 0;
-  for (NSScreen *screen in NSScreen.screens) {
-    desktopTop = MAX(desktopTop, NSMaxY(screen.frame));
-  }
+  // Electron/Core desktop coordinates originate at the primary display's
+  // upper-left. A display above it must retain negative Y rather than shifting
+  // every event to the uppermost display's origin.
+  NSScreen *primary = NSScreen.screens.firstObject;
+  CGFloat desktopTop = primary ? NSMaxY(primary.frame) : 0;
   return NSMakePoint(screenPoint.x, desktopTop - screenPoint.y);
 }
 

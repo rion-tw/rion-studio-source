@@ -240,3 +240,5 @@ mod contract_generation;
 mod session_recovery;
 mod session_source;
 pub use session_recovery::types::*;
+
+pub use model::{RuntimeTabDragEventRecord, RuntimeTabDragReceiptRecord};

@@ -381,3 +381,17 @@ longer be cancelled by deactivating the window mid-press. No injected-input test
 can observe either change, so `CHROMIUM-WINDOWS-GAME-WINDOWS-NATIVE-001` remains
 the only route that can and stays `platform-pending` until the Windows
 hardware-extended profile runs.
+
+## v44 live tab tearout follow-up
+
+Classification: `cutover-regression` on macOS (`c80b0c68` omitted the 8.4 live
+floating-host event consumer); `test-gap` and new capability on Windows.
+The paired physical-pointer journey covers held tearout, reattachment, reuse of
+one transient host, retained Chromium content/Session identity, and empty-host
+retirement without implicitly saving a window. Windows runtime evidence remains
+`platform-pending` until the native Windows profile passes.
+
+```text
+CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-TEAROUT-046
+CHROMIUM-WINDOWS-RUNTIME-TAB-TEAROUT-046
+```

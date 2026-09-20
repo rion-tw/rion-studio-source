@@ -1,3 +1,5 @@
+import { createRuntimeTabDragHost } from "./runtimeTabDragHost";
+import type { RuntimeTabDragStart } from "./runtimeTabDragController";
 import { requireBounds, WindowsRuntimeContentGeometry } from "./windowsRuntimeHostGeometry";
 import { parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -139,6 +141,7 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
         windowId: string,
         action: "closeWindow" | "toggleMaximizeWindow"
       ) => Promise<void>;
+      onTabDrag?: (start: RuntimeTabDragStart) => void;
       onTabControl?: (
         tabId: string,
         action: ChromiumRuntimeNativeTabAction
@@ -402,6 +405,7 @@ implements ChromiumRuntimeHostFactoryPort {
     windowId: string,
     action: "closeWindow" | "toggleMaximizeWindow"
   ) => Promise<void>;
+  readonly #onTabDrag: ((start: RuntimeTabDragStart) => void) | undefined;
   readonly #onTabControl: (
     tabId: string,
     action: ChromiumRuntimeNativeTabAction
@@ -468,8 +472,10 @@ implements ChromiumRuntimeHostFactoryPort {
     onRuntimeTabFullscreen?: (tabId: string) => void,
     runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort,
     onRuntimeTabQuickAccess?: (tabId: string) => void,
-    readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>
+    readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>,
+    onTabDrag?: (start: RuntimeTabDragStart) => void
   ) {
+    this.#onTabDrag = onTabDrag;
     this.#windows = windows;
     this.#displays = displays;
     this.#runtimeDocumentPath = canonicalRuntimeDocumentPath(runtimeDocumentPath);
@@ -801,6 +807,7 @@ implements ChromiumRuntimeHostFactoryPort {
         : {}),
       requestWindowControl: (action) =>
         this.#onWindowControl(record.logicalWindowId, action),
+      requestTabDrag: this.#onTabDrag,
       requestTabControl: this.#onTabControl,
       requestTabReload: this.#onTabReload,
       readLifecycleEpoch: this.#lifecycleEpoch,
@@ -825,6 +832,11 @@ implements ChromiumRuntimeHostFactoryPort {
       onError: this.#onCommandError
     });
     record.host = Object.freeze({
+      tabDrag: createRuntimeTabDragHost({ native,
+        ready: record.chrome.tabDragGeometry.ready,
+        contains: record.chrome.tabDragGeometry.contains,
+        anchor: record.chrome.tabDragGeometry.anchor,
+        before: record.chrome.tabDragGeometry.before }),
       id: nativeId,
       logicalWindowId: target.windowId,
       nativeWindow: native,
@@ -989,6 +1001,7 @@ implements ChromiumRuntimeHostFactoryPort {
       resized: () => this.#publishNativeLayout(record),
       restored: () => record.windowState.publish("restore"),
       renderProcessGone: () => {
+        record.chrome.tabDragGeometry.dispose();
         if (record.state === "active") {
           record.windowState.fail("ELECTRON_RUNTIME_HOST_RENDERER_GONE");
         }
@@ -1301,6 +1314,7 @@ implements ChromiumRuntimeHostFactoryPort {
   }
 
   #onClosed(record: WindowsHostRecord): void {
+    record.chrome.tabDragGeometry.dispose();
     if (record.state === "closed") return;
     const wasOpening = record.state === "opening";
     try {
@@ -1495,7 +1509,8 @@ implements ChromiumRuntimeHostFactoryPort {
           input.onRuntimeTabFullscreen,
           input.runtimeShortcutOwner,
           input.onRuntimeTabQuickAccess,
-          input.readCursorScreenPoint
+          input.readCursorScreenPoint,
+          input.onTabDrag
         )
       : null;
     this.#appKit = input.platform === "darwin" ? input.appKit ?? null : null;

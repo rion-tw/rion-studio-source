@@ -29,6 +29,11 @@ impl AppCore {
         launch: CoreResult<crate::operation_actor::OperationOutcome>,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
         let current = self.browser_runtime.snapshot()?;
+        // A live drag can change host ownership while navigation is pending.
+        // Completion and persistence follow that current owner, never the
+        // launch-time window captured before the native surface was transferred.
+        let window_id = current.windows.values().find(|window| window.contains_tab(&tab_id))
+            .map(|window| window.window_id.clone()).unwrap_or(window_id);
         if current.browser_runtime.tabs.iter().find(|tab| tab.id == tab_id)
             .is_none_or(|tab| tab.attempt_generation.as_deref() != Some(launch_attempt_id)) {
             return Err(CoreError::Domain { code: "LAUNCH_CANCELLED",
@@ -616,6 +621,11 @@ impl AppCore {
         launch: CoreResult<crate::operation_actor::OperationOutcome>,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
         let current = self.browser_runtime.snapshot()?;
+        // A live drag can change host ownership while navigation is pending.
+        // Completion and persistence follow that current owner, never the
+        // launch-time window captured before the native surface was transferred.
+        let window_id = current.windows.values().find(|window| window.contains_tab(&tab_id))
+            .map(|window| window.window_id.clone()).unwrap_or(window_id);
         if current.browser_runtime.tabs.iter().find(|tab| tab.id == tab_id)
             .is_none_or(|tab| tab.attempt_generation.as_deref() != Some(launch_attempt_id)) {
             return Err(CoreError::Domain { code: "LAUNCH_CANCELLED",

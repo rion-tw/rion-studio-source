@@ -103,3 +103,35 @@ The bounded transition journal adds `physical-reconcile` as a source, retaining
 actual corrective event flags or null for ownership-only/undelivered cleanup.
 Existing terminal records remain decodable. Overlay revision `2026-09-20.1` and
 Chromium contract v45 identify this ordering guarantee on both desktop platforms.
+
+## v46 receipt validation and proven input neutrality
+
+Core rollback removes logical ownership, not uncertainty about a submitted page
+effect. An empty release sequence cannot prove native neutrality. Electron retains
+each uncertain key and pointer until an exact release receipt clears that item;
+unrelated cleanup, another input epoch, focus readiness and Core rollback do not
+clear it. Partial neutralization retains only outstanding items. Core-authorized
+`neutralizeInput` addresses those items in the original document. A failed release
+keeps automatic input quarantined and uses the existing restart-required outcome.
+Core projects restart-required lanes as unavailable through the existing Role
+status, and recovery terminal events publish that projection. Surface readiness
+alone cannot advertise a blocked lane as ready.
+Only authoritative document replacement or exact surface retirement can discard
+old-document delivery state; cleanup never redirects to a replacement Canvas.
+Physical player input remains available and no failed action is replayed.
+
+`compatibleReceiptValidation` is optional diagnostic evidence, separate from
+validated delivery. It identifies the first failed identity, document, deadline,
+trust, status, target, event count, modifier snapshot, disposition or history
+check. Its field and bounded expected/received scalar summaries identify the
+specific discrepancy, including a history entry index where applicable. Optional
+reported status, event count and modifier mask are unverified claims. A rejected
+receipt's reported event count never increases `observedDomEventCount` or sets
+`gameDeliveryConfirmed`. Summaries are capped at 160 characters; arbitrary objects
+are not serialized. Existing log redaction still applies and old terminal records
+without this field remain readable. No receipt acceptance rule is relaxed.
+
+The P0/P1 recovery and cleanup journeys inject an exact Role's malformed receipt
+after actual Canvas delivery, including compensation. Visible macro start must
+lead to unavailable automatic input without a document/surface replacement.
+The exported incident preserves claimed delivery separately from validation.

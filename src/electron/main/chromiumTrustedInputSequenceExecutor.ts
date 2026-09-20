@@ -40,11 +40,13 @@ export class ChromiumTrustedInputSequenceFailure extends RionBridgeError {
     code: string;
   }>[];
   readonly confirmedInputNeutrality: boolean;
+  readonly confirmedReleaseCodes: readonly string[];
 
   constructor(code: string, message: string, quarantine: boolean, input: Readonly<{
     actionIndeterminate?: boolean;
     possiblyAppliedEdges?: readonly EmbeddedKeyEffectRecord[];
     confirmedInputNeutrality?: boolean;
+    confirmedReleaseCodes?: readonly string[];
   }> = {}) {
     super({ code, message });
     this.quarantine = quarantine;
@@ -53,6 +55,7 @@ export class ChromiumTrustedInputSequenceFailure extends RionBridgeError {
       edge => Object.freeze({ phase: edge.phase, code: edge.code })
     ));
     this.confirmedInputNeutrality = input.confirmedInputNeutrality ?? false;
+    this.confirmedReleaseCodes = Object.freeze([...(input.confirmedReleaseCodes ?? [])]);
   }
 }
 
@@ -60,7 +63,8 @@ function sequenceFailure(
   receipt: ChromiumNativeTrustedInputReceipt,
   confirmedInputNeutrality: boolean,
   forceQuarantine = false,
-  possiblyAppliedEdges: readonly EmbeddedKeyEffectRecord[] = []
+  possiblyAppliedEdges: readonly EmbeddedKeyEffectRecord[] = [],
+  confirmedReleaseCodes: readonly string[] = []
 ): ChromiumTrustedInputSequenceFailure {
   const actionIndeterminate = receipt.status === "indeterminate";
   const quarantine = forceQuarantine || !confirmedInputNeutrality;
@@ -72,7 +76,7 @@ function sequenceFailure(
     code,
     receipt.errorMessage ?? "The trusted key sequence did not complete.",
     quarantine,
-    { actionIndeterminate, possiblyAppliedEdges, confirmedInputNeutrality }
+    { actionIndeterminate, possiblyAppliedEdges, confirmedInputNeutrality, confirmedReleaseCodes }
   );
 }
 
@@ -105,6 +109,7 @@ async function compensateEdges(input: Readonly<{
   physicalModifierCodes: readonly string[];
   edges: readonly EmbeddedKeyEffectRecord[];
   nowMs: () => number;
+  confirmedReleaseCodes: Set<string>;
   dispatch: (request: ChromiumNativeTrustedInputRequest) =>
     Promise<ChromiumNativeTrustedInputReceipt>;
 }>): Promise<CoreErrorPayload | null> {
@@ -135,6 +140,7 @@ async function compensateEdges(input: Readonly<{
         "cleanup"
       ));
       if (receipt.status !== "applied") return receiptFailure(receipt);
+      input.confirmedReleaseCodes.add(inverse.code);
     } catch (cause) {
       return normalizeRionBridgeError(cause);
     }
@@ -154,6 +160,7 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
   receipt: ChromiumNativeTrustedInputReceipt;
   hasHeldKeys: boolean;
   activeCodes: readonly string[];
+  confirmedEffects: readonly EmbeddedKeyEffectRecord[];
 }>> {
   const { request } = input;
   const action = request.action;
@@ -191,6 +198,7 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
     );
   }
   const applied: EmbeddedKeyEffectRecord[] = [];
+  const confirmedReleaseCodes = new Set<string>();
   const neutralBefore = transition.effects[0]?.activeCodesBefore.length === 0;
   const recover = async (
     cause: CoreErrorPayload, edges: readonly EmbeddedKeyEffectRecord[],
@@ -198,7 +206,7 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
   ): Promise<TrustedInputSequenceFailureRecord> => {
     const failure = await recoverChromiumKeySequence({
       cause, transitionId, confirmedEffects: applied, failedEffect, edges,
-      compensate: edges => compensateEdges({ ...input, physicalModifierCodes, edges }),
+      compensate: edges => compensateEdges({ ...input, physicalModifierCodes, edges, confirmedReleaseCodes }),
       rollback: id => input.core.complete(id, false)
     });
     recordTrustedInputSequenceFailure(request, input.surfaceGeneration, failure,
@@ -218,6 +226,7 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
       ));
     } catch (cause) {
       const possiblyApplied = effect.phase === "rawKeyDown" ? [effect] : [];
+      if (effect.phase === "rawKeyDown") confirmedReleaseCodes.delete(effect.code);
       const recovery = await recover(normalizeRionBridgeError(cause), [...applied, ...possiblyApplied], effect);
       const compensated = recovery.compensationSucceeded;
       const rolledBack = recovery.rollbackSucceeded;
@@ -230,13 +239,15 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
         {
           actionIndeterminate: true,
           possiblyAppliedEdges: [...applied, ...possiblyApplied],
-          confirmedInputNeutrality: compensated && rolledBack && neutralBefore
+          confirmedInputNeutrality: compensated && rolledBack && neutralBefore,
+          confirmedReleaseCodes: [...confirmedReleaseCodes]
         }
       );
     }
     if (receipt.status !== "applied") {
       const possiblyApplied = receipt.status === "indeterminate" &&
         effect.phase === "rawKeyDown" ? [effect] : [];
+      if (possiblyApplied.length) confirmedReleaseCodes.delete(effect.code);
       const recovery = await recover(receiptFailure(receipt), [...applied, ...possiblyApplied], effect);
       const compensated = recovery.compensationSucceeded;
       const rolledBack = recovery.rollbackSucceeded;
@@ -244,10 +255,13 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
         receipt,
         compensated && rolledBack && neutralBefore,
         action.type === "reassertHeldKeys",
-        [...applied, ...possiblyApplied]
+        [...applied, ...possiblyApplied],
+        [...confirmedReleaseCodes]
       );
     }
     applied.push(effect);
+    if (effect.phase === "keyUp") confirmedReleaseCodes.add(effect.code);
+    else confirmedReleaseCodes.delete(effect.code);
   }
   if (transitionId) {
     try {
@@ -261,13 +275,14 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
           ? "Chromium input was compensated, but Core completion is indeterminate."
           : "Chromium input and Core completion are indeterminate.",
         true,
-        { possiblyAppliedEdges: applied }
+        { possiblyAppliedEdges: applied, confirmedReleaseCodes: [...confirmedReleaseCodes] }
       );
     }
   }
   const completedAtMs = input.nowMs();
   return Object.freeze({
     hasHeldKeys: transition.hasHeldKeys,
+    confirmedEffects: Object.freeze(applied.map(effect => Object.freeze({ ...effect }))),
     activeCodes: Object.freeze([
       ...(transition.effects.at(-1)?.activeCodes ?? [])
     ]),

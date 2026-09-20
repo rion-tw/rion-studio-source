@@ -75,6 +75,7 @@ impl AppCore {
         }
         let completion = self.complete_macro_input_recovery(recovery_id, role_id)?;
         let terminal = completion.deferred_count == 0;
+        self.emit_browser_statuses();
         Ok(crate::model::MacroInputRecoveryCompletionReceiptRecord {
             deferred_count: completion.deferred_count,
             input_epoch: expected_input_epoch,
@@ -247,8 +248,12 @@ impl AppCore {
         role_id: &str,
         message: &str,
     ) -> CoreResult<bool> {
-        self.macro_runtime
-            .fail_input_recovery(recovery_id, role_id, message)
+        let failed = self.macro_runtime
+            .fail_input_recovery(recovery_id, role_id, message)?;
+        if failed {
+            self.emit_browser_statuses();
+        }
+        Ok(failed)
     }
 
     pub fn macro_input_recovery_for_role(

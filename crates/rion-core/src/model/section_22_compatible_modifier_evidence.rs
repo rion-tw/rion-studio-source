@@ -53,6 +53,17 @@ mod compatible_modifier_tests {
 
 
     #[test]
+    fn rejected_receipt_claims_round_trip_separately_from_validated_delivery() {
+        let value = serde_json::json!({
+            "reason": "identity", "field": "sequence", "expected": "555", "received": "554",
+            "expectedEventCount": 1, "reportedEventCount": 1, "reportedStatus": "applied",
+            "reportedModifierMask": 12
+        });
+        let decoded: super::CompatibleReceiptValidationRecord = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), value);
+    }
+
+    #[test]
     fn old_terminal_without_compatible_evidence_remains_readable() {
         let legacy = serde_json::json!({
             "capturedAt": "2026-09-15T07:44:43.279Z", "requestId": "request",
@@ -65,7 +76,29 @@ mod compatible_modifier_tests {
         });
         let terminal: TrustedInputTerminalEvidenceRecord = serde_json::from_value(legacy).unwrap();
         assert!(terminal.compatible_modifier_evidence.is_none());
+        assert!(terminal.compatible_receipt_validation.is_none());
         let encoded = serde_json::to_value(terminal).unwrap();
         assert!(encoded.get("compatibleModifierEvidence").is_none());
     }
+}
+
+/// Bounded, unverified receipt claims. These never establish input delivery.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CompatibleReceiptValidationRecord {
+    pub reason: String,
+    pub field: String,
+    pub expected: String,
+    pub received: String,
+    pub expected_event_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reported_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reported_event_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reported_modifier_mask: Option<u8>,
 }

@@ -349,6 +349,34 @@ mod tests {
     }
 
     #[test]
+    fn preserves_receipt_failure_classification_with_existing_text_redaction() {
+        let value = serde_json::json!({"compatibleReceiptValidation": {
+            "reason": "identity", "field": "sequence", "expected": "555", "received": "554",
+            "expectedEventCount": 1, "reportedStatus": "applied", "reportedEventCount": 1,
+            "reportedModifierMask": 12
+        }});
+        let result = sanitize_value(value.clone(), Path::new("/private/data"), 0);
+        assert_eq!(result, value);
+        let redacted = sanitize_value(
+            serde_json::json!({"compatibleReceiptValidation": {
+                "received": "/private/data/game", "secret": "do not retain"
+            }}),
+            Path::new("/private/data"),
+            0,
+        );
+        assert_eq!(
+            redacted["compatibleReceiptValidation"]["secret"],
+            "<REDACTED>"
+        );
+        assert!(
+            !redacted["compatibleReceiptValidation"]["received"]
+                .as_str()
+                .unwrap()
+                .contains("/private/data")
+        );
+    }
+
+    #[test]
     fn preserves_bounded_compatible_modifier_evidence_without_relaxing_generic_redaction() {
         let transitions = (1..=65)
             .map(|sequence| {

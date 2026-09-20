@@ -189,7 +189,7 @@ their top edge. Pointer end/cancel, tab changes, host teardown, stream failure,
 and supersede retire the presentation. Exact gesture and paint revisions prevent
 late events from reviving it. These changes do not alter portable or SQLite schemas.
 
-The active runtime contract is version 45. Version 23 remains the first
+The active runtime contract is version 46. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -1147,3 +1147,11 @@ stale page-observed sides before shortcut admission. Core ownership remains
 intact; only the last holder sends an exact-target release. Armed macro input,
 projection input and forwarded events cannot provide physical release evidence.
 See [Compatible Macro Input](contracts/system-runtime/compatible-macro-input.md).
+
+## Chromium v46 receipt recovery
+
+The compatible route retains submitted-input uncertainty across Core rollback and
+empty cleanup. Only matching release receipts or authoritative document/surface
+retirement remove that uncertainty. Rejected receipt diagnostics identify the
+exact failing check and distinguish reported counts from validated delivery; see
+[Compatible Macro Input](contracts/system-runtime/compatible-macro-input.md).

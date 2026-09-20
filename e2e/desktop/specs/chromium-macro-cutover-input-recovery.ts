@@ -1,5 +1,6 @@
+import { exerciseCompatibleReceiptRecovery } from "./chromium-macro-receipt-recovery";
 import { verifyUnboundChromiumInput } from "./chromium-input-confinement";
-import { expect } from "@wdio/globals";
+import { browser, expect } from "@wdio/globals";
 import { Key } from "webdriverio";
 
 import {
@@ -379,7 +380,6 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
   )).toBe(true);
 
   await stopChromiumMacroVisible(macro, macroCursor);
-  const failureCursor = await rendererEventCursor();
   await startChromiumMacroVisible(macro, [role.id]);
   await fixtureRequest("/api/navigation-failure", {
     enabled: true,
@@ -410,11 +410,12 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
   expect(navigationRequested).toMatchObject({
     isTrusted: true, targetId: "active-navigation-failure"
   });
-  await waitForMacroProjection({
-    absent: true,
-    afterSequence: failureCursor,
-    macroId: macro.id
-  });
+  // Navigation can win before submission or while a release is uncertain.
+  // Both terminate the invocation; uncertain cleanup remains visibly failed.
+  await browser.waitUntil(async () => {
+    const status = (await rendererCall("listMacroStatuses")).find(candidate => candidate.macroId === macro.id);
+    return !status || status.state === "failed";
+  }, { timeout: 20_000, timeoutMsg: "Navigation failure did not terminalize the macro" });
   const failedRuntime = await electronDesktopE2eRoleSessionRuntime(role.id);
   expect(failedRuntime.currentRuntime).toEqual(expect.objectContaining({
     generation: nativeBinding.surfaceGeneration,
@@ -432,7 +433,9 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
       targetId: "active-navigation-failure"
     })
   ]));
+  const receiptRecovery = await exerciseCompatibleReceiptRecovery(context, game.id, window);
   await writeChromiumMacroEvidence("chromium-macro-input-recovery-evidence.json", {
+    receiptRecovery,
     failedRuntime,
     concurrentPhysicalInput,
     nativeBinding,

@@ -43,6 +43,7 @@ fn export_bindings_index() {
                 "export type { ExtensionPreparedRecord } from \"./ExtensionPreparedRecord\";\n",
                 "export type { ExtensionResultRecord } from \"./ExtensionResultRecord\";\n",
                 "export type { BrowserActionRequest } from \"./BrowserActionRequest\";\n",
+                "export type { CompatibleReceiptValidationRecord } from \"./CompatibleReceiptValidationRecord\";\n",
                 "export type { CompatibleModifierEvidenceRecord } from \"./CompatibleModifierEvidenceRecord\";\n",
                 "export type { CompatibleModifierTransitionRecord } from \"./CompatibleModifierTransitionRecord\";\n",
                 "export type { BrowserAction } from \"./BrowserAction\";\n",

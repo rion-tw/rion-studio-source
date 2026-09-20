@@ -105,6 +105,7 @@ export interface ChromiumTrustedInputRecoveryProof {
 }
 
 interface RoleLaneState {
+  documentInstanceId: string;
   recoveryParentRequestId?: string;
   inputEpoch: number;
   readonly surfaceGeneration: number;
@@ -516,6 +517,7 @@ export class ChromiumTrustedInputCoordinator {
       let state = this.#roleStates.get(lease.roleId);
       if (!state) {
         state = {
+          documentInstanceId: nextDocumentInstanceId,
           hasHeldKeys: false,
           heldKeyCodes: new Set(),
           inputEpoch: lease.inputEpoch,
@@ -532,6 +534,7 @@ export class ChromiumTrustedInputCoordinator {
         state.inputEpoch > lease.inputEpoch
       ) return false;
       state.inputEpoch = lease.inputEpoch;
+      state.documentInstanceId = nextDocumentInstanceId;
       this.#documentReplacementLeases.delete(lease.roleId);
       return true;
     });
@@ -629,9 +632,14 @@ export class ChromiumTrustedInputCoordinator {
       if (!state || state.surfaceGeneration !== surfaceGeneration || !state.quarantined) {
         return false;
       }
+      const surface = validateSurface(
+        this.#input.surfaces.resolveInputSurface(roleId), roleId, "normal"
+      );
+      if (surface.surfaceGeneration !== surfaceGeneration || surface.documentInstanceId === state.documentInstanceId) return false;
+      await this.#input.embeddedInput.clear(roleId);
       state.quarantined = false;
       state.recoveryParentRequestId = undefined;
-      await this.#input.embeddedInput.clear(roleId);
+      state.documentInstanceId = surface.documentInstanceId;
       state.hasHeldKeys = false;
       state.heldKeyCodes.clear();
       state.uncertainKeyCodes.clear();
@@ -694,7 +702,7 @@ export class ChromiumTrustedInputCoordinator {
     );
     if (request.surfaceGeneration !== undefined &&
       (request.surfaceGeneration !== surface.surfaceGeneration ||
-        (request.intent === "normal" &&
+        ((request.intent === "normal" || request.documentInstanceId !== undefined) &&
           request.documentInstanceId !== surface.documentInstanceId))) {
       fail(
         "BROWSER_ACTION_STALE",
@@ -711,6 +719,7 @@ export class ChromiumTrustedInputCoordinator {
     let state = this.#roleStates.get(request.roleId);
     if (!state) {
       state = {
+        documentInstanceId: surface.documentInstanceId,
         inputEpoch: 0,
         surfaceGeneration: surface.surfaceGeneration,
         quarantined: false,
@@ -732,6 +741,12 @@ export class ChromiumTrustedInputCoordinator {
         "Automatic input is disabled for this role until its surface is restarted."
       );
     }
+    if (state.documentInstanceId !== surface.documentInstanceId) {
+      if (state.quarantined || state.hasHeldKeys || state.uncertainKeyCodes.size || state.uncertainPointer) {
+        fail("SYSTEM_TRUSTED_INPUT_QUARANTINED", "The original input document has not been retired by recovery.");
+      }
+      state.documentInstanceId = surface.documentInstanceId;
+    }
     if (request.action.type === "neutralizeInput") {
       if (request.intent !== "cleanup") {
         fail(
@@ -752,9 +767,13 @@ export class ChromiumTrustedInputCoordinator {
           nowMs: this.#input.nowMs
         });
         state.hasHeldKeys = result.hasHeldKeys;
-        state.heldKeyCodes = new Set(result.activeCodes);
-        if (!result.hasHeldKeys) state.uncertainKeyCodes.clear();
-        if (request.intent === "cleanup" && result.receipt.confirmedInputNeutrality) {
+        if (result.confirmedEffects.length > 0 || !result.hasHeldKeys) state.heldKeyCodes = new Set(result.activeCodes);
+        for (const effect of result.confirmedEffects) {
+          if (effect.phase === "keyUp") state.uncertainKeyCodes.delete(effect.code);
+        }
+        const neutral = result.receipt.confirmedInputNeutrality &&
+          state.uncertainKeyCodes.size === 0 && state.uncertainPointer === null;
+        if (request.intent === "cleanup" && neutral) {
           state.quarantined = false;
           state.recoveryParentRequestId = undefined;
           this.#input.onRecoveryProof?.(Object.freeze({
@@ -765,10 +784,15 @@ export class ChromiumTrustedInputCoordinator {
             surfaceGeneration: surface.surfaceGeneration
           }));
         }
-        return result.receipt;
+        // A Core rollback can make release a no-op. That says nothing about
+        // an earlier submitted effect whose native delivery remains unknown.
+        if (request.intent === "cleanup" && state.quarantined && !neutral) {
+          fail("SYSTEM_TRUSTED_INPUT_INDETERMINATE", "Cleanup did not prove release of every uncertain input.");
+        }
+        return Object.freeze({ ...result.receipt, confirmedInputNeutrality: neutral });
       } catch (error) {
         if (error instanceof ChromiumTrustedInputSequenceFailure) {
-          state.quarantined = error.quarantine;
+          state.quarantined ||= error.quarantine;
           if (error.quarantine) {
             state.recoveryParentRequestId ??= request.requestId;
             for (const code of state.heldKeyCodes) state.uncertainKeyCodes.add(code);
@@ -779,7 +803,9 @@ export class ChromiumTrustedInputCoordinator {
               state.uncertainKeyCodes.add(request.action.code);
             }
           }
-          if (error.confirmedInputNeutrality) {
+          for (const code of error.confirmedReleaseCodes) state.uncertainKeyCodes.delete(code);
+          if (error.confirmedInputNeutrality && state.uncertainKeyCodes.size === 0 &&
+              state.uncertainPointer === null) {
             state.hasHeldKeys = false;
             state.heldKeyCodes.clear();
             state.uncertainKeyCodes.clear();
@@ -790,6 +816,13 @@ export class ChromiumTrustedInputCoordinator {
               inputEpoch: request.inputEpoch + 1,
               surfaceGeneration: surface.surfaceGeneration
             }));
+          }
+          if (state.quarantined && error.confirmedInputNeutrality &&
+              (state.uncertainKeyCodes.size > 0 || state.uncertainPointer !== null)) {
+            throw new ChromiumTrustedInputSequenceFailure(
+              "SYSTEM_TRUSTED_INPUT_INDETERMINATE", error.message, true,
+              { actionIndeterminate: true, possiblyAppliedEdges: [], confirmedInputNeutrality: false }
+            );
           }
         }
         throw error;
@@ -816,7 +849,12 @@ export class ChromiumTrustedInputCoordinator {
       throw error;
     }
     if (receipt.status === "applied") {
-      if (request.intent === "cleanup" && receipt.confirmedInputNeutrality) {
+      if (request.intent === "cleanup" && state.quarantined &&
+          (state.uncertainKeyCodes.size > 0 || state.uncertainPointer !== null)) {
+        fail("SYSTEM_TRUSTED_INPUT_INDETERMINATE", "Cleanup did not prove release of every uncertain input.");
+      }
+      if (request.intent === "cleanup" && receipt.confirmedInputNeutrality &&
+          state.uncertainKeyCodes.size === 0 && state.uncertainPointer === null) {
         state.quarantined = false;
         state.recoveryParentRequestId = undefined;
         this.#input.onRecoveryProof?.(Object.freeze({
@@ -901,6 +939,9 @@ export class ChromiumTrustedInputCoordinator {
           );
         }
         activeCodes = nextActiveCodes;
+        state.uncertainKeyCodes.delete(code);
+        state.heldKeyCodes.delete(code);
+        state.hasHeldKeys = state.heldKeyCodes.size > 0;
       }
       if (state.uncertainPointer) {
         const action = state.uncertainPointer;
@@ -924,6 +965,7 @@ export class ChromiumTrustedInputCoordinator {
             receipt.errorMessage ?? "A recovery pointer release was not applied."
           );
         }
+        state.uncertainPointer = null;
       }
       await this.#input.embeddedInput.clear(request.roleId);
       state.inputEpoch = request.inputEpoch;

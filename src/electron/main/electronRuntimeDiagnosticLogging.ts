@@ -38,6 +38,7 @@ function installTrustedInputDiagnosticLogging(
       lastObservedDomModifierMask: record.lastObservedDomModifierMask ?? null,
       cdpSubmissionCertainty: record.cdpSubmissionCertainty,
       physicalInterleave: record.physicalInterleave,
+      ...(record.compatibleReceiptValidation ? { compatibleReceiptValidation: record.compatibleReceiptValidation } : {}),
       ...(record.compatibleModifierEvidence ? { compatibleModifierEvidence: record.compatibleModifierEvidence } : {}),
       ...(record.nativePhysicalInputSequenceBefore ? {
         nativePhysicalInputSequenceBefore: record.nativePhysicalInputSequenceBefore,

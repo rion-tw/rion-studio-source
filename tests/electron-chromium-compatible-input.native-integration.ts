@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
+import { validateCompatibleInputReceipt } from "../src/electron/main/chromiumCompatibleInputValidation";
 
 it("preserves compatible legacy fields in the main-world consumer across 100 held-Alt cycles", async () => {
   const directory = await mkdtemp(join(tmpdir(), "rion-compatible-worlds-"));
@@ -15,7 +16,17 @@ it("preserves compatible legacy fields in the main-world consumer across 100 hel
     const report = JSON.parse(await readFile(reportPath, "utf8"));
     expect(report.platform).toBe(process.platform);
     expect(report.receipts).toHaveLength(404);
-    for (const receipt of report.receipts) expect(receipt.status).toBe("applied");
+    for (const [index, receipt] of report.receipts.entries()) {
+      expect(receipt.status).toBe("applied");
+      expect(validateCompatibleInputReceipt(report.commands[index], receipt, {
+        nowMs: report.commands[index].deadlineMs - 1, documentCurrent: true, target: report.receipts[0].targetToken
+      }).validation).toBeUndefined();
+    }
+    // The consumer received this event even when an authenticated return value is malformed.
+    const rejected = validateCompatibleInputReceipt(report.commands[1], { ...report.receipts[1], sequence: -1 }, {
+      nowMs: report.commands[1].deadlineMs - 1, documentCurrent: true, target: report.receipts[0].targetToken
+    });
+    expect(rejected.validation).toMatchObject({ reason: "identity", field: "sequence", reportedEventCount: 1 });
     expect(report.events).toHaveLength(208);
     for (const event of report.events) {
       const expected = event.code === "AltLeft" ? 18 : 51;
@@ -31,7 +42,7 @@ it("preserves compatible legacy fields in the main-world consumer across 100 hel
     }
     expect(report.events.at(-1).pressed).toEqual([]);
     const corrected = report.reconciliation;
-    expect(corrected.receipts).toHaveLength(2);
+    expect(corrected.receipts).toHaveLength(200);
     for (const receipt of corrected.receipts) {
       expect(receipt).toMatchObject({ status: "applied", modifierEvidence: { eventModifierMask: 0 } });
       expect(receipt.modifierEvidence.transitions.filter((entry: { source: string }) =>
@@ -39,7 +50,7 @@ it("preserves compatible legacy fields in the main-world consumer across 100 hel
     }
     expect(corrected.events.map((event: { type: string; code: string }) => `${event.type}:${event.code}`))
       .toEqual(["keydown:MetaLeft", "keydown:ShiftLeft", "keyup:ShiftLeft", "keyup:MetaLeft",
-        "keydown:KeyO", "keydown:Digit0", "keyup:Digit0", "keyup:KeyO"]);
+        "keydown:KeyO", ...Array.from({ length: 100 }, () => ["keydown:Digit0", "keyup:Digit0"]).flat(), "keyup:KeyO"]);
     for (const event of corrected.events) {
       const keyCode = ({ MetaLeft: 91, ShiftLeft: 16, KeyO: 79, Digit0: 48 } as Record<string, number>)[event.code];
       expect(event.keyCode).toBe(keyCode);

@@ -47,11 +47,12 @@ app.whenReady().then(async () => {
         modifierState: { coreCodesBefore: coreBefore, coreCodesAfter: coreAfter, nativePhysicalCodes: physical ? ["AltLeft"] : [] },
         key: { type: phase, code, key: code === "AltLeft" ? "Alt" : "3", location: code === "AltLeft" ? 1 : 0,
           windowsVirtualKeyCode: code === "AltLeft" ? 18 : 51, modifiers: physical || coreAfter.length ? 1 : 0, autoRepeat: false } };
+      commands.push(command);
       return window.webContents.executeJavaScriptInIsolatedWorld(999, [{ code:
         `globalThis.__rionStudioMacroOverlay.dispatchCompatibleInput(${JSON.stringify(command)})` }]);
     };
     let sequence = 0, physical = false;
-    const receipts = [];
+    const receipts = [], commands = [];
     const cycle = async () => {
       receipts.push(await send("AltLeft", "rawKeyDown", [], ["AltLeft"]));
       receipts.push(await send("Digit3", "rawKeyDown", ["AltLeft"], ["AltLeft"]));
@@ -70,6 +71,6 @@ app.whenReady().then(async () => {
     await window.webContents.executeJavaScriptInIsolatedWorld(999, [{ code: "window.dispatchEvent(new Event('blur'))" }]);
     const events = await window.webContents.executeJavaScript("received");
     const reconciliation = await require("./probeChromiumModifierReconciliation.cjs")(window.webContents);
-    writeFileSync(reportPath, JSON.stringify({ platform: process.platform, chromium: process.versions.chrome, receipts, events, reconciliation }));
+    writeFileSync(reportPath, JSON.stringify({ platform: process.platform, chromium: process.versions.chrome, receipts, commands, events, reconciliation }));
   } finally { window.destroy(); app.quit(); }
 }).catch(error => { console.error(error); app.exit(1); });

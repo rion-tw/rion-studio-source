@@ -207,3 +207,36 @@ fn macro_input_recovery_terminal_commands_serialize_across_resume_and_ticket_rem
         Err("MACRO_INPUT_RECOVERY_STALE".to_owned())
     );
 }
+
+#[test]
+fn failed_input_recovery_makes_ready_surface_automation_unavailable() {
+    let (_directory, core) = core();
+    install_test_system_runtime(&core, supported_system_capabilities());
+    let role_id = create_role(&core, &first_game_id(&core), 1);
+    let (launch, _) = drive_command(
+        Arc::clone(&core),
+        command(json!({
+            "type": "embeddedRoleLaunch", "roleId": role_id,
+            "target": { "displayId": 1,
+                "workArea": { "x": 0, "y": 0, "width": 1200, "height": 800 } }
+        })),
+        None,
+    );
+    assert!(launch.is_ok(), "{launch:?}");
+    let (ready, _) = drive_command(
+        Arc::clone(&core),
+        CoreCommand::EmbeddedSystemSurfaceRecovered { role_id: role_id.clone() },
+        None,
+    );
+    assert!(ready.is_ok());
+    assert_eq!(core.browser_statuses().unwrap()[0].automation_state.as_deref(), Some("ready"));
+    let ticket = core.ensure_macro_input_recovery("receipt-mismatch", &role_id).unwrap();
+    core.fail_macro_input_recovery_exact(
+        &ticket.recovery_id, &role_id, ticket.input_epoch, "Release was not confirmed",
+    ).unwrap();
+    let status = core.browser_statuses().unwrap().remove(0);
+    assert_eq!(status.automation_state.as_deref(), Some("unavailable"));
+    assert!(core.macro_input_diagnostics().unwrap().roles.iter()
+        .any(|role| role.role_id == role_id && role.restart_required));
+    core.shutdown();
+}

@@ -1,10 +1,12 @@
+import type { CompatibleReceiptValidationRecord } from "../../shared/generated";
 import type { ChromiumCompatibleInputCommand, ChromiumCompatibleInputReceipt } from "../ipc/chromiumCompatibleInputProtocol";
 import { chromiumCdpKeyDescriptor, chromiumCdpModifierMask } from "./chromiumCdpInputDescriptors";
 import type { ChromiumRoleOverlayFrameIdentity } from "./chromiumRoleSurfaceRegistry";
 import type { ChromiumNativeTrustedInputRequest as Request, ChromiumNativeTrustedInputReceipt as Receipt } from "./chromiumTrustedInputCoordinator";
 import { recordTrustedInputTerminal } from "./chromiumTrustedInputTerminalJournal";
 import { isChromiumModifierCode } from "./chromiumTrustedInputKeySequence";
-import { compatibleInputEventCount, validCompatibleInputEvidence } from "./chromiumCompatibleInputEvidence";
+import { compatibleInputEventCount } from "./chromiumCompatibleInputEvidence";
+import { validateCompatibleInputReceipt } from "./chromiumCompatibleInputValidation";
 
 export interface ChromiumCompatibleInputPort {
   dispatchCompatibleInput: (frame: ChromiumRoleOverlayFrameIdentity, command: ChromiumCompatibleInputCommand) => Promise<unknown>;
@@ -53,14 +55,13 @@ export class ChromiumCompatibleInput {
         modifiers: chromiumCdpModifierMask(modifiers), releaseOnly: request.pointerReleaseOnly === true
       } as const } : {})
     };
-    const expectedCount = compatibleInputEventCount(command);
     const retained = document;
     return new Promise(resolve => {
       let terminal = false;
       let submitted = false;
       let timer: unknown = null;
       const finish = (status: Receipt["status"], errorCode: string | null, count = 0,
-        received?: ChromiumCompatibleInputReceipt) => {
+        received?: ChromiumCompatibleInputReceipt, validation?: CompatibleReceiptValidationRecord) => {
         if (terminal) return;
         terminal = true;
         this.input.timers.cancel(timer);
@@ -77,6 +78,7 @@ export class ChromiumCompatibleInput {
           physicalInterleave: received?.modifierEvidence &&
             received.modifierEvidence.physicalCodesBefore.join() !== received.modifierEvidence.physicalCodesAfter.join()
             ? "modifier-change" : "indeterminate", terminalCode: errorCode ?? "APPLIED", nativeProofChanges: [],
+          ...(validation ? { compatibleReceiptValidation: validation } : {}),
           ...(received?.modifierEvidence ? { compatibleModifierEvidence: received.modifierEvidence,
             ...(received.modifierEvidence.eventModifierMask !== null
               ? { lastObservedDomModifierMask: received.modifierEvidence.eventModifierMask } : {}) } : {}),
@@ -112,22 +114,15 @@ export class ChromiumCompatibleInput {
           if (terminal) return;
           try {
             verifyHost();
-            const receipt = raw as ChromiumCompatibleInputReceipt | null;
-            if (!receipt || this.input.nowMs() >= request.deadlineMs ||
-                this.#documents.get(request.roleId) !== retained ||
-                !["requestId", "ownerId", "roleId", "inputEpoch", "generation", "frameToken", "documentInstanceId", "sequence"]
-                  .every(key => receipt[key as keyof ChromiumCompatibleInputReceipt] === command[key as keyof ChromiumCompatibleInputCommand]) ||
-                receipt.isTrusted !== false || !Number.isSafeInteger(receipt.eventCount) || receipt.eventCount < 0 ||
-                receipt.eventCount > expectedCount || (receipt.status === "failed" && receipt.eventCount !== 0) ||
-                !["applied", "failed", "indeterminate"].includes(receipt.status) ||
-                !validCompatibleInputEvidence(command, receipt) ||
-                (receipt.status === "applied" && (receipt.errorCode !== null || receipt.eventCount !== compatibleInputEventCount(command, receipt) ||
-                  typeof receipt.targetToken !== "string" || receipt.targetToken.length === 0 ||
-                  (retained.target !== null && receipt.targetToken !== retained.target))) ||
-                (receipt.status !== "applied" && (typeof receipt.errorCode !== "string" ||
-                  !/^SYSTEM_COMPATIBLE_INPUT_[A-Z_]+$/u.test(receipt.errorCode)))) {
-              finish("indeterminate", "SYSTEM_COMPATIBLE_INPUT_RECEIPT_MISMATCH"); return;
+            const validated = validateCompatibleInputReceipt(command, raw, {
+              nowMs: this.input.nowMs(), documentCurrent: this.#documents.get(request.roleId) === retained,
+              target: retained.target
+            });
+            if (validated.validation) {
+              finish("indeterminate", "SYSTEM_COMPATIBLE_INPUT_RECEIPT_MISMATCH", 0, undefined, validated.validation);
+              return;
             }
+            const receipt = validated.receipt;
             if (receipt.status === "applied") retained.target = receipt.targetToken;
             finish(receipt.status, receipt.errorCode, receipt.eventCount, receipt);
           } catch { finish("indeterminate", "SYSTEM_COMPATIBLE_INPUT_HOST_SUPERSEDED"); }

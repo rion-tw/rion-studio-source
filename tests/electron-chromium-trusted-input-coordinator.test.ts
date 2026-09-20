@@ -269,7 +269,7 @@ describe("Electron Chromium trusted-input coordinator", () => {
     expect(harness.dispatch).toHaveBeenCalledOnce();
   });
 
-  it("keeps a navigated held key quarantined until exact cleanup proves neutrality", async () => {
+  it("keeps a navigated held key quarantined until authoritative document recovery", async () => {
     const harness = subject();
     await harness.coordinator.execute(request("held-old-document", {
       surfaceGeneration: 1,
@@ -318,13 +318,12 @@ describe("Electron Chromium trusted-input coordinator", () => {
         ownerId: "managed-shortcut:press-1",
         suppressOverlayShortcut: true
       }
-    }))).resolves.toMatchObject({
-      status: "applied",
-      confirmedInputNeutrality: true
-    });
+    }))).rejects.toMatchObject({ code: "BROWSER_ACTION_STALE" });
+    expect(harness.dispatch).toHaveBeenCalledTimes(1);
+    await harness.coordinator.resumeAfterDocumentReplacement("role-1", 1);
     await expect(harness.coordinator.execute(request("normal-after-cleanup")))
       .resolves.toMatchObject({ status: "applied" });
-    expect(harness.dispatch).toHaveBeenCalledTimes(3);
+    expect(harness.dispatch).toHaveBeenCalledTimes(2);
   });
 
   it("tracks exact tap, click, hold, and cleanup-release neutrality in one role lane", async () => {
@@ -549,6 +548,8 @@ describe("Electron Chromium trusted-input coordinator", () => {
       .rejects.toMatchObject({ code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE" });
     await expect(harness.coordinator.resumeAfterDocumentReplacement("role-1", 2))
       .resolves.toBe(false);
+    await expect(harness.coordinator.resumeAfterDocumentReplacement("role-1", 1)).resolves.toBe(false);
+    harness.surfaces.set("role-1", { roleId: "role-1", surfaceGeneration: 1, documentInstanceId: "document-2", state: "active" });
     await expect(harness.coordinator.resumeAfterDocumentReplacement("role-1", 1))
       .resolves.toBe(true);
   });

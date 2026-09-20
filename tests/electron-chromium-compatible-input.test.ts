@@ -156,4 +156,17 @@ describe.each(["darwin", "win32"] as const)("%s compatible input receipts", plat
       expect(test.send).toHaveBeenCalledOnce();
     }
   );
+  it("retains rejected claims without treating reported events as validated delivery", async () => {
+    resetTrustedInputTerminalJournalForTest();
+    const test = setup(async command => ({ ...receipt(command), sequence: 999 }));
+    await test.dispatch();
+    const terminal = recentTrustedInputTerminals().at(-1)!;
+    expect(terminal).toMatchObject({ observedDomEventCount: 0, gameDeliveryConfirmed: false,
+      compatibleReceiptValidation: { reason: "identity", field: "sequence", expected: "1", received: "999",
+        reportedEventCount: 1, reportedStatus: "applied", reportedModifierMask: 0 } });
+    terminal.compatibleReceiptValidation!.received = "mutated";
+    expect(recentTrustedInputTerminals().at(-1)?.compatibleReceiptValidation?.received).toBe("999");
+    expect(test.send).toHaveBeenCalledOnce();
+  });
+
 });

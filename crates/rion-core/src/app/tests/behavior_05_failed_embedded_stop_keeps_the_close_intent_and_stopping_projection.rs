@@ -766,10 +766,14 @@ fn crashed_system_surface_stays_on_the_native_engine_and_clears_its_issue_after_
         Some(crate::model::ResolvedBrowserEngine::Wkwebview)
     );
     assert_eq!(recovered_statuses[0].issue_reason, None);
+    // A recovered surface alone does not prove that the fenced input lane
+    // resumed. Keep automation unavailable until exact input recovery.
     assert_eq!(
         recovered_statuses[0].automation_state.as_deref(),
-        Some("ready")
+        Some("unavailable")
     );
+    assert!(core.macro_input_diagnostics().unwrap().roles.iter()
+        .any(|role| role.role_id == role_id && role.restart_required));
     assert_eq!(core.macro_active_role_ids().unwrap(), vec![role_id.clone()]);
 
     let (stopped, _) = drive_command(

@@ -529,8 +529,16 @@ impl AppCore {
                 status.capability_snapshot = capability_snapshot.clone();
             }
         }
+        let restart_required_roles = self
+            .macro_runtime
+            .input_diagnostics()?
+            .roles
+            .into_iter()
+            .filter(|role| role.restart_required)
+            .map(|role| role.role_id)
+            .collect::<std::collections::HashSet<_>>();
         for status in &mut statuses {
-            let macro_input_available =
+            let macro_input_available = !restart_required_roles.contains(&status.role_id) &&
                 status.capability_snapshot.as_ref().is_some_and(|snapshot| {
                     system_capability_verified(snapshot.trusted_input)
                         && system_capability_available(snapshot.frame_evaluation)

@@ -23,7 +23,7 @@ module.exports = async function probeModifierReconciliation(contents) {
     // Both modifier keyups are deliberately absent; the next physical event
     // explicitly carries no modifiers, as in the diagnostic sequence.
     physical('keydown', 'KeyO', 79);
-    digit('rawKeyDown'); digit('keyUp');
+    for (let cycle = 0; cycle < 100; cycle++) { digit('rawKeyDown'); digit('keyUp'); }
     physical('keyup', 'KeyO', 79);
     physical('keyup', 'ShiftLeft', 16); physical('keyup', 'MetaLeft', 91);
     return receipts;

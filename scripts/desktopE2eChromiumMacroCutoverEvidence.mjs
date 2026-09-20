@@ -37,7 +37,8 @@ const replacements = Object.freeze([
   ["MACRO-TERMINAL-CLEANUP-006", "P0", "macros",
     ["success", "failure", "restart"], [
       "chromium-macro-cutover-terminal-cleanup-seed",
-      "chromium-macro-cutover-terminal-cleanup-restart"
+      "chromium-macro-cutover-terminal-cleanup-restart",
+      "chromium-macro-cutover-input-recovery"
     ]],
   ["ROLE-KEY-BLUR-004", "P0", "roles", ["success", "failure"],
     ["chromium-macro-cutover-keyboard"]]

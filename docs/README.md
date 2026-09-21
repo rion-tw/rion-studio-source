@@ -41,6 +41,7 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [Session Migration Diagnostics](validation/session-migration-diagnostics.md) | Internal runbook | Isolated v8 → v9 source assessment, synthetic persistence proof and native evidence gaps |
 | [Preserve-session Recovery](validation/session-recovery.md) | Active runbook | Single-role recovery authority, source support list, UI and native acceptance |
 | [Web App DRM](validation/runbooks/web-app-drm.md) | Active runbook | HTTPS permission evidence and iq.com playback acceptance |
+| [Netflix feasibility](validation/runbooks/netflix-official-electron.md) | Active runbook | Official-Electron capability diagnostics and native playback gates |
 | [Windows Game Window Placement](validation/runbooks/windows-game-window-placement.md) | Active runbook | Physical Windows placement, DPI, and generation acceptance |
 | [Live Tab Tearout](validation/runbooks/runtime-tab-tearout.md) | Active runbook | Native tab-drag journeys, failure paths, and platform validation limits |
 

@@ -11,8 +11,6 @@ import {
   readChromiumSessionSecurityPolicyJournal,
   type ChromiumSecuritySessionPort
 } from "../main/chromiumSecurityPolicy";
-import type { ElectronDesktopE2eWorkspaceWebInspection } from
-  "./workspaceWebInspection";
 import type { ElectronDesktopE2eWorkspaceWebSecurityPolicyInspection } from
   "./workspaceWebSecurityPolicyInspection";
 
@@ -68,7 +66,10 @@ export function installWorkspaceWebSecurityPolicyObserver(
 }
 
 export function readWorkspaceWebSecurityPolicy(
-  workspace: ElectronDesktopE2eWorkspaceWebInspection
+  workspace: Readonly<{ windowId: string; web: Readonly<{
+    surfaceId: string; generation: number; contentProfilePath: string;
+  }> }>,
+  recordObservation = true
 ): ElectronDesktopE2eWorkspaceWebSecurityPolicyInspection {
   const owner = owners.get(workspace.web.surfaceId);
   if (!owner || owner.generation !== workspace.web.generation) {
@@ -96,8 +97,10 @@ export function readWorkspaceWebSecurityPolicy(
     surfaceId: workspace.web.surfaceId,
     windowId: workspace.windowId
   } satisfies ElectronDesktopE2eWorkspaceWebSecurityPolicyInspection);
-  const prior = observations.at(-1);
-  if (JSON.stringify(prior) !== JSON.stringify(inspection)) observations.push(inspection);
-  writeObservations();
+  if (recordObservation) {
+    const prior = observations.at(-1);
+    if (JSON.stringify(prior) !== JSON.stringify(inspection)) observations.push(inspection);
+    writeObservations();
+  }
   return inspection;
 }

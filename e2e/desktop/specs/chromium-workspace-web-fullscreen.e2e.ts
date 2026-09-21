@@ -1241,7 +1241,9 @@ async function runPhase(
     platform,
     tabId: launched.tabId
   });
-  if (!restart) await verifyTwoRoleWorkspaceWebRecovery(platform, role);
+  if (!restart || process.env.RION_STUDIO_E2E_DRM_DIAGNOSTIC === "1") {
+    await verifyTwoRoleWorkspaceWebRecovery(platform, role);
+  }
 }
 
 describe("Chromium Workspace Web contained fullscreen exact replacement", () => {

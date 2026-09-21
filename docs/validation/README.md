@@ -10,6 +10,7 @@ be treated as current evidence.
   product/toolchain/extension/framework/GPU classification and escalation gates.
 - [Preserve-session Recovery](session-recovery.md): single-role source admission, isolated proof, recovery UI and native support list.
 - [Session Migration Diagnostics](session-migration-diagnostics.md): isolated v8 → v9 source assessment, synthetic persistence proof and native evidence gaps.
+- [Netflix feasibility](runbooks/netflix-official-electron.md): isolated official-Electron capability diagnosis and playback gates.
 - [Web App DRM](runbooks/web-app-drm.md): permission evidence, key-system
   classification and real iq.com playback acceptance.
 - [Windows Game Window Placement](runbooks/windows-game-window-placement.md):

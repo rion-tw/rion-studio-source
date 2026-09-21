@@ -1,3 +1,4 @@
+import { readDrmPolicy } from "./workspaceWebDrmPolicy";
 import { installFixtureKeyboardCloseObserver } from "./fixtureKeyboardCloseObserver";
 import { observeRuntimeEffectCompletion } from "./runtimeEffectCompletionObservation";
 import { MacosAppKitInputSurfaceAttachmentCoordinator } from "../main/macosAppKitInputSurfaceAttachmentCoordinator";
@@ -90,7 +91,7 @@ import { parseElectronDesktopE2eWorkspaceWebInspection } from
   "./workspaceWebInspection";
 import {
   installWorkspaceWebSecurityPolicyObserver,
-  readWorkspaceWebSecurityPolicy as readObservedWorkspaceWebSecurityPolicy
+  readWorkspaceWebSecurityPolicy as readWebPolicy
 } from "./workspaceWebSecurityPolicyObserver";
 import { ElectronDesktopE2eApplicationShortcutRuntimeObserver } from
   "./applicationShortcutRuntimeObserver";
@@ -1154,8 +1155,8 @@ async function readWorkspaceWebRuntime(
 async function readWorkspaceWebSecurityPolicy(
   windowId: string
 ): Promise<ElectronDesktopE2eWorkspaceWebSecurityPolicyInspection> {
-  const workspace = await readWorkspaceWebRuntime(windowId);
-  return readObservedWorkspaceWebSecurityPolicy(workspace);
+  return await readDrmPolicy(windowId, observedCore, observedRuntime, workspaceWebPresentationOwners)
+    ?? readWebPolicy(await readWorkspaceWebRuntime(windowId));
 }
 
 function readPopupLifecycleJournal(

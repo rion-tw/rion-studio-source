@@ -5,18 +5,21 @@ import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eProbe } f
 import { pressVisibleMacosApplicationShortcut, pressVisibleWindowsApplicationShortcut } from "./native-application-actions";
 import { rendererCall } from "./renderer-bridge";
 import { verifyWorkspaceWebNavigation } from "./workspace-web-navigation";
+import { diagnoseWorkspaceWebDrm } from "./workspace-web-drm";
 
 /** Temporary entity fixtures are deterministic preconditions. Launch, navigation,
  * fullscreen and close use visible UI, with Core/native state as evidence only. */
 export async function verifyTwoRoleWorkspaceWebRecovery(platform: "macos" | "windows", role: Role): Promise<void> {
   const mainWindowHandle = await browser.getWindowHandle();
   const base = process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN!;
+  const diagnoseDrm = process.env.RION_STUDIO_E2E_DRM_DIAGNOSTIC === "1";
   const second = await rendererCall("createRole", {
     gameId: role.gameId, name: "Web recovery temporary role", launchUrl: `${base}/role/web-recovery-second`
   });
   const workspace = await rendererCall("createLaunchWorkspace", {
     name: "Web recovery two roles", template: "main_left_stack_right",
-    slots: [{ web: { lastUrl: `${base}/web-navigation` } }, { roleId: role.id }, { roleId: second.id }]
+    slots: [{ web: { lastUrl: diagnoseDrm ? "https://rion-drm.fixture.test/drm-capabilities" : `${base}/web-navigation` } },
+      { roleId: role.id }, { roleId: second.id }]
   });
   await openCutoverWorkspace(workspace, "new-window");
   const tab = await waitCutoverWorkspaceTab(workspace, [
@@ -41,8 +44,13 @@ export async function verifyTwoRoleWorkspaceWebRecovery(platform: "macos" | "win
       if (shells.length !== 1) throw new Error("Expected one exact mixed-workspace Web toolbar");
       return shells[0].getURL();
     });
-    await verifyWorkspaceWebNavigation({ chromeShellUrl, contentUrl: `${base}/web-navigation`,
-      mainWindowHandle, roleIds: [role.id, second.id] });
+    if (diagnoseDrm) {
+      await diagnoseWorkspaceWebDrm({ chromeShellUrl, mainWindowHandle, windowId: tab.windowId,
+        roleIds: [role.id, second.id] });
+    } else {
+      await verifyWorkspaceWebNavigation({ chromeShellUrl, contentUrl: `${base}/web-navigation`,
+        mainWindowHandle, roleIds: [role.id, second.id] });
+    }
   } finally {
     const current = await electronDesktopE2eFullscreenToolbarRuntime(tab.windowId);
     if (current.presentation === "fullscreen") {

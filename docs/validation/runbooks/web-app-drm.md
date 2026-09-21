@@ -1,5 +1,10 @@
 # Web App DRM permission and playback validation
 
+For the current official-Electron Netflix capability investigation, reproduction
+commands and separately classified native results, see
+[Netflix feasibility](netflix-official-electron.md). The historical iq.com results
+below are not evidence of Netflix or Widevine playback.
+
 ## Boundary
 
 Electron 43.7.0 / Chromium 150 is the runtime. Contract 34 retains the v24 rule permitting `mediaKeySystem` only

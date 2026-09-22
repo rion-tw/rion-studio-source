@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { ecsPrototypeExecutable } from "./ecsPrototypeRuntime.mjs";
 
 const PROBE_PREFIX = "RION_ELECTRON_RUNTIME_PROBE=";
 const MAX_PROBE_OUTPUT_CHARACTERS = 16 * 1024;
@@ -17,22 +18,36 @@ export const EXPECTED_ELECTRON_RUNTIME = Object.freeze({
   napi: "10",
   node: "24.21.0"
 });
+export const EXPECTED_ECS_PROTOTYPE_RUNTIME = Object.freeze({
+  chrome: "152.0.7977.65",
+  electron: "44.1.0",
+  modules: "149",
+  napi: "10",
+  node: "24.19.0"
+});
+export const EXPECTED_PACKAGE_ELECTRON_SPEC = "44.4.3";
 export const EXPECTED_APPKIT_RUNTIME_ABI = 11;
 
 export function assertElectronRuntimeProbe(
   probe,
   packageElectronVersion,
-  expectedCoreVersion = "0.1.0"
+  expectedCoreVersion = "0.1.0",
+  variant = "official"
 ) {
-  for (const [name, expected] of Object.entries(EXPECTED_ELECTRON_RUNTIME)) {
+  if (variant !== "official" && variant !== "ecs-prototype") throw new Error("Unknown Electron runtime variant.");
+  const expectedRuntime = variant === "official" ? EXPECTED_ELECTRON_RUNTIME : EXPECTED_ECS_PROTOTYPE_RUNTIME;
+  for (const [name, expected] of Object.entries(expectedRuntime)) {
     if (probe[name] !== expected) {
       throw new Error(`Electron runtime ${name} mismatch: expected ${expected}, received ${probe[name] ?? "missing"}.`);
     }
   }
-  if (packageElectronVersion !== EXPECTED_ELECTRON_RUNTIME.electron) {
+  if (packageElectronVersion !== EXPECTED_PACKAGE_ELECTRON_SPEC) {
     throw new Error(
-      `package.json Electron pin mismatch: expected ${EXPECTED_ELECTRON_RUNTIME.electron}, received ${packageElectronVersion ?? "missing"}.`
+      `package.json Electron pin mismatch: expected ${EXPECTED_PACKAGE_ELECTRON_SPEC}, received ${packageElectronVersion ?? "missing"}.`
     );
+  }
+  if (variant === "ecs-prototype" && probe.cdmComponentApi !== true) {
+    throw new Error("The ECS Widevine component API is unavailable.");
   }
   if (probe.core !== expectedCoreVersion) {
     throw new Error(
@@ -54,7 +69,7 @@ export function assertElectronRuntimeProbe(
   }
 }
 
-export async function verifyElectronRuntime() {
+export async function verifyElectronRuntime({ variant = "official" } = {}) {
   if (process.platform !== "darwin" && process.platform !== "win32") {
     throw new Error("The Electron runtime verifier supports only macOS and Windows.");
   }
@@ -70,7 +85,8 @@ export async function verifyElectronRuntime() {
     );
   }
   const requireFromRepository = createRequire(join(repositoryRoot, "package.json"));
-  const electronExecutable = requireFromRepository("electron");
+  const electronExecutable = variant === "ecs-prototype"
+    ? ecsPrototypeExecutable() : requireFromRepository("electron");
   const addonPath = join(
     repositoryRoot,
     "build",
@@ -85,7 +101,8 @@ export async function verifyElectronRuntime() {
     assertElectronRuntimeProbe(
       probe,
       packageJson.devDependencies?.electron,
-      configuredReleaseVersion || "0.1.0"
+      configuredReleaseVersion || "0.1.0",
+      variant
     );
     console.log(
       `Verified Electron ${probe.electron}, Chromium ${probe.chrome}, Node ${probe.node}, Node-API ${probe.napi}, and Rust Core ${probe.core} (${probe.platform}-${probe.arch}).`
@@ -140,4 +157,10 @@ export async function runElectronRuntimeProbe(electronExecutable, probePath, add
 
 const launchedAsScript = process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (launchedAsScript) await verifyElectronRuntime();
+if (launchedAsScript) {
+  const argumentsList = process.argv.slice(2);
+  if (argumentsList.length > 1 || (argumentsList[0] && argumentsList[0] !== "--ecs-prototype")) {
+    throw new Error("Usage: verifyElectronRuntime.mjs [--ecs-prototype]");
+  }
+  await verifyElectronRuntime({ variant: argumentsList[0] ? "ecs-prototype" : "official" });
+}

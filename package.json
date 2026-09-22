@@ -82,7 +82,13 @@
     "clean:build": "node scripts/cleanGeneratedOutput.mjs --build",
     "clean:rust": "node scripts/cleanGeneratedOutput.mjs --rust",
     "release": "semantic-release",
-    "verify:electron-extension-filtering": "node scripts/verifyElectronExtensionFiltering.mjs"
+    "verify:electron-extension-filtering": "node scripts/verifyElectronExtensionFiltering.mjs",
+    "setup:drm-prototype": "node scripts/installEcsPrototype.mjs",
+    "verify:electron-runtime:drm-prototype": "node scripts/verifyElectronRuntime.mjs --ecs-prototype",
+    "test:drm-prototype": "pnpm run setup:drm-prototype && node scripts/probeWorkspaceWebDrm.mjs --playback",
+    "sign:drm-prototype": "node scripts/signEcsPrototype.mjs",
+    "dev:drm-prototype": "pnpm run setup:drm-prototype && pnpm run build:electron && node scripts/runDrmPrototype.mjs",
+    "package:drm-prototype:dir": "pnpm run setup:drm-prototype && pnpm run typecheck && pnpm run build:electron:rust:release && pnpm run verify:electron-runtime:drm-prototype && electron-vite build --config electron.vite.config.ts && pnpm run verify:electron-renderer && pnpm run verify:electron-extension-compat && electron-builder --config electron-builder.ecs-prototype.config.mjs --dir --publish never"
   },
   "keywords": [
     "electron",
@@ -144,6 +150,7 @@
     "react-dom": "^19.2.8",
     "react-router": "^8.3.1",
     "semantic-release": "^25.0.9",
+    "shaka-player": "5.2.11",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.3",
     "tar-stream": "3.2.1",

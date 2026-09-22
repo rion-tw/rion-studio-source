@@ -1,0 +1,228 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-22",
+  "sourceBaseCommit": "193bc8701b813d8bef72e413f6a8ede063521a16",
+  "branch": "codex/netflix-widevine-prototype",
+  "os": {
+    "platform": "macOS",
+    "version": "27.0",
+    "build": "26A428"
+  },
+  "ecsPackage": "44.1.0+wvcus",
+  "ecsDarwinArm64ArchiveSha256": "07e9384402bc528502350e95f021c73d1629d9b01b46a0952af485c9cf7b45bd",
+  "profile": "chromium-macos-appkit-drm",
+  "phases": [
+    {
+      "phase": "chromium-entity-persistence-seed",
+      "status": "PASS"
+    },
+    {
+      "phase": "chromium-entity-persistence-restart",
+      "status": "PASS"
+    },
+    {
+      "phase": "chromium-workspace-web-fullscreen-seed",
+      "status": "PASS"
+    },
+    {
+      "phase": "chromium-workspace-web-fullscreen-restart",
+      "status": "PASS"
+    }
+  ],
+  "observations": [
+    {
+      "phase": "seed",
+      "runtime": {
+        "electron": "44.1.0",
+        "chromium": "152.0.7977.65",
+        "node": "24.19.0",
+        "platform": "darwin",
+        "arch": "arm64",
+        "packaged": false
+      },
+      "component": {
+        "revision": 2,
+        "source": "castlabs-ecs",
+        "state": "ready",
+        "componentVersion": "4.10.3050.0",
+        "updatesEnabled": true,
+        "failure": null
+      },
+      "session": {
+        "exactGlobalWebStore": true,
+        "isolatedUserData": true,
+        "policyVersion": 2
+      },
+      "permission": {
+        "callbacks": [],
+        "interpretation": "no-callback-observed"
+      },
+      "requests": [
+        {
+          "id": "widevine-minimal",
+          "access": "NotSupportedError",
+          "mediaKeys": "not-attempted"
+        },
+        {
+          "id": "widevine-avc",
+          "access": "granted",
+          "mediaKeys": "created"
+        },
+        {
+          "id": "widevine-avc-aac",
+          "access": "granted",
+          "mediaKeys": "created"
+        },
+        {
+          "id": "widevine-vp9-opus",
+          "access": "granted",
+          "mediaKeys": "created"
+        },
+        {
+          "id": "clearkey-control",
+          "access": "granted",
+          "mediaKeys": "created"
+        }
+      ],
+      "playback": {
+        "schemaVersion": 1,
+        "asset": "shaka-angel-one-widevine",
+        "state": "played",
+        "licenseResponses": 2,
+        "licenseStatus": 200,
+        "keySystem": "com.widevine.alpha",
+        "mediaKeys": true,
+        "renderedFrames": 251,
+        "mediaSeconds": 10,
+        "width": 320,
+        "height": 240,
+        "audioTrack": true,
+        "audibleAudio": "not-tested",
+        "netflix": "not-tested",
+        "vmpProduction": "not-tested",
+        "vmpUatStatus": "PLATFORM_SECURE_STORAGE_SOFTWARE_VERIFIED",
+        "error": null,
+        "trustedClick": true
+      },
+      "twoRolesRunning": true,
+      "shellErrorsUnchanged": true
+    },
+    {
+      "phase": "restart",
+      "runtime": {
+        "electron": "44.1.0",
+        "chromium": "152.0.7977.65",
+        "node": "24.19.0",
+        "platform": "darwin",
+        "arch": "arm64",
+        "packaged": false
+      },
+      "component": {
+        "revision": 2,
+        "source": "castlabs-ecs",
+        "state": "ready",
+        "componentVersion": "4.10.3050.0",
+        "updatesEnabled": true,
+        "failure": null
+      },
+      "session": {
+        "exactGlobalWebStore": true,
+        "isolatedUserData": true,
+        "policyVersion": 2
+      },
+      "permission": {
+        "callbacks": [],
+        "interpretation": "no-callback-observed"
+      },
+      "requests": [
+        {
+          "id": "widevine-minimal",
+          "access": "NotSupportedError",
+          "mediaKeys": "not-attempted"
+        },
+        {
+          "id": "widevine-avc",
+          "access": "granted",
+          "mediaKeys": "created"
+        },
+        {
+          "id": "widevine-avc-aac",
+          "access": "granted",
+          "mediaKeys": "created"
+        },
+        {
+          "id": "widevine-vp9-opus",
+          "access": "granted",
+          "mediaKeys": "created"
+        },
+        {
+          "id": "clearkey-control",
+          "access": "granted",
+          "mediaKeys": "created"
+        }
+      ],
+      "playback": {
+        "schemaVersion": 1,
+        "asset": "shaka-angel-one-widevine",
+        "state": "played",
+        "licenseResponses": 2,
+        "licenseStatus": 200,
+        "keySystem": "com.widevine.alpha",
+        "mediaKeys": true,
+        "renderedFrames": 251,
+        "mediaSeconds": 10,
+        "width": 768,
+        "height": 576,
+        "audioTrack": true,
+        "audibleAudio": "not-tested",
+        "netflix": "not-tested",
+        "vmpProduction": "not-tested",
+        "vmpUatStatus": "PLATFORM_SECURE_STORAGE_SOFTWARE_VERIFIED",
+        "error": null,
+        "trustedClick": true
+      },
+      "twoRolesRunning": true,
+      "shellErrorsUnchanged": true
+    }
+  ],
+  "extensionRegression": {
+    "phase": "chromium-extensions-seed",
+    "result": "FAIL",
+    "stage": "verifyBusterStoreNavigation",
+    "webdriverError": "invalid session id",
+    "nativeCrash": {
+      "report": "Electron-2026-09-22-171240.ips",
+      "exception": "EXC_BAD_ACCESS",
+      "signal": "SIGSEGV",
+      "address": "0x0",
+      "processId": 39799,
+      "matchedE2EProcess": true
+    },
+    "restart": "not-run-after-seed-failure",
+    "symbolicatedRootCause": "not-established"
+  },
+  "validation": {
+    "focusedUnitTests": 132,
+    "rustPassed": 1249,
+    "rustIgnored": 5,
+    "typecheck": "PASS",
+    "focusedEslint": "PASS",
+    "sourceHygiene": "PASS",
+    "docs": "PASS",
+    "aiContext": "PASS",
+    "e2eCoverage": "PASS",
+    "rustLint": "PASS",
+    "cargoDependencyHygiene": "PASS",
+    "unusedCode": "PASS with identical baseline warnings"
+  },
+  "limits": {
+    "netflix": "not-tested",
+    "productionVmp": "development-certificate-only; EVS login required",
+    "productionPackage": "not-built; genuine updater configuration unavailable in this session",
+    "audibleAudio": "not-tested",
+    "windowsNative": "pending Windows CI",
+    "promotable": false
+  },
+  "localEvidenceRoot": ".desktop-e2e-artifacts/drm-2026-09-22T09-10-28-061Z/2026-09-22T09-10-28-102Z-darwin",
+  "extensionEvidenceRoot": ".desktop-e2e-artifacts/2026-09-22T09-12-23-910Z-darwin"
+}

@@ -2,6 +2,7 @@
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
   "entry": [
     "electron-builder.config.mjs",
+    "electron-builder.ecs-prototype.config.mjs",
     "e2e/desktop/wdio.electron.conf.ts",
     "src/electron/e2e/index.ts",
     "src/electron/e2e/preload.ts",

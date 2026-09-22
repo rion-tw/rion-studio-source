@@ -43,6 +43,11 @@ const electronApplication = packaged
         ],
         appBinaryPath: required("RION_STUDIO_E2E_ELECTRON_EXEC_PATH")
       }
+  : process.env.RION_STUDIO_E2E_ECS_PROTOTYPE === "1"
+    ? {
+      appArgs: [`--app=${entryPoint}`, `--user-data-dir=${userDataDir}`],
+      appBinaryPath: required("RION_STUDIO_E2E_ELECTRON_EXEC_PATH")
+    }
   : {
       appArgs: [`--user-data-dir=${userDataDir}`],
       appEntryPoint: entryPoint

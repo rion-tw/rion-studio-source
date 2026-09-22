@@ -1,4 +1,5 @@
 import { net, type Session } from "electron";
+import { workspaceWebDrmRuntime } from "../main/chromiumDrmRuntime";
 
 const installed = new WeakSet<Session>();
 const FIXTURE_HOST = "rion-drm.fixture.test";
@@ -18,6 +19,9 @@ export function installWorkspaceWebDrmFixture(session: Session): void {
     const url = new URL(request.url);
     if (url.hostname !== FIXTURE_HOST || url.port || url.username || url.password) {
       return net.fetch(request, { bypassCustomProtocolHandlers: true });
+    }
+    if (request.method === "GET" && url.pathname === "/drm-runtime") {
+      return Response.json(await workspaceWebDrmRuntime.whenSettled());
     }
     const local = new URL(url.pathname + url.search, origin);
     const headers = new Headers(request.headers);

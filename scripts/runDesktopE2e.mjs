@@ -13,6 +13,7 @@ import { observeElectronPhaseShutdown } from "./desktopE2eElectronShutdown.mjs";
 import { resolveDesktopE2eFocusedPhases } from "./desktopE2eFocusedPhases.mjs";
 import { createMacosGameModeDevelopmentBundle } from
   "./electronMacosGameModeBundle.mjs";
+import { ecsPrototypeExecutable } from "./ecsPrototypeRuntime.mjs";
 
 import {
   aggregateDesktopE2eJourneyVerdicts,
@@ -73,7 +74,12 @@ const profile = resolveDesktopE2eProfileName({
   platform: process.platform,
   profileName: profileArgument ?? process.env.RION_STUDIO_E2E_PROFILE ?? "full"
 });
+const ecsPrototypeProfile = profile === "chromium-macos-appkit-drm" || profile === "chromium-windows-drm";
 const coverageManifest = JSON.parse(await readFile(resolve(root, "docs/e2e-coverage.json"), "utf8"));
+if (profile === "chromium-macos-appkit-drm" || profile === "chromium-windows-drm") {
+  process.env.RION_STUDIO_E2E_DRM_DIAGNOSTIC = "1";
+  process.env.RION_STUDIO_E2E_DRM_PLAYBACK = "1";
+}
 let configuredPhases;
 try {
   configuredPhases = resolveDesktopE2eProfile(coverageManifest, profile).phases;
@@ -1125,9 +1131,11 @@ try {
     driver: executionPlan.driver,
     repositoryRoot: root
   });
+  const selectedExecutable = ecsPrototypeProfile ? ecsPrototypeExecutable() : requireFromRepository("electron");
+  await access(selectedExecutable);
   if (process.platform === "darwin") {
     macosGameModeBundle = await createMacosGameModeDevelopmentBundle(
-      requireFromRepository("electron")
+      selectedExecutable
     );
   }
   fixture = await startFixture();
@@ -1145,12 +1153,15 @@ try {
         RION_STUDIO_E2E_PROFILE: profile,
         RION_STUDIO_E2E_RUNTIME_TARGET: executionPlan.runtimeTargetName,
         RION_STUDIO_E2E_SESSION_TOKEN: token,
+        ...(ecsPrototypeProfile ? { RION_STUDIO_E2E_ECS_PROTOTYPE: "1" } : {}),
         ...(macosGameModeBundle
           ? {
               RION_STUDIO_E2E_ELECTRON_EXEC_PATH:
                 macosGameModeBundle.executablePath
             }
-          : {}),
+          : ecsPrototypeProfile
+            ? { RION_STUDIO_E2E_ELECTRON_EXEC_PATH: selectedExecutable }
+            : {}),
         ...desktopE2eForcedTerminationEnvironment(phase),
         RION_STUDIO_USER_DATA_DIR: userDataDir
       },

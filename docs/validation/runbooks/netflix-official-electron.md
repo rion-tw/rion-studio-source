@@ -1,5 +1,9 @@
 # Netflix feasibility with official Electron
 
+For the separate ECS prototype and its playback results, see
+[Netflix ECS prototype](netflix-ecs-prototype.md). This document records the
+official-runtime baseline.
+
 ## Scope and reproduction
 
 This is a capability investigation, not Netflix playback certification. Keep
@@ -8,7 +12,7 @@ and current platform signing policies. No public API, Rust contract or database
 migration is introduced. No external browser profiles, CDM extraction, ECS or EVS
 are used.
 
-The current runtime is Electron 44.4.3. The results below were recorded on
+The official baseline runtime is Electron 44.4.3. The results below were recorded on
 43.7.0 and are not playback certification for the upgraded engine.
 
 On a native macOS or Windows checkout with desktop E2E prerequisites:

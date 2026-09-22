@@ -1,4 +1,5 @@
 import { readWindowsShortcutDiagnostic } from "./windowsRuntimeShortcutDiagnostics";
+import { startChromiumDrm } from "./chromiumDrmStartup";
 import { executeWindowsRuntimeTabShortcut } from "./windowsRuntimeTabShortcut";
 import { createElectronApplicationMenuDispatch } from "./electronApplicationMenuDispatch";
 import { capturePassiveAppKitHosts, closeAppKitInputHost } from "./macosAppKitRuntimeEventPorts";
@@ -670,6 +671,7 @@ async function bootstrapReadyPhase(
   startupQuitFence: ElectronStartupQuitFence
 ): Promise<void> {
   runtimeLogs.electronReady();
+  startChromiumDrm();
   applyElectronAccessibilityStartupRequest(app);
   const runtimePlatform = platform();
   applicationIcon = initializeIcon(

@@ -21,7 +21,7 @@ describe("Electron Chromium regression audit", () => {
     const classified = [...audit.matchAll(/^CHROMIUM-[A-Z0-9-]+$/gmu)]
       .map((match) => match[0]!);
 
-    expect(expected).toHaveLength(128);
+    expect(expected).toHaveLength(130);
     expect(new Set(classified).size).toBe(classified.length);
     expect([...classified].sort()).toEqual(expected);
   });

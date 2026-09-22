@@ -60,6 +60,8 @@ import {
 // [journey:CHROMIUM-WINDOWS-POPUP-012]
 // [journey:CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SECURITY-POLICY-027]
 // [journey:CHROMIUM-WINDOWS-WORKSPACE-WEB-SECURITY-POLICY-027]
+// [journey:CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-DRM-PLAYBACK-095]
+// [journey:CHROMIUM-WINDOWS-WORKSPACE-WEB-DRM-PLAYBACK-095]
 // [journey:CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-FILE-UPLOAD-028]
 // [journey:CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028]
 
@@ -625,9 +627,12 @@ async function exerciseDrmPermission(input: Readonly<{
       embeddingOrigin: new URL(popupUrl()).origin, reason: "https-web-app"
     }));
   }
-  // Stock Electron can reject the absent key system before invoking permissions.
-  // That outcome is recorded separately, never counted as DRM playback success.
-  if (drmDecisions.length === 0) expect(drmResult.errorCode).toBe("NotSupportedError");
+  // EME can settle before Chromium invokes a permission hook: stock Electron
+  // rejects missing CDMs, while ECS can grant temporary access without a hook.
+  // Neither outcome is a permission callback or playback success.
+  if (drmDecisions.length === 0) {
+    expect(["NotSupportedError", "key-system-access-granted"]).toContain(drmResult.errorCode);
+  }
 }
 
 async function exerciseNamedOauthPopup(input: Readonly<{

@@ -395,3 +395,17 @@ retirement without implicitly saving a window. Windows runtime evidence remains
 CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-TEAROUT-046
 CHROMIUM-WINDOWS-RUNTIME-TAB-TEAROUT-046
 ```
+
+## Widevine prototype follow-up (2026-09-23)
+
+Classification: `test-gap` closed by a separate ECS/Widevine profile. The
+macOS journey passed with public encrypted playback before and after restart;
+Windows native execution remains `platform-pending`. Netflix acceptance and
+production VMP signing remain separate gates, and the ordinary release keeps
+official Electron 44.4.3 because the older ECS runtime crashes in the
+Extension store journey.
+
+```text
+CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-DRM-PLAYBACK-095
+CHROMIUM-WINDOWS-WORKSPACE-WEB-DRM-PLAYBACK-095
+```

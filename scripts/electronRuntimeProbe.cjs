@@ -1,7 +1,7 @@
 const { writeSync } = require("node:fs");
 
 writeSync(2, "RION_ELECTRON_RUNTIME_STAGE=script-started\n");
-const { app } = require("electron");
+const { app, components } = require("electron");
 writeSync(2, "RION_ELECTRON_RUNTIME_STAGE=electron-imported\n");
 
 const PROBE_PREFIX = "RION_ELECTRON_RUNTIME_PROBE=";
@@ -35,6 +35,7 @@ void (async () => {
       arch: process.arch,
       appKitRuntimeAbi: addon.appKitRuntimeAbiVersion(),
       chrome: process.versions.chrome,
+      cdmComponentApi: typeof components?.whenReady === "function" && typeof components?.WIDEVINE_CDM_ID === "string",
       core: addon.coreVersion(),
       electron: process.versions.electron,
       modules: process.versions.modules,

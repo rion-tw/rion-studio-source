@@ -250,6 +250,9 @@ importers:
       semantic-release:
         specifier: ^25.0.9
         version: 25.0.9(@typescript/typescript6@6.0.2)(supports-color@8.1.1)
+      shaka-player:
+        specifier: 5.2.11
+        version: 5.2.11
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
@@ -5540,6 +5543,10 @@ packages:
 
   setimmediate@1.0.5:
     resolution: {integrity: sha512-MATJdZp8sLqDl/68LfQmbP8zKPLQNV6BIZoIgrscFDQ+RsvK/BxeDQOgyxKKoh0y/8h3BqVFnCqQ/gd+reiIXA==}
+
+  shaka-player@5.2.11:
+    resolution: {integrity: sha512-C9WvYtH5cWKBCUXWFzbKWcgMYSRviGPd+1WWYjS55dXGHyMHeD5mub3vvjOzX2Q6o/bu4N5xlXOnVeg9ajp+Sw==}
+    engines: {node: '>=18'}
 
   shebang-command@2.0.0:
     resolution: {integrity: sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==}
@@ -11720,6 +11727,8 @@ snapshots:
       randombytes: 2.1.0
 
   setimmediate@1.0.5: {}
+
+  shaka-player@5.2.11: {}
 
   shebang-command@2.0.0:
     dependencies:

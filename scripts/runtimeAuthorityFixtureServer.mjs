@@ -1,5 +1,5 @@
 import { createFixtureKeyboardJournal } from "./fixtureKeyboardJournal.mjs";
-import { workspaceWebDrmProbePage } from "./workspaceWebDrmProbe.mjs";
+import { serveWorkspaceWebDrmFixture } from "./workspaceWebDrmFixtureRoutes.mjs";
 import { createServer } from "node:http";
 
 const DEFAULT_PORT = 41739;
@@ -1336,11 +1336,7 @@ const server = createServer(async (request, response) => {
       sendRolePage(response, roleId);
       return;
     }
-    if (request.method === "GET" && url.pathname === "/drm-capabilities") {
-      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      response.end(workspaceWebDrmProbePage());
-      return;
-    }
+    if (await serveWorkspaceWebDrmFixture(request, response, url)) return;
     if (request.method === "GET" && url.pathname === "/web-navigation") {
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       response.end(`<!doctype html><html><head><title>Workspace Web navigation</title></head>

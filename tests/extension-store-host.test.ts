@@ -13,6 +13,8 @@ const native = vi.hoisted(() => {
     callback: (response: Record<string, unknown>) => void
   ) => void) | null = null;
   let url = "";
+  let history: string[] = [];
+  let index = 0;
   let windowOpenHandler: ((details: Record<string, unknown>) => unknown) | null = null;
   const listeners = new Map<string, Array<(...args: never[]) => void>>();
   const contents = {
@@ -24,8 +26,10 @@ const native = vi.hoisted(() => {
     isLoadingMainFrame: vi.fn(() => false),
     loadURL: vi.fn(async (next: string) => { url = next; }),
     navigationHistory: {
-      canGoBack: vi.fn(() => false),
-      canGoForward: vi.fn(() => false),
+      canGoBack: vi.fn(() => index > 0),
+      canGoForward: vi.fn(() => index < history.length - 1),
+      getActiveIndex: () => index,
+      getEntryAtIndex: (at: number) => history[at] ? { url: history[at] } : null,
       goBack: vi.fn(),
       goForward: vi.fn()
     },
@@ -34,6 +38,9 @@ const native = vi.hoisted(() => {
       entries.push(listener);
       listeners.set(name, entries);
     }),
+    removeListener: (name: string, listener: (...args: never[]) => void) => {
+      listeners.set(name, (listeners.get(name) ?? []).filter(entry => entry !== listener));
+    },
     reload: vi.fn(),
     setWindowOpenHandler: vi.fn((handler: typeof windowOpenHandler) => {
       windowOpenHandler = handler;
@@ -60,10 +67,14 @@ const native = vi.hoisted(() => {
       destroyed = false;
       requestHandler = null;
       url = "";
+      history = [];
+      index = 0;
       windowOpenHandler = null;
       listeners.clear();
     },
     setUrl(next: string) { url = next; },
+    setHistory(entries: string[], active: number) { history = entries; index = active; url = entries[active]; },
+    move(active: number) { index = active; url = history[active]; },
     session: {
       webRequest: {
         onBeforeRequest: vi.fn((
@@ -206,16 +217,88 @@ describe("serialized Chrome Web Store navigation", () => {
     expect(native.open(openDetails(url))).toEqual({ action: "deny" });
     await loaded(2);
     expect(host.snapshot()).toMatchObject({ url, extensionId });
-    native.contents.navigationHistory.canGoBack.mockReturnValue(true);
-    native.contents.navigationHistory.canGoForward.mockReturnValue(true);
-    expect(host.snapshot()).toMatchObject({ canGoBack: true, canGoForward: true });
+    native.setHistory(["https://chromewebstore.google.com/category/extensions", url], 1);
+    expect(host.snapshot()).toMatchObject({ canGoBack: true, canGoForward: false });
+    host.dispose();
+  });
+
+  it("keeps rapid Back, Forward and Reload ordered and loading until each document completes", async () => {
+    const window = owner();
+    const host = new ExtensionStoreHost(() => window, vi.fn());
+    host.request({ action: "show", bounds });
+    await loaded(1);
+    const entries = ["https://chromewebstore.google.com/search?q=one", `https://chromewebstore.google.com/detail/fixture/${extensionId}`];
+    native.setHistory(entries, 1);
+    const complete = () => {
+      const url = native.contents.getURL();
+      native.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false, url });
+      native.emit("did-navigate", {}, url);
+      native.emit("did-finish-load");
+    };
     host.request({ action: "back" });
     host.request({ action: "forward" });
     host.request({ action: "reload" });
-    expect(native.contents.navigationHistory.goBack).toHaveBeenCalledOnce();
-    expect(native.contents.navigationHistory.goForward).toHaveBeenCalledOnce();
-    expect(native.contents.reload).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(native.contents.navigationHistory.goBack).toHaveBeenCalledOnce());
+    expect(native.contents.navigationHistory.goForward).not.toHaveBeenCalled();
+    native.move(0);
+    native.emit("did-navigate-in-page", {}, entries[0], true);
+    expect(host.snapshot().loading).toBe(true);
+    await vi.waitFor(() => expect(native.contents.reload).toHaveBeenCalledTimes(1));
+    complete();
+    await vi.waitFor(() => expect(native.contents.navigationHistory.goForward).toHaveBeenCalledOnce());
+    native.move(1);
+    complete(); // Full-document Forward requires no repair reload.
+    await vi.waitFor(() => expect(native.contents.reload).toHaveBeenCalledTimes(2));
+    expect(host.snapshot().loading).toBe(true);
+    complete();
+    await vi.waitFor(() => expect(host.snapshot().loading).toBe(false));
     host.dispose();
+  });
+
+  it("cancels active and queued history work when a page navigation supersedes it", async () => {
+    const window = owner();
+    const diagnostics: ExtensionStoreNavigationDiagnostic[] = [];
+    const host = new ExtensionStoreHost(() => window, vi.fn(), diagnosticLogger(diagnostics));
+    host.request({ action: "show", bounds });
+    await loaded(1);
+    native.setHistory(["https://chromewebstore.google.com/search?q=one", "https://chromewebstore.google.com/category/extensions"], 1);
+    host.request({ action: "back" });
+    host.request({ action: "forward" });
+    await vi.waitFor(() => expect(native.contents.navigationHistory.goBack).toHaveBeenCalledOnce());
+    native.move(0);
+    native.emit("did-navigate-in-page", {}, native.contents.getURL(), true);
+    const url = `https://chromewebstore.google.com/detail/fixture/${extensionId}`;
+    native.emit("will-navigate", { isMainFrame: true, preventDefault: vi.fn(), url });
+    await loaded(2);
+    expect(native.contents.reload).not.toHaveBeenCalled();
+    expect(native.contents.navigationHistory.goForward).not.toHaveBeenCalled();
+    expect(diagnostics.filter(record => record.phase === "cancelled").map(record => record.source)).toEqual(["back", "forward"]);
+    expect(host.snapshot()).toMatchObject({ loading: false, failed: false, url });
+    host.dispose();
+  });
+
+  it.each(["dispose", "destroyed"])("retires active history work on %s without stale completion", async retirement => {
+    const window = owner();
+    const publish = vi.fn();
+    const host = new ExtensionStoreHost(() => window, publish);
+    host.request({ action: "show", bounds });
+    await loaded(1);
+    native.setHistory(["https://chromewebstore.google.com/search?q=one", "https://chromewebstore.google.com/category/extensions"], 1);
+    host.request({ action: "back" });
+    await vi.waitFor(() => expect(native.contents.navigationHistory.goBack).toHaveBeenCalledOnce());
+    native.move(0);
+    native.emit("did-navigate-in-page", {}, native.contents.getURL(), true);
+    if (retirement === "dispose") host.dispose();
+    else {
+      native.contents.close();
+      native.emit("destroyed");
+      expect(publish).toHaveBeenLastCalledWith(expect.objectContaining({ loading: false }));
+    }
+    publish.mockClear();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(native.contents.reload).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(host.snapshot().loading).toBe(false);
   });
 
   it("serializes accepted page navigations without recursive loadURL calls", async () => {
@@ -301,11 +384,10 @@ describe("serialized Chrome Web Store navigation", () => {
     const host = new ExtensionStoreHost(owner, vi.fn(), diagnosticLogger(diagnostics));
     host.request({ action: "show", bounds, language: "en" });
     host.dispose();
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(native.contents.loadURL).not.toHaveBeenCalled();
-    expect(diagnostics).toContainEqual(expect.objectContaining({
+    await vi.waitFor(() => expect(diagnostics).toContainEqual(expect.objectContaining({
       phase: "cancelled",
       source: "initial"
-    }));
+    })));
+    expect(native.contents.loadURL).not.toHaveBeenCalled();
   });
 });

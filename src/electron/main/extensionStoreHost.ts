@@ -6,6 +6,7 @@ import {
 } from "electron";
 import { chromeStoreExtensionId, chromeStoreUrl, type ExtensionStoreRequest, type ExtensionStoreState } from "../../shared/extensions";
 import { installChromiumSessionSecurityPolicy } from "./chromiumSecurityPolicy";
+import { navigateStoreHistory, type StoreHistoryAction } from "./extensionStoreHistoryNavigation";
 
 // The store imposes a 1280px minimum on its document and header. Let the
 // embedded page follow its native viewport without changing the page zoom.
@@ -23,7 +24,7 @@ const STORE_VIEWPORT_CSS = `
   }
 `;
 
-type StoreNavigationSource = "document" | "initial" | "language" | "popup";
+type StoreNavigationSource = "document" | "initial" | "language" | "popup" | StoreHistoryAction;
 type StoreNavigationClassification = "category" | "detail" | "search" | "other";
 type StoreNavigationPhase = "blocked" | "cancelled" | "completed" | "failed" | "queued";
 
@@ -73,6 +74,10 @@ export class ExtensionStoreHost {
   #generation = 0;
   #language: NonNullable<ExtensionStoreRequest["language"]> = "en";
   #navigationLane: Promise<void> = Promise.resolve();
+  #pendingNavigations = 0;
+  #historyEpoch = 0;
+  #operationSequence = 0;
+  #activeHistory: AbortController | null = null;
   constructor(
     private readonly owner: () => BrowserWindow,
     private readonly publish: (state: ExtensionStoreState) => void,
@@ -87,7 +92,7 @@ export class ExtensionStoreHost {
       url, extensionId: chromeStoreExtensionId(url),
       canGoBack: alive?.navigationHistory.canGoBack() ?? false,
       canGoForward: alive?.navigationHistory.canGoForward() ?? false,
-      loading: alive?.isLoadingMainFrame() ?? false,
+      loading: this.#pendingNavigations > 0 || (alive?.isLoadingMainFrame() ?? false),
       failed: this.#failed
     };
   }
@@ -196,6 +201,13 @@ export class ExtensionStoreHost {
         if (main && code !== -3) updateFailed(true);
       });
       view.webContents.on("render-process-gone", () => updateFailed(true));
+      view.webContents.on("destroyed", () => {
+        // Destruction already invalidates #owns; retire the matching generation
+        // explicitly so pending operations cannot leave the toolbar loading.
+        if (this.#view !== view || this.#generation !== generation) return;
+        this.#retireCurrentView();
+        this.publish(this.snapshot());
+      });
       const onWindowClosed = () => { if (this.#window === window) this.dispose(); };
       this.#ownerClosed = { window, listener: onWindowClosed };
       window.once("closed", onWindowClosed);
@@ -225,9 +237,7 @@ export class ExtensionStoreHost {
         width: Math.floor(bounds.width), height: Math.floor(bounds.height)
       });
       view.setVisible(true);
-    } else if (request.action === "back" && view.webContents.navigationHistory.canGoBack()) view.webContents.navigationHistory.goBack();
-    else if (request.action === "forward" && view.webContents.navigationHistory.canGoForward()) view.webContents.navigationHistory.goForward();
-    else if (request.action === "reload") view.webContents.reload();
+    } else this.#queueHistory(view, this.#generation, request.action);
     return this.snapshot();
   }
 
@@ -237,6 +247,11 @@ export class ExtensionStoreHost {
 
   #retireCurrentView(): void {
     this.#generation += 1;
+    this.#activeHistory?.abort();
+    this.#activeHistory = null;
+    this.#historyEpoch += 1;
+    this.#pendingNavigations = 0;
+    this.#failed = false;
     this.#navigationLane = Promise.resolve();
     const view = this.#view;
     this.#view = null;
@@ -269,37 +284,56 @@ export class ExtensionStoreHost {
     url: URL,
     source: StoreNavigationSource
   ): void {
+    if (!this.#owns(view, generation)) return;
+    this.#historyEpoch += 1;
+    this.#activeHistory?.abort();
     const classification = classifyStoreUrl(url);
-    this.#recordNavigation(view, classification, source, "queued",
-      "ELECTRON_EXTENSION_STORE_NAVIGATION_QUEUED");
-    // EventBound: the accepted native navigation event enters its serialized
-    // lane only after Electron has unwound the native will-navigate callback.
-    setImmediate(() => {
+    this.#enqueue(view, generation, classification, source, async () => {
+      await view.webContents.loadURL(url.href);
+      return { phase: "completed", code: "ELECTRON_EXTENSION_STORE_NAVIGATION_COMPLETED" };
+    });
+  }
+
+  #queueHistory(view: WebContentsView, generation: number, action: StoreHistoryAction): void {
+    const epoch = this.#historyEpoch;
+    this.#enqueue(view, generation, classifyStoreUrl(acceptedStoreUrl(view.webContents.getURL())), action, async () => {
+      if (epoch !== this.#historyEpoch) return { phase: "cancelled", code: "HISTORY_SUPERSEDED" };
+      const sequence = ++this.#operationSequence;
+      const controller = new AbortController();
+      this.#activeHistory = controller;
+      try {
+        return await navigateStoreHistory(view.webContents, action, controller.signal,
+          () => this.#owns(view, generation) && sequence === this.#operationSequence);
+      } finally {
+        if (this.#activeHistory === controller) this.#activeHistory = null;
+      }
+    });
+  }
+
+  #enqueue(
+    view: WebContentsView, generation: number,
+    classification: StoreNavigationClassification, source: StoreNavigationSource,
+    run: () => Promise<{ phase: "completed" | "cancelled" | "failed"; code: string }>
+  ): void {
+    this.#pendingNavigations += 1;
+    this.#recordNavigation(view, classification, source, "queued", "ELECTRON_EXTENSION_STORE_NAVIGATION_QUEUED");
+    this.publish(this.snapshot());
+    this.#navigationLane = this.#navigationLane.catch(() => undefined).then(async () => {
+      // EventBound: preserve arrival order and unwind native navigation callbacks.
+      await new Promise<void>(resolve => setImmediate(resolve));
       if (!this.#owns(view, generation)) {
-        this.#recordNavigation(view, classification, source, "cancelled",
-          "ELECTRON_EXTENSION_STORE_NAVIGATION_CANCELLED");
+        this.#recordNavigation(view, classification, source, "cancelled", "ELECTRON_EXTENSION_STORE_NAVIGATION_CANCELLED");
         return;
       }
-      const prior = this.#navigationLane;
-      this.#navigationLane = prior.catch(() => undefined).then(async () => {
-        if (!this.#owns(view, generation)) {
-          this.#recordNavigation(view, classification, source, "cancelled",
-            "ELECTRON_EXTENSION_STORE_NAVIGATION_CANCELLED");
-          return;
-        }
-        try {
-          await view.webContents.loadURL(url.href);
-          if (!this.#owns(view, generation)) return;
-          this.#recordNavigation(view, classification, source, "completed",
-            "ELECTRON_EXTENSION_STORE_NAVIGATION_COMPLETED");
-        } catch {
-          if (!this.#owns(view, generation)) return;
-          this.#failed = true;
-          this.publish(this.snapshot());
-          this.#recordNavigation(view, classification, source, "failed",
-            "ELECTRON_EXTENSION_STORE_NAVIGATION_FAILED");
-        }
-      });
+      this.#failed = false;
+      let result: Awaited<ReturnType<typeof run>>;
+      try { result = await run(); }
+      catch { result = { phase: "failed", code: "ELECTRON_EXTENSION_STORE_NAVIGATION_FAILED" }; }
+      if (!this.#owns(view, generation)) return;
+      if (result.phase === "failed") this.#failed = true;
+      this.#pendingNavigations -= 1;
+      this.#recordNavigation(view, classification, source, result.phase, result.code);
+      this.publish(this.snapshot());
     });
   }
 

@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { expect, it } from "vitest";
 import { Key, remote } from "webdriverio";
 import { sendChromiumEscapeKey } from "../e2e/desktop/support/chromium-escape-key";
+import { EXPECTED_ELECTRON_RUNTIME } from "../scripts/verifyElectronRuntime.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -13,7 +14,7 @@ it("exits contained HTML fullscreen through the exact ChromeDriver key helper", 
   const driver = await remote({
     logLevel: "error", connectionRetryCount: 0, connectionRetryTimeout: 20_000,
     capabilities: {
-      browserName: "chrome", browserVersion: "150.0.7871.250",
+      browserName: "chrome", browserVersion: EXPECTED_ELECTRON_RUNTIME.chrome,
       "wdio:enforceWebDriverClassic": true,
       "goog:chromeOptions": {
         binary: require("electron") as string,

@@ -11,7 +11,7 @@ export function createGraphicsApiDispatcher(
   diagnostics: GraphicsDiagnostics,
   restart: (identity: RendererIdentity) => Promise<void>,
   fallback: RionApiDispatcher,
-  copyReport: (report: string) => void
+  copyReport: (report: string) => void | Promise<void>
 ): RionApiDispatcher {
   return {
     async invoke<Method extends RionApiDispatchMethod>(identity: RendererIdentity, method: Method,
@@ -28,7 +28,7 @@ export function createGraphicsApiDispatcher(
         case "copyGraphicsReport": {
           const saved = await core.invoke({ type: "graphicsSettingsGet" });
           const current = diagnostics.snapshot();
-          copyReport(JSON.stringify({ saved, pendingRestart: current.appliedSettings !== null &&
+          await copyReport(JSON.stringify({ saved, pendingRestart: current.appliedSettings !== null &&
             !graphicsSettingsEqual(saved.settings, current.appliedSettings), current }, null, 2));
           break;
         }

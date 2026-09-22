@@ -1,6 +1,9 @@
 # Native DNR allocation candidate
 
-Status: source patch only; **not compiled or installed in the bundled runtime**.
+Status: historical Electron 43.7.0 source patch only; **not compiled or installed in the bundled runtime**.
+The current official Electron 44.4.3 upgrade does not apply this candidate or
+reuse its source hashes. Rebase and validate the candidate against the selected
+engine before considering a custom runtime.
 Do not describe the native DNR restart regression as repaired until a patched
 binary passes `scripts/verifyElectronExtensionRulesetAllocation.mjs`.
 
@@ -56,8 +59,8 @@ Required additional native cases: two extensions competing for the shared quota;
 decrease/release after fresh-process restart; repeated release; retained excess
 allocation; genuine quota rejection; unchanged enabled-rule selections.
 
-Engine artifact integration remains blocked pending Xcode setup and validated
-macOS/Windows binaries. Preserve the existing runtime pin until that gate passes. Distribution
+Custom engine artifact integration remains blocked pending Xcode setup and validated
+macOS/Windows binaries. This gate applies to the patched candidate, not official Electron upgrades. Distribution
 must retain the project's updater signing/SHA-256 requirements, macOS ad-hoc
 identity, and unsigned Windows installer policy.
 

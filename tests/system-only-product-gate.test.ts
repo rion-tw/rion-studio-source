@@ -80,7 +80,7 @@ describe("desktop shell migration gate", () => {
 
     expect(packageJson.main).toBe("./out/main/index.js");
     expect(packageJson.devDependencies).toMatchObject({
-      electron: "43.7.0",
+      electron: "44.4.3",
       "electron-builder": "26.15.3",
       "electron-vite": "5.0.0"
     });
@@ -101,9 +101,9 @@ describe("desktop shell migration gate", () => {
     expect(electronConfig).toContain('entryFileNames: "[name].cjs"');
     expect(electronConfig.match(/external: \["electron"\]/gu)).toHaveLength(2);
     expect(tsconfig).toContain('"./tsconfig.electron.json"');
-    expect(runtimeVerifier).toContain('chrome: "150.0.7871.250"');
-    expect(runtimeVerifier).toContain('electron: "43.7.0"');
-    expect(runtimeVerifier).toContain('modules: "148"');
+    expect(runtimeVerifier).toContain('chrome: "152.0.7977.130"');
+    expect(runtimeVerifier).toContain('electron: "44.4.3"');
+    expect(runtimeVerifier).toContain('modules: "149"');
     expect(runtimeVerifier).toContain('napi: "10"');
     expect(runtimeVerifier).toContain('node: "24.21.0"');
     expect(await readFile("src/electron/main/chromiumExtensionSessions.ts", "utf8"))

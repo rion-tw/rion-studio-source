@@ -3,6 +3,8 @@ import { applyGraphicsStartup } from "../src/electron/main/graphicsStartup";
 import { GraphicsDiagnostics } from "../src/electron/main/graphicsDiagnostics";
 import { defaultGraphicsSettings } from "../src/shared/graphicsSettings";
 import { ElectronMainLifecycle } from "../src/electron/main/lifecycle";
+import { createGraphicsApiDispatcher } from "../src/electron/main/graphicsApiDispatcher";
+import type { ElectronCoreCommandPort } from "../src/electron/main/coreApiDispatcher";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -12,6 +14,41 @@ function deferred<T>() {
 }
 
 describe.each(["darwin", "win32"] as const)("%s graphics settings", (platform) => {
+  it.each(["complete", "reject"] as const)("awaits clipboard %s before settling the report request", async (outcome) => {
+    const write = deferred<void>();
+    const started = deferred<void>();
+    const copyReport = vi.fn((_report: string) => { started.resolve(); return write.promise; });
+    const saved = { revision: 1, settings: { ...defaultGraphicsSettings, hardwareAcceleration: false } };
+    const core = { invoke: vi.fn(async () => saved) as ElectronCoreCommandPort["invoke"] };
+    const diagnostics = new GraphicsDiagnostics({
+      on: vi.fn(), removeListener: vi.fn(), isHardwareAccelerationEnabled: () => true,
+      getGPUFeatureStatus: () => ({}), getGPUInfo: async () => ({})
+    }, defaultGraphicsSettings, { os: platform }, vi.fn());
+    const dispatcher = createGraphicsApiDispatcher(core, diagnostics, vi.fn(), {
+      invoke: async () => { throw new Error("Unexpected fallback"); }
+    }, copyReport);
+    const identity = { kind: "main-renderer" as const, windowId: 1, webContentsId: 2, generation: 3 };
+    const copy = dispatcher.invoke(identity, "copyGraphicsReport", []);
+    const settled = vi.fn();
+    void copy.then(settled, settled);
+    await started.promise;
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+    expect(core.invoke).toHaveBeenCalledWith({ type: "graphicsSettingsGet" });
+    expect(JSON.parse(copyReport.mock.calls[0]![0])).toEqual({
+      saved, pendingRestart: true, current: diagnostics.snapshot()
+    });
+    if (outcome === "complete") {
+      write.resolve();
+      await expect(copy).resolves.toBeUndefined();
+    } else {
+      const error = new Error("Clipboard write failed");
+      write.reject(error);
+      await expect(copy).rejects.toBe(error);
+    }
+    diagnostics.dispose();
+  });
+
   it("applies only selected startup switches and respects the acceleration master switch", () => {
     const app = { isReady: () => false, disableHardwareAcceleration: vi.fn(),
       commandLine: { appendSwitch: vi.fn(), removeSwitch: vi.fn() } };

@@ -24,7 +24,7 @@ export interface ElectronOverlayMainWindowPort {
 
 export interface ElectronOverlayClipboardPort {
   readText: () => string | Promise<string>;
-  writeText: (text: string) => void;
+  writeText: (text: string) => void | Promise<void>;
 }
 
 export interface ElectronOverlayShellEffectsInput {
@@ -174,7 +174,7 @@ export class ElectronOverlayShellEffects {
     coordinate: MacroCoordinateRecord
   ): Promise<Readonly<{ text: string }>> {
     const text = formatMacroCoordinateText(coordinate);
-    this.#input.clipboard.writeText(text);
+    await this.#input.clipboard.writeText(text);
     if (await this.#input.clipboard.readText() !== text) {
       throw shellError(
         "ELECTRON_SHELL_CLIPBOARD_INDETERMINATE",

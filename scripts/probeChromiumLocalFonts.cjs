@@ -7,8 +7,10 @@ const { pathToFileURL } = require("node:url");
 const reportPath = process.argv[2];
 const userData = process.argv[3];
 const providerModule = process.argv[4];
-if (!reportPath || !userData || !["darwin", "win32"].includes(process.platform)) {
-  throw new Error("Use the bundled Electron: probeChromiumLocalFonts.cjs REPORT_PATH ISOLATED_USER_DATA");
+const runtimeContractVersion = Number(process.argv[5]);
+if (!reportPath || !userData || !Number.isSafeInteger(runtimeContractVersion) ||
+  runtimeContractVersion <= 0 || !["darwin", "win32"].includes(process.platform)) {
+  throw new Error("Use the bundled Electron: probeChromiumLocalFonts.cjs REPORT_PATH ISOLATED_USER_DATA PROVIDER_MODULE RUNTIME_CONTRACT_VERSION");
 }
 const root = resolve(__dirname, "..");
 const fixture = join(root, "tests", "fixtures", "chromium-local-fonts", "main.html");
@@ -95,7 +97,7 @@ async function probe() {
     );
     core = await addon.createAppCore({ userDataDir: resolve(userData, "chromium-core"),
       platform: process.platform, appVersion: "23.0.0-font-probe",
-      packaged: false, runtimeContractVersion: 43 });
+      packaged: false, runtimeContractVersion });
     core.subscribeCoreEvents(() => {}, () => {});
     const productionFamilies = JSON.parse(await core.invoke(JSON.stringify({
       type: "systemFontsList", families: productionNames

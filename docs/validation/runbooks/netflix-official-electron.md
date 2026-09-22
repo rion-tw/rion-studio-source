@@ -3,10 +3,13 @@
 ## Scope and reproduction
 
 This is a capability investigation, not Netflix playback certification. Keep
-official Electron 43.7.0, the AppKit/Windows hosts, existing HTTPS DRM permissions,
+the pinned official Electron runtime, the AppKit/Windows hosts, existing HTTPS DRM permissions,
 and current platform signing policies. No public API, Rust contract or database
 migration is introduced. No external browser profiles, CDM extraction, ECS or EVS
 are used.
+
+The current runtime is Electron 44.4.3. The results below were recorded on
+43.7.0 and are not playback certification for the upgraded engine.
 
 On a native macOS or Windows checkout with desktop E2E prerequisites:
 

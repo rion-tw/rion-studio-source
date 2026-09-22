@@ -24,8 +24,10 @@ import type { ChromiumRoleSessionPort } from
   "../src/electron/main/chromiumRoleSessionRegistry";
 import {
   ChromiumRuntimeBootstrap,
+  ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION,
   type ChromiumRuntimeCorePort
 } from "../src/electron/main/chromiumRuntimeBootstrap";
+import { EXPECTED_ELECTRON_RUNTIME } from "../scripts/verifyElectronRuntime.mjs";
 import type { WindowsChromiumTrustedInputRuntimeConfiguration } from
   "../src/electron/main/windowsChromiumTrustedInputRuntime";
 
@@ -250,7 +252,7 @@ async function createCore(
     platform,
     appVersion: "23.0.0-native-integration",
     packaged: false,
-    runtimeContractVersion: 43
+    runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
   }, observer);
   activeClients.add(client);
   const core = new Proxy(client, {
@@ -400,8 +402,8 @@ async function startRuntime(
   const runtime = await ChromiumRuntimeBootstrap.start({
     core,
     platform,
-    electronVersion: "43.6.0",
-    chromiumVersion: "150.0.7871.250",
+    electronVersion: EXPECTED_ELECTRON_RUNTIME.electron,
+    chromiumVersion: EXPECTED_ELECTRON_RUNTIME.chrome,
     rolePreloadPath: platform === "darwin"
       ? "/Rion/out/preload/role.cjs"
       : "C:\\Rion\\out\\preload\\role.cjs",
@@ -466,7 +468,7 @@ describe("real native Core startup integration", () => {
     activeDirectories.add(directory);
     const binding = await nativeAddon().createAppCore({
       userDataDir: directory, platform: runtimePlatform, appVersion: "23.0.0-test",
-      packaged: false, runtimeContractVersion: 43
+      packaged: false, runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
     });
     try {
       binding.subscribeCoreEvents(() => {}, () => {});
@@ -800,7 +802,7 @@ describe("real native Core startup integration", () => {
         platform: oppositePlatform,
         appVersion: "23.0.0-native-integration",
         packaged: false,
-        runtimeContractVersion: 43
+        runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
       }
     )).rejects.toMatchObject({ code: "CORE_HOST_PLATFORM_MISMATCH" });
     await expectCoreError(

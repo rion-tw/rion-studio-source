@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import { build } from "vite";
+import { ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION } from "../src/electron/main/chromiumRuntimeBootstrap";
 
 const executeFile = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -22,7 +23,8 @@ it("probes bundled Chromium fonts and exact frame permission on the native platf
       lib: { entry: "src/electron/main/chromiumSystemFonts.ts", formats: ["cjs"], fileName: () => "font-provider.cjs" }
     } });
     await executeFile(require("electron") as string, [
-      "scripts/probeChromiumLocalFonts.cjs", reportPath, join(directory, "data"), join(directory, "font-provider.cjs")
+      "scripts/probeChromiumLocalFonts.cjs", reportPath, join(directory, "data"), join(directory, "font-provider.cjs"),
+      String(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION)
     ], { timeout: 45_000, maxBuffer: 2 * 1024 * 1024 });
     const report = JSON.parse(await readFile(reportPath, "utf8"));
     expect(report.platform).toBe(process.platform);

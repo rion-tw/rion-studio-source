@@ -24,14 +24,16 @@ Invalid or unavailable metadata falls back to the Puzzle icon and localized
 missing-description or unavailable-size text without disabling management.
 Successful installation returns to the unfiltered catalogue; cancelling confirmation
 returns to the store. Empty and no-match states offer add and clear-search actions. The store is
-an isolated, unprivileged native WebContentsView. Electron 43.7.0 renders the complete remote detail document, including navigation
+an isolated, unprivileged native WebContentsView. Electron 44.4.3 renders the complete remote detail document, including navigation
 from search results and autocomplete. The current main-frame URL and native
 navigation history own the Rion toolbar state; there is no virtual detail selection.
 A Rion-owned install button uses the validated current detail ID; store DOM and
 private Chrome APIs are not installation authorities. Electron 44.3.0 exposed
 `chrome.webstorePrivate` without its native delegate (upstream electron/electron#53752),
 so calling it from store details crashed the browser process. The previous anchor-click
-interception missed autocomplete navigation and is removed with the 43.7.0 pin.
+interception missed autocomplete navigation and was removed with the 43.7.0 rollback.
+The current 44.4.3 pin includes the upstream fix that keeps this unsupported API
+unavailable to store pages.
 The store document, header, and main content use 100% of the embedded viewport width,
 overriding the upstream 1280px minimum without changing zoom. Horizontal document
 scrolling is disabled; vertical browsing remains available. A presentation-only
@@ -59,8 +61,8 @@ proof is valid; every other RSA proof requires at least 2048 bits. The verified
 developer SPKI is written to manifest `key` so Electron retains the same ID.
 Existing installed directories are not reverified. Their display metadata is
 backfilled from the already-managed files as described below; package identity
-and executable contents are not migrated. Electron 43.7.0 (bundled Chromium
-150.0.7871.250) loads each package in its assigned Role Session. An audited,
+and executable contents are not migrated. Electron 44.4.3 (bundled Chromium
+152.0.7977.130) loads each package in its assigned Role Session. An audited,
 vendored compatibility layer fills only the API surface listed below; native
 Chromium remains authoritative for declarativeNetRequest and scripting. A
 successful package load does not imply support for undeclared APIs. Popups,
@@ -75,9 +77,38 @@ by an active lease, and cleans them after the last native release. Extension
 storage remains in the role profile. Failed filesystem cleanup retains the
 tombstone; it is never treated as proof that files were deleted.
 
+## Electron 44.4.3 runtime (2026-09-22)
+
+The current runtime pin is Electron 44.4.3, Chromium 152.0.7977.130,
+Node 24.21.0, and Node module ABI 149. The official
+[release record](https://releases.electronjs.org/release/v44.4.3) identifies the
+stable engine; `verify:electron-runtime` checks the installed binary and Rust
+Node-API addon together. Electron 44's asynchronous clipboard writes are awaited
+before acknowledging coordinate copies or graphics-report copies. No profile,
+extension package, or persisted user setting is reset for this upgrade.
+
+The checks below retain their recorded engine versions as historical evidence.
+The source-only DNR allocation candidate under `patches/electron` targets 43.7.0;
+its input hashes do not authorize applying it to 44.4.3.
+
+The isolated DNR allocation probe was rerun on macOS arm64 with 44.4.3 on
+2026-09-22. Seed still succeeds, but fresh-process restart rejects disabling the
+one-rule resource with `The set of enabled rulesets exceeds the rule count limit.`
+The known 43.7.0 engine defect described below remains unresolved in this upgrade;
+passing extension isolation, storage, and filtering probes does not certify it.
+A separate 43.7.0 binary reproduced the same seed/restart failure on that host.
+
+The live store journey also remains non-passing: after opening and reloading a
+Buster detail page, Back briefly restores the search URL, then the remote store
+navigates to its home page instead of restoring the visible search results.
+The same isolated UI sequence reproduced on both 43.7.0 and 44.4.3; waiting for
+the document load and visible search content did not resolve it. The paired
+`CHROMIUM-*-EXTENSIONS-001` journeys remain required, with no relaxed assertions
+or claimed full-profile pass. Windows still requires its native CI run.
+
 ## Electron 43.7 rollback validation (2026-09-14)
 
-The exact runtime pin is Electron 43.7.0, Chromium 150.0.7871.250,
+The runtime pin at that validation was Electron 43.7.0, Chromium 150.0.7871.250,
 Node 24.21.0, and Node module ABI 148. The official
 [release record](https://releases.electronjs.org/release/v43.7.0) and
 [upstream delegate fix](https://github.com/electron/electron/pull/53752)

@@ -7,7 +7,7 @@ import { focusVisibleMacosAppKitRuntime } from "./native-application-actions";
 import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
 
 type Point = { x: number; y: number };
-type NativeFrame = Point & { width:number; height:number; windowX:number; windowY:number };
+type NativeFrame = Point & { width:number; height:number; windowX:number; windowY:number; minimumWidth?:number; minimumHeight?:number };
 /** Real native border input, held across read-only geometry/pixel evidence. */
 export async function resizeWorkspaceWindow(input: {
   inspection: Inspection; edge: "right" | "bottom" | "bottomRight" | "left" | "top";
@@ -18,8 +18,8 @@ export async function resizeWorkspaceWindow(input: {
   const nativeWindowHandle = input.inspection.nativeWindowHandle;
   if (platform === "macos") await focusVisibleMacosAppKitRuntime({ processId, windowId });
   else await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle: nativeWindowHandle! });
-  const action = async (phase: string, point: Point): Promise<NativeFrame> => {
-    const payload = { processId, windowId, nativeWindowHandle, phase, edge: input.edge, rapid: input.rapid ?? false, ...point };
+  const action = async (phase: string, point: Point, expected?: Point): Promise<NativeFrame> => {
+    const payload = { processId, windowId, nativeWindowHandle, phase, edge: input.edge, rapid: input.rapid ?? false, expected: expected ?? null, ...point };
     if (platform === "macos") {
       const request = resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "resize-request.json");
       await writeFile(request, JSON.stringify(payload));
@@ -28,13 +28,15 @@ export async function resizeWorkspaceWindow(input: {
         JSON.stringify({ ...payload, native })+"\n");
       return native;
     }
-    return JSON.parse(await runEncodedPowerShellJson(String.raw`
+    const native = JSON.parse(await runEncodedPowerShellJson(String.raw`
 Add-Type @'
 using System; using System.Runtime.InteropServices;
 public static class WorkspaceResize {
  [StructLayout(LayoutKind.Sequential)] public struct Point { public int x,y; }
  [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point p);
  [StructLayout(LayoutKind.Sequential)] public struct Rect { public int left,top,right,bottom; }
+ [StructLayout(LayoutKind.Sequential)] public struct MinMax { public Point reserved,maxSize,maxPosition,minTrack,maxTrack; }
+ [DllImport("user32.dll")] public static extern IntPtr SendMessageTimeout(IntPtr h,uint message,IntPtr w,ref MinMax info,uint flags,uint timeout,out UIntPtr result);
  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out Rect r);
@@ -44,12 +46,17 @@ public static class WorkspaceResize {
 }
 '@
 [WorkspaceResize]::SetThreadDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
+# Release this helper's held button even if a product failure retired the HWND.
+# Do not move the pointer before release and accidentally resize a replacement.
+if ($payload.phase -eq 'end') { [WorkspaceResize]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero) }
 $h=[IntPtr]::new([long]$payload.nativeWindowHandle); $owner=[uint32]0
 [WorkspaceResize]::GetWindowThreadProcessId($h,[ref]$owner) | Out-Null
 if ($owner -ne [uint32]$payload.processId) { throw 'exact resize HWND changed' }
 $r=New-Object WorkspaceResize+Rect
 if (-not [WorkspaceResize]::GetWindowRect($h,[ref]$r)) { throw 'resize frame unavailable' }
 $scale=[WorkspaceResize]::GetDpiForWindow($h)/96.0
+$limits=New-Object WorkspaceResize+MinMax; $reply=[UIntPtr]::Zero
+if ([WorkspaceResize]::SendMessageTimeout($h,0x24,[IntPtr]::Zero,[ref]$limits,2,5000,[ref]$reply) -eq [IntPtr]::Zero) { throw 'native resize constraints unavailable' }
 $x=$payload.x*$scale; $y=$payload.y*$scale
 if ($payload.phase -eq 'start') {
  $x=$r.right-2; $y=$r.bottom-2
@@ -70,22 +77,56 @@ if ($payload.phase -eq 'move') {
   Start-Sleep -Milliseconds $(if($payload.rapid){8}else{30})
  }
 }
-[WorkspaceResize]::SetCursorPos([int]$x,[int]$y) | Out-Null
-$flag=if($payload.phase -eq 'start'){0x0002}elseif($payload.phase -eq 'end'){0x0004}else{0x0001}
-[WorkspaceResize]::mouse_event($flag,0,0,0,[UIntPtr]::Zero)
+if ($payload.phase -ne 'end') {
+ [WorkspaceResize]::SetCursorPos([int]$x,[int]$y) | Out-Null
+ $flag=if($payload.phase -eq 'start'){0x0002}else{0x0001}
+ [WorkspaceResize]::mouse_event($flag,0,0,0,[UIntPtr]::Zero)
+}
 Start-Sleep -Milliseconds 100 # Native input pacing, not a product completion boundary.
 if (-not [WorkspaceResize]::GetWindowRect($h,[ref]$r)) { throw 'resized frame unavailable' }
-@{x=$x/$scale;y=$y/$scale;windowX=$r.left/$scale;windowY=$r.top/$scale;width=($r.right-$r.left)/$scale;height=($r.bottom-$r.top)/$scale} | ConvertTo-Json -Compress
+# Test input acknowledgement: native input may still be queued after pacing.
+# Admit only the exact requested frame, clamped to native tracking constraints;
+# an intermediate frame must never establish the following pixel coordinates.
+if ($payload.expected) {
+ $clock=[Diagnostics.Stopwatch]::StartNew()
+ while ([Math]::Abs(($r.right-$r.left)/$scale-$payload.expected.x) -gt 1 -or
+        [Math]::Abs(($r.bottom-$r.top)/$scale-$payload.expected.y) -gt 1) {
+  if ($clock.ElapsedMilliseconds -gt 10000) { throw "native resize did not reach requested frame: $($payload.expected | ConvertTo-Json -Compress), actual $($r.right-$r.left)x$($r.bottom-$r.top), scale $scale" }
+  Start-Sleep -Milliseconds 10
+  if (-not [WorkspaceResize]::GetWindowRect($h,[ref]$r)) { throw 'resize acknowledgement frame unavailable' }
+ }
+}
+@{x=$x/$scale;y=$y/$scale;windowX=$r.left/$scale;windowY=$r.top/$scale;width=($r.right-$r.left)/$scale;height=($r.bottom-$r.top)/$scale;minimumWidth=$limits.minTrack.x/$scale;minimumHeight=$limits.minTrack.y/$scale} | ConvertTo-Json -Compress
 `, payload, { timeoutMilliseconds: 30_000 }));
+    await appendFile(resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "native-resize-events.jsonl"),
+      JSON.stringify({ ...payload, native })+"\n");
+    return native;
   };
   const initialFrame = await action("start", {x:0,y:0});
   let point: Point = initialFrame;
   const start = point;
+  let failed = false;
+  let primaryError: unknown;
   try {
     for (const [step, move] of input.moves.entries()) {
       point = { x: start.x + move.x, y: start.y + move.y };
-      const frame = await action("move", point);
+      const expected = platform === "windows" ? {
+        x: Math.max(initialFrame.minimumWidth!, initialFrame.width +
+          (input.edge === "left" ? -move.x : input.edge === "top" || input.edge === "bottom" ? 0 : move.x)),
+        y: Math.max(initialFrame.minimumHeight!, initialFrame.height +
+          (input.edge === "top" ? -move.y : input.edge === "left" || input.edge === "right" ? 0 : move.y))
+      } : undefined;
+      const frame = await action("move", point, expected);
       await input.whileHeld(step, frame, initialFrame);
     }
-  } finally { await action("end", point); }
+  } catch (error) {
+    failed = true;
+    primaryError = error;
+  }
+  try { await action("end", point); }
+  catch (error) {
+    if (failed) throw new AggregateError([primaryError, error], "Native resize and button cleanup failed", { cause: error });
+    throw error;
+  }
+  if (failed) throw primaryError;
 }

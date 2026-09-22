@@ -76,8 +76,9 @@ public static class InlinePowerShellTestJob
                     throw new System.ComponentModel.Win32Exception();
                 uint initialActive = (uint)Marshal.ReadInt32(information, 40);
                 uint? drainedHost = null;
-                if (initialActive != 0 && RionWindowsJobRunner.CanJoinExitedRootAccounting(
-                    job, process.process, process.processId))
+                bool joinedAccounting = initialActive != 0 && RionWindowsJobRunner.CanJoinExitedRootAccounting(
+                    job, process.process, process.processId, true, observer);
+                if (joinedAccounting)
                 {
                     observer.WaitForEmptyNotification((int)Math.Max(0, 5000 - clock.ElapsedMilliseconds));
                     if (!QueryInformationJobObject(job, 1, information, 48, IntPtr.Zero))
@@ -99,7 +100,7 @@ public static class InlinePowerShellTestJob
                 return new uint[] { exit, process.processId,
                     (uint)Marshal.ReadInt32(information, 36),
                     (uint)Marshal.ReadInt32(information, 40), initialActive,
-                    drainedHost ?? uint.MaxValue };
+                    drainedHost ?? uint.MaxValue, joinedAccounting ? 1u : 0u };
             }
             finally { Marshal.FreeHGlobal(information); }
         }

@@ -259,6 +259,7 @@ describe("Chromium Macro standby recovery exact replacement", () => {
     });
     const row = await openMacroRow(scenario.macro);
     const firstCursor = await fixtureCursor();
+    const firstFocusCount = (await fixtureState())[ROLE_A_FIXTURE]!.focus;
     const start = await row.$("button[aria-label='Start']");
     await start.waitForEnabled({ timeout: 20_000 });
     await start.click();
@@ -272,6 +273,8 @@ describe("Chromium Macro standby recovery exact replacement", () => {
       intent: "normal",
       phase: "hold"
     });
+    // Compatible readiness must not focus the Canvas to start from native chrome.
+    expect((await fixtureState())[ROLE_A_FIXTURE]!.focus).toBe(firstFocusCount);
     await activateRoleTab({
       gameWindow: scenario.gameWindow,
       mainWindowHandle,

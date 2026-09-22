@@ -779,7 +779,21 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
           "The display topology changed after Core registered the empty Game Window."
         );
       }
-      const after = await this.#readCoherentSnapshot();
+      let after = await this.#readCoherentSnapshot();
+      try {
+        // Registration can emit a native placement event whose Core revision
+        // precedes its chrome projection. Wait only for this host's admitted
+        // work, as ordinary live-target admission already does.
+        if (inspectLaunchWindowFence(after.core, after.native, target.windowId).reason !== null) {
+          after = await this.#awaitLiveTarget(after, target.windowId);
+        }
+      } catch (error) {
+        if (error instanceof RionBridgeError && error.code === "ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE") {
+          throw launchError("ELECTRON_CHROMIUM_EMPTY_WINDOW_RECEIPT_STALE",
+            "The empty Game Window did not reach one exact visible Core/native topology.");
+        }
+        throw error;
+      }
       const logicalMatches = after.core.logicalWindows.filter(
         (window) => window.windowId === target.windowId
       );
@@ -835,6 +849,15 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         logical.windowGeneration !== native.windowGeneration ||
         logical.revision !== native.topologyRevision
       ) {
+        recordRuntimeTransition({ operationId: randomUUID(), action: "empty-window-receipt",
+          targetKind: "window", targetId: target.windowId, stage: "rejected",
+          errorCode: "ELECTRON_CHROMIUM_EMPTY_WINDOW_RECEIPT_STALE",
+          fences: { ...inspectLaunchWindowFence(after.core, after.native, target.windowId).fences,
+            storedIdentity: Number(storedIdentityMatches),
+            targetEnvelope: Number(!!currentTarget && sameTargetEnvelope(currentTarget, target)),
+            registeredGeometry: Number(!!currentTarget && !!logical && registeredGeometryAccepted(target, currentTarget, logical.revision)),
+            nativeBounds: Number(!!native && !!currentTarget && sameNormalBounds(native.bounds, currentTarget.bounds)),
+            visible: Number(live?.visible === true) } });
         throw launchError(
           "ELECTRON_CHROMIUM_EMPTY_WINDOW_RECEIPT_STALE",
           "The empty Game Window did not reach one exact visible Core/native topology."
@@ -1234,6 +1257,11 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         // A completion may enqueue a successor projection. Only that actual work
         // permits another read; no polling or elapsed-time reconciliation.
         if (nativeEvents || projection) continue;
+        // The snapshot RPC can admit a placement projection after the fences
+        // above. Capture that exact host's newly admitted work before rejecting.
+        const lateNativeEvents = await this.#input.settleWindowNativeEvents?.(windowId) ?? false;
+        const lateProjection = await this.#input.settleWindowProjection?.(windowId) ?? false;
+        if (lateNativeEvents || lateProjection) continue;
         throw error;
       }
     }

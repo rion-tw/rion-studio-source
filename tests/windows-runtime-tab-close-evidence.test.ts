@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  activateWindowsRuntimeTabWhileLoading,
   closeWindowsRuntimeTabFromEvidence,
   closeLoadingWindowsRuntimeTab,
   readWindowsRuntimeTabCloseEvidence,
@@ -18,7 +19,7 @@ describe("Windows pending-navigation native tab close", () => {
     expect(evidence).toEqual({ ...identity, nativeHandle: "123456" });
     expect(Object.isFrozen(evidence)).toBe(true);
     await closeWindowsRuntimeTabFromEvidence(evidence, port);
-    expect(run).toHaveBeenLastCalledWith(expect.any(String), evidence, { timeoutMilliseconds: 30_000 });
+    expect(run).toHaveBeenLastCalledWith(expect.any(String), { ...evidence, pointer: false }, { timeoutMilliseconds: 30_000 });
   });
 
   it.each([
@@ -58,7 +59,7 @@ describe("Windows gated tab loading observation", () => {
     await closeLoadingWindowsRuntimeTab(input, { platform: "win32", run });
     expect(run).toHaveBeenCalledTimes(2);
     expect(run).toHaveBeenLastCalledWith(expect.any(String), {
-      ...input, nativeHandle: receipt.nativeHandle, controlName: receipt.controlName
+      ...input, nativeHandle: receipt.nativeHandle, controlName: receipt.controlName, pointer: false
     }, { timeoutMilliseconds: 30_000 });
   });
 
@@ -67,6 +68,20 @@ describe("Windows gated tab loading observation", () => {
     await expect(closeLoadingWindowsRuntimeTab(input, { platform: "win32", run }))
       .rejects.toThrow("loading row unavailable");
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["Workspace", "Activate Workspace, loading"],
+    ["Ready sibling", "Activate Ready sibling"]
+  ])("selects %s with its exact accessible loading state", async (selectedTabName, controlName) => {
+    const run = vi.fn().mockResolvedValueOnce(JSON.stringify(receipt)).mockResolvedValueOnce("");
+    await activateWindowsRuntimeTabWhileLoading({
+      processId: input.processId, loadingTabName: input.tabName, selectedTabName
+    }, { platform: "win32", run });
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({
+      processId: input.processId, nativeHandle: receipt.nativeHandle, controlName, pointer: true
+    }), { timeoutMilliseconds: 30_000 });
   });
 
   it("binds the visible loading control to its exact process and native host", async () => {

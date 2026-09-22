@@ -31,8 +31,12 @@ describe.each(["darwin", "win32"])("worker bootstrap (%s)", () => {
   it("does not accept compatibility ready before evaluation fails", async () => {
     const { bootstrap, status, error, workers } = fixture();
     bootstrap.nativeLoaded();
+    expect(bootstrap.inspect()).toEqual({ nativeLoaded: true, workerVersionId: null,
+      workerRunning: false, compatibilityReady: false });
     status("starting");
     bootstrap.compatibilityReady(receipt, 1);
+    expect(bootstrap.inspect()).toEqual({ nativeLoaded: true, workerVersionId: 1,
+      workerRunning: false, compatibilityReady: true });
     expect(bootstrap.outcome).toBeUndefined();
     error();
     const first = await bootstrap.result;

@@ -1,4 +1,4 @@
-import { posix } from "node:path";
+import { posix, win32 } from "node:path";
 
 import type { RolePathsRecord } from "../src/shared/generated";
 import { describe, expect, it, vi } from "vitest";
@@ -294,13 +294,14 @@ function fakeSession(
   };
 }
 
-function rolePaths(roleId: string): RolePathsRecord {
-  const browser = posix.join("/RionData/roles", roleId, "browser");
+function rolePaths(roleId: string, platform: "darwin" | "win32" = "darwin"): RolePathsRecord {
+  const path = platform === "win32" ? win32 : posix;
+  const browser = path.join(platform === "win32" ? "C:/RionData/roles" : "/RionData/roles", roleId, "browser");
   return {
     browserUserDataDir: browser,
-    systemBrowserDataDir: posix.join(browser, "system-webview"),
-    webview2UserDataDir: posix.join(browser, "system-webview", "webview2"),
-    chromiumUserDataDir: posix.join(browser, "chromium"),
+    systemBrowserDataDir: path.join(browser, "system-webview"),
+    webview2UserDataDir: path.join(browser, "system-webview", "webview2"),
+    chromiumUserDataDir: path.join(browser, "chromium"),
     webkitDataStoreKey: `role:${roleId}:wkwebview`,
     webkitDataStoreIdentifier: roleId
   };
@@ -329,7 +330,8 @@ function harness(
   extensionFactory: Pick<
     ChromiumSessionFactoryPort,
     "prepareExtensions" | "releaseExtensions" | "retireExtensionSurface"
-  > = {}
+  > = {},
+  platform: "darwin" | "win32" = "darwin"
 ): Harness {
   const sessionStates: FakeSessionState[] = [];
   const fromPath = vi.fn((path: string) => {
@@ -340,7 +342,7 @@ function harness(
   });
   const sessionRegistry = new ChromiumRoleSessionRegistry(
     { ...extensionFactory, fromPath } as ChromiumSessionFactoryPort,
-    "darwin"
+    platform
   );
   const views: FakeWebContentsView[] = [];
   const preferences: unknown[] = [];
@@ -372,7 +374,7 @@ function harness(
     input: (roleId = "role-1", overrides = {}) => ({
       roleId,
       tabId: "tab-1",
-      rolePaths: rolePaths(roleId),
+      rolePaths: rolePaths(roleId, platform),
       generation: 1,
       parent,
       url: "https://game.test/launch",
@@ -1334,6 +1336,44 @@ describe("Electron Chromium role-surface registry", () => {
     await close;
   });
 
+  it.each(["darwin", "win32"] as const)("reparents the attached loading surface before its first document completes on %s", async platform => {
+    const committed = vi.fn();
+    const native = platform === "darwin" ? { ...fakeNativeAttachments(async () => undefined), initialLoadCommitted: committed } : null;
+    if (native) {
+      const reparent = native.reparent;
+      native.reparent = async input => {
+        expect(input.isCancelled()).toBe(false);
+        await reparent(input);
+      };
+    }
+    const subject = harness(undefined, undefined, native, null, null, null, {}, platform);
+    const creation = subject.registry.create(subject.input());
+    let settled = false;
+    void creation.then(() => { settled = true; });
+    await vi.waitFor(() => expect(subject.views[0].webContents.loadedUrls).toHaveLength(1));
+    const view = subject.views[0];
+    const target = new FakeParent(2);
+    await expect(subject.registry.reparentRole("role-1", 2, target)).rejects.toMatchObject({ code: "ELECTRON_ROLE_SURFACE_STALE_GENERATION" });
+    await subject.registry.reparentRole("role-1", 1, target);
+    expect(settled).toBe(false);
+    expect(subject.parent.removed).toEqual([view]);
+    expect(target.added).toEqual([view]);
+    expect(view.webContents.loadedUrls).toEqual(["https://game.test/launch"]);
+    expect(subject.registry.isCurrentlyAudible("role-1", 1)).toBe(false);
+    view.webContents.currentAudible = true;
+    expect(subject.registry.isCurrentlyAudible("role-1", 1)).toBe(true);
+    expect(() => subject.registry.isCurrentlyAudible("role-1", 2)).toThrowError(
+      expect.objectContaining({ code: "ELECTRON_ROLE_SURFACE_STALE_GENERATION" })
+    );
+    view.webContents.finish("https://game.test/launch");
+    await expect(creation).resolves.toMatchObject({ parentId: 2, generation: 1 });
+    if (native) expect(committed).toHaveBeenCalledWith("role-1", 1, target);
+    const close = subject.registry.closeRole("role-1", 1);
+    view.webContents.destroy();
+    await close;
+    expect(target.removed).toEqual([view]);
+  });
+
   it("reparents one exact live generation between native AppKit hosts", async () => {
     const subject = harness();
     const creation = subject.registry.create(subject.input());
@@ -1352,12 +1392,14 @@ describe("Electron Chromium role-surface registry", () => {
     expect(target.removed).toEqual([view]);
   });
 
-  it("restores the exact prior AppKit parent when target attachment fails", async () => {
+  it.each(["opening", "active"])("restores the exact prior parent when target attachment fails while %s", async state => {
     const subject = harness();
     const creation = subject.registry.create(subject.input());
     const view = subject.views[0];
-    view.webContents.finish("https://game.test/launch");
-    await creation;
+    if (state === "active") {
+      view.webContents.finish("https://game.test/launch");
+      await creation;
+    }
     const target = new FakeParent(2);
     target.failAdd = true;
 
@@ -1367,6 +1409,10 @@ describe("Electron Chromium role-surface registry", () => {
       }));
     expect(subject.parent.removed).toEqual([view]);
     expect(subject.parent.added).toEqual([view, view]);
+    if (state === "opening") {
+      view.webContents.finish("https://game.test/launch");
+      await expect(creation).resolves.toMatchObject({ parentId: 1 });
+    }
     const close = subject.registry.closeRole("role-1", 1);
     view.webContents.destroy();
     await expect(close).resolves.toBe(true);

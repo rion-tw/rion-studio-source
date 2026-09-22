@@ -13,6 +13,7 @@ import type {
 } from "../../../src/shared/types";
 import {
   electronDesktopE2eProbe,
+  electronDesktopE2eRolePlaceholderRuntime,
   electronDesktopE2eRoleSessionRuntime,
   electronDesktopE2eWorkspaceWebRuntime,
   type ElectronDesktopE2eWorkspaceWebRuntimeInspection
@@ -381,10 +382,14 @@ async function waitForWindowOpenUrl(
   let inspection: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
   await browser.waitUntil(async () => {
     const workspace = await findWorkspace();
+    // Journal a paired observation only after Core has consumed the native
+    // navigation event. Sampling the two layers during propagation records
+    // a torn URL pair even though the visible navigation completes correctly.
+    if (!workspace.slots.some((slot) => slot.web?.lastUrl === expectedUrl)) return false;
     inspection = await electronDesktopE2eWorkspaceWebRuntime(before.windowId);
     return inspection.web.contentUrl === expectedUrl &&
       inspection.popups.length === 0 &&
-      workspace.slots.some((slot) => slot.web?.lastUrl === expectedUrl);
+      inspection.coreSlots.some((slot) => slot.web?.lastUrl === expectedUrl);
   }, {
     interval: 100,
     timeout: 20_000,
@@ -563,6 +568,25 @@ async function waitForPersistedGameWindowLayout(
   };
 }
 
+async function waitForWorkspaceReady(roleId: string, windowId: string, tabId: string): Promise<void> {
+  let evidence = "No Workspace activation observation";
+  try {
+    await browser.waitUntil(async () => {
+      try {
+        const state = await electronDesktopE2eRolePlaceholderRuntime(roleId);
+        evidence = JSON.stringify({ phase: state.phase, owner: state.coreOwner });
+        return state.phase === "ready" && state.coreOwner.windowId === windowId &&
+          state.coreOwner.tabId === tabId;
+      } catch (error) {
+        evidence = String(error);
+        return false;
+      }
+    }, { timeout: 30_000, timeoutMsg: "Workspace activation did not reach its exact ready owner" });
+  } catch (error) {
+    throw new Error(`Workspace activation incomplete: ${evidence}`, { cause: error });
+  }
+}
+
 async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   const role = await findRole();
   let workspace = await createWorkspaceThroughVisibleSlotControls(role);
@@ -576,6 +600,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     roleId: role.id,
     state: "running"
   }]);
+  await waitForWorkspaceReady(role.id, transientTab.windowId, transientTab.id);
   const entrance = await electronDesktopE2eWorkspaceWebRuntime(
     transientTab.windowId
   );
@@ -590,11 +615,12 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   let transientBefore: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
   await browser.waitUntil(async () => {
     workspace = await findWorkspace();
+    if (!workspace.slots.some((slot) => slot.web?.lastUrl === configuredWebUrl())) return false;
     transientBefore = await electronDesktopE2eWorkspaceWebRuntime(
       transientTab.windowId
     );
     return transientBefore.web.contentUrl === configuredWebUrl() &&
-      workspace.slots.some((slot) => slot.web?.lastUrl === configuredWebUrl());
+      transientBefore.coreSlots.some((slot) => slot.web?.lastUrl === configuredWebUrl());
   }, {
     interval: 100,
     timeout: 20_000,
@@ -640,6 +666,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     role,
     gameWindow
   );
+  await waitForWorkspaceReady(role.id, launched.windowId, launched.tabId);
   const before = await electronDesktopE2eWorkspaceWebRuntime(launched.windowId);
   await expectWorkspaceWebTheme({ ...before.web, mainWindowHandle: launched.mainWindowHandle }, "dark");
   expect(before.tabId).toBe(launched.tabId);
@@ -693,6 +720,7 @@ async function restartPhase(platform: "macos" | "windows"): Promise<void> {
     timeout: 20_000,
     timeoutMsg: "The persistent global-Web Chromium session was not restored"
   });
+  await waitForWorkspaceReady(role.id, launched.windowId, launched.tabId);
   const restored = await electronDesktopE2eWorkspaceWebRuntime(launched.windowId);
   await expectWorkspaceWebTheme({ ...restored.web, mainWindowHandle: launched.mainWindowHandle }, "dark");
   await expectExactSessionsAndLayout({

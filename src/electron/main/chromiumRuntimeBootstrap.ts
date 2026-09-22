@@ -1440,8 +1440,10 @@ export class ChromiumRuntimeBootstrap {
     return this.#coordinator.settleCurrentProjectionEffects();
   }
 
-  settleWindowProjection(windowId: string): Promise<boolean> {
-    return this.#coordinator.settleWindowProjection(windowId);
+  async settleWindowProjection(windowId: string): Promise<boolean> {
+    const nativePlacement = await this.#hosts.settleWindowsNativePlacement(windowId);
+    const projection = await this.#coordinator.settleWindowProjection(windowId);
+    return nativePlacement || projection;
   }
 
   settleCurrentApplicationEffects(): Promise<void> {

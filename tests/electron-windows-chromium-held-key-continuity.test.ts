@@ -24,6 +24,31 @@ function receipt(input: WindowsChromiumHeldKeyContinuityInputInternal) {
 }
 
 describe("Windows Chromium held-key continuity", () => {
+  it.each(["opening", "closing", "superseded"])("ignores native hide without an exact active input document: %s", async state => {
+    let listener!: (event: WindowsChromiumInputPresentationEvent) => void;
+    const frame = vi.fn();
+    const restore = vi.fn();
+    const error = vi.fn();
+    const coordinator = new WindowsChromiumHeldKeyContinuityCoordinator({
+      core: { restoreWindowsChromiumHeldKeysInternal: restore },
+      surfaces: { currentOverlayFrame: frame, resolveInputSurface: () => state === "opening" ? null : {
+        roleId: "role-1", surfaceGeneration: state === "superseded" ? 4 : 3,
+        documentInstanceId: "document-1", state: state === "closing" ? "closing" : "active"
+      } },
+      attachments: { subscribePresentation: value => { listener = value; return () => undefined; } },
+      resolveIdentity: vi.fn(), onError: error
+    });
+    listener({ roleId: "role-1", surfaceGeneration: 3, previousVisible: true, visible: false });
+    await expect(coordinator.observeBlur({ roleId: "role-1", generation: 3,
+      frame: {}, frameToken: "frame-1", documentInstanceId: "document-1"
+    }, { reason: "blur", revision: 1 })).resolves.toBeNull();
+    await Promise.resolve();
+    expect(frame).not.toHaveBeenCalled();
+    expect(restore).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+    coordinator.dispose();
+  });
+
   it("joins exact hidden presentation and authenticated blur to Core", async () => {
     const frame = Object.freeze({ id: 1 });
     const identity: ChromiumRoleOverlayFrameIdentity = Object.freeze({
@@ -40,7 +65,10 @@ describe("Windows Chromium held-key continuity", () => {
     let operation = 0;
     const coordinator = new WindowsChromiumHeldKeyContinuityCoordinator({
       core: { restoreWindowsChromiumHeldKeysInternal: restore },
-      surfaces: { currentOverlayFrame: () => identity },
+      surfaces: { currentOverlayFrame: () => identity, resolveInputSurface: () => ({
+        roleId: identity.roleId, surfaceGeneration: identity.generation,
+        documentInstanceId: identity.documentInstanceId, state: "active"
+      }) },
       attachments: {
         subscribePresentation: (
           listener: (event: WindowsChromiumInputPresentationEvent) => void
@@ -104,7 +132,7 @@ describe("Windows Chromium held-key continuity", () => {
     const restore = vi.fn();
     const coordinator = new WindowsChromiumHeldKeyContinuityCoordinator({
       core: { restoreWindowsChromiumHeldKeysInternal: restore },
-      surfaces: { currentOverlayFrame: () => identity },
+      surfaces: { currentOverlayFrame: () => identity, resolveInputSurface: () => null },
       attachments: {
         subscribePresentation: () => () => undefined
       } as unknown as WindowsChromiumInputPresentationPort,

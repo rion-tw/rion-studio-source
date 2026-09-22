@@ -48,10 +48,15 @@ exit $LASTEXITCODE
     $taskObserver = [RionWindowsJobProcessDiagnostics]::new($taskJob)
     try {
       $taskResult = [InlinePowerShellTestJob]::Run($taskJob, $taskExecutable, $taskEncoded, $taskRoot, $taskObserver)
+      $taskConsoleIds = @($taskObserver.Snapshot() | Where-Object { $_.ImagePath -like '*\conhost.exe' } | ForEach-Object ProcessId)
+      $taskPinnedConsoleHosts = @($taskConsoleIds | ForEach-Object { $taskObserver.IsPinnedConsoleHost($_) })
       $taskObserver.Dispose()
       $taskResults += @{code=$taskCode;exitCode=$taskResult[0];rootPid=$taskResult[1];
         totalProcesses=$taskResult[2];activeAfterConsoleDrain=$taskResult[3];
         activeAtRootExit=$taskResult[4];drainedConsoleHostProcessId=$taskResult[5];
+        joinedExitedRootAccounting=($taskResult[6] -eq 1);
+        pinnedConsoleHosts=$taskPinnedConsoleHosts;
+        pinnedAfterDispose=@($taskConsoleIds | ForEach-Object { $taskObserver.IsPinnedConsoleHost($_) });
         marker=(Get-Content -LiteralPath $taskMarker -Raw | ConvertFrom-Json);
         error=$(if (Test-Path -LiteralPath $taskErrorPath) {Get-Content -LiteralPath $taskErrorPath -Raw} else {$null});
         observations=@($taskObserver.Snapshot());notificationError=$taskObserver.NotificationError;

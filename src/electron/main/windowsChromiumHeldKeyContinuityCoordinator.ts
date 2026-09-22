@@ -5,7 +5,7 @@ import type {
   WindowsChromiumHeldKeyContinuityReceiptInternal
 } from "../core/coreAddonClient";
 import { RionBridgeError } from "../ipc/errors";
-import type { ChromiumRoleOverlayFrameIdentity } from
+import type { ChromiumRoleOverlayFrameIdentity, ChromiumRoleSurfaceRegistry } from
   "./chromiumRoleSurfaceRegistry";
 import type {
   WindowsChromiumInputPresentationEvent,
@@ -27,6 +27,7 @@ interface HeldKeyContinuityCorePort {
 }
 
 interface HeldKeyContinuitySurfacePort {
+  resolveInputSurface: ChromiumRoleSurfaceRegistry["resolveInputSurface"];
   currentOverlayFrame: (
     roleId: string,
     generation: number
@@ -106,7 +107,7 @@ export class WindowsChromiumHeldKeyContinuityCoordinator {
   async observeBlur(
     identity: ChromiumRoleOverlayFrameIdentity,
     payload: unknown
-  ): Promise<WindowsChromiumHeldKeyContinuityReceiptInternal> {
+  ): Promise<WindowsChromiumHeldKeyContinuityReceiptInternal | null> {
     if (this.#disposed) {
       return Promise.reject(continuityError(
         "ELECTRON_WINDOWS_HELD_CONTINUITY_DISPOSED",
@@ -114,6 +115,9 @@ export class WindowsChromiumHeldKeyContinuityCoordinator {
       ));
     }
     const revision = parseBlurPayload(payload);
+    const surface = this.#surfaces.resolveInputSurface(identity.roleId);
+    if (surface?.state !== "active" ||
+        surface.surfaceGeneration !== identity.generation) return null;
     return this.#enqueue(identity.roleId, () =>
       this.#dispatch(identity, "blur", revision));
   }
@@ -127,6 +131,11 @@ export class WindowsChromiumHeldKeyContinuityCoordinator {
 
   #observePresentation(event: WindowsChromiumInputPresentationEvent): void {
     if (this.#disposed || event.visible || !event.previousVisible) return;
+    // An attached loading view has no admitted input document or held keys.
+    // Observe its exact input owner before queuing work for this hide event.
+    const surface = this.#surfaces.resolveInputSurface(event.roleId);
+    if (surface?.state !== "active" ||
+        surface.surfaceGeneration !== event.surfaceGeneration) return;
     const revision = (this.#hiddenRevisionByRole.get(event.roleId) ?? 0) + 1;
     this.#hiddenRevisionByRole.set(event.roleId, revision);
     void this.#enqueue(event.roleId, async () => {

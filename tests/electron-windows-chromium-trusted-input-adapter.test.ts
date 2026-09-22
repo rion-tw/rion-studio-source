@@ -378,13 +378,14 @@ function harness(options: { compatibility?: ChromiumCompatibleInputPort } = {}) 
 }
 
 describe("Windows Chromium trusted-input adapter", () => {
-  it("delivers compatible readiness, keys and clicks without CDP, arming or native focus", async () => {
+  it.each([91, null])("delivers compatible readiness, keys and clicks with focused WebContents %s", async focusedWebContentsId => {
     const send: ChromiumCompatibleInputPort["dispatchCompatibleInput"] = vi.fn(async (_frame, command) => ({
       ...command, ...compatibleModifierEvidenceForTest(command), targetToken: "original-canvas", isTrusted: false,
       eventCount: command.action === "focus" ? 0 : command.action === "key" ? 1 : 5,
       status: "applied", errorCode: null
     }));
     const subject = harness({ compatibility: { dispatchCompatibleInput: send } });
+    subject.setViewFocus({ focusedWebContentsId, contentsFocused: focusedWebContentsId !== null });
     const keyDispatch = vi.spyOn(subject.cdp, "dispatchKey");
     const mouseDispatch = vi.spyOn(subject.cdp, "dispatchMouse");
     const readiness = await subject.adapter.dispatch(nativeRequest("ready", { type: "focus" }));

@@ -92,6 +92,8 @@ try {
   $taskNonConsoleRejected = $null -eq [RionWindowsJobRunner]::DrainSoleConsoleHost($taskJob, 0)
   $taskLiveRootRejected = -not [RionWindowsJobRunner]::CanJoinExitedRootAccounting(
     $taskJob, $taskChild.Handle, $taskChild.Id)
+  $taskLiveRootRejected = $taskLiveRootRejected -and -not [RionWindowsJobRunner]::CanJoinExitedRootAccounting(
+    $taskJob, $taskChild.Handle, $taskChild.Id, $true, $taskObserver)
   $taskEmptyWaitRejected = $false
   try { $taskObserver.WaitForEmptyNotification(0) } catch {
     if ($_.Exception.InnerException -isnot [TimeoutException]) { throw }
@@ -130,6 +132,8 @@ try {
   }
   $taskOtherMemberRejected = -not [RionWindowsJobRunner]::CanJoinExitedRootAccounting(
     $taskJob, $taskChild.Handle, $taskChild.Id)
+  $taskOtherMemberRejected = $taskOtherMemberRejected -and -not [RionWindowsJobRunner]::CanJoinExitedRootAccounting(
+    $taskJob, $taskChild.Handle, $taskChild.Id, $true, $taskObserver)
   $taskSurvivor.StandardInput.WriteLine('continue')
   $taskSurvivor.StandardInput.Close()
   if (-not $taskSurvivor.WaitForExit(5000)) { throw "Accounting-fence survivor did not finish." }

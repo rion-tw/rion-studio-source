@@ -604,6 +604,16 @@ filesystem marker. A missing, replaced, symlinked, or identity-mismatched marker
 fails closed before Core emits any Chromium launch effect. The marker contains no
 cookies, LocalStorage, origins, or renderer-visible payload.
 
+New-role initialization atomically reserves a previously absent UUID directory,
+protects it, and creates its empty stores and durable marker in place. Windows
+directory or descendant readers can prevent renaming, so this path does not
+rename the role tree. Exact-tree verification precedes the SQLite role commit,
+which publishes the role and ready journal together. Existing destinations are
+never replaced or cleaned up by failed reservation. An incomplete tree without
+matching evidence remains unlaunchable and is conservatively retained; only
+exact verified evidence authorizes rollback cleanup. Initialization never
+retries an unknown filesystem outcome toward success.
+
 The migration state machine is Rust-owned and revision-fenced:
 
 1. `v22-ready`: the System WebView store remains authoritative.

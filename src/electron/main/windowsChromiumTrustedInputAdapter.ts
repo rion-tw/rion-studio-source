@@ -396,7 +396,8 @@ function validateIdentityFields(
 function validateProbe(
   raw: unknown,
   expected: WindowsChromiumInputSurfaceIdentity,
-  deliveryMode: WindowsChromiumInputDeliveryMode
+  deliveryMode: WindowsChromiumInputDeliveryMode,
+  inputRoute: "trusted" | "compatible" = "trusted"
 ): WindowsChromiumInputSurfaceProbeReceipt {
   if (!raw || typeof raw !== "object") {
     fail("SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID", "The Chromium View probe returned no exact receipt.");
@@ -405,7 +406,7 @@ function validateProbe(
   if (receipt.ownerKind !== "view" || expected.ownerKind !== "view" ||
       receipt.status !== "verified" || receipt.deliveryMode !== deliveryMode ||
       !validateIdentityFields(receipt, expected) || canonicalU64(receipt.probeRevision, true) === null ||
-      !validChromiumViewInputObservation(receipt.observation, expected, deliveryMode)) {
+      !validChromiumViewInputObservation(receipt.observation, expected, deliveryMode, inputRoute)) {
     fail("SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID", "The exact Chromium View observation is invalid.");
   }
   return Object.freeze({ ...receipt, observation: Object.freeze({ ...receipt.observation,
@@ -539,7 +540,8 @@ implements ChromiumNativeTrustedInputPort {
       if (request.action.type === "focus" && !this.#compatible) {
         return host.native.focusForeground(host.identity, request);
       }
-      const resolvedMode = host.native.currentInputDeliveryMode(host.identity);
+      const inputRoute = this.#compatible ? "compatible" : "trusted";
+      const resolvedMode = host.native.currentInputDeliveryMode(host.identity, inputRoute);
       if ((resolvedMode !== "foreground" && resolvedMode !== "background") || (resolvedMode === "background" &&
         !this.#backgroundSupported)) {
         fail(
@@ -549,9 +551,10 @@ implements ChromiumNativeTrustedInputPort {
       }
       deliveryMode = resolvedMode;
       probe = validateProbe(
-        host.native.probeExactInputSurface(host.identity, deliveryMode),
+        host.native.probeExactInputSurface(host.identity, deliveryMode, inputRoute),
         host.identity,
-        deliveryMode
+        deliveryMode,
+        inputRoute
       );
       observedPhysicalModifierCodes = this.#physicalModifierCodes();
       if (!validChromiumPhysicalModifierCodes(observedPhysicalModifierCodes)) {
@@ -569,9 +572,9 @@ implements ChromiumNativeTrustedInputPort {
             if (this.#disposed || !currentHost || !sameHost(currentHost, originalHost) ||
                 !sameFrame(this.#surfaces.currentTrustedInputFrame(request.roleId, request.surfaceGeneration), frame))
               throw new Error("Compatible input host retired.");
-            const mode = currentHost.native.currentInputDeliveryMode(currentHost.identity);
+            const mode = currentHost.native.currentInputDeliveryMode(currentHost.identity, inputRoute);
             if (mode !== "foreground" && mode !== "background") throw new Error("Compatible input host unavailable.");
-            validateProbe(currentHost.native.probeExactInputSurface(currentHost.identity, mode), currentHost.identity, mode);
+            validateProbe(currentHost.native.probeExactInputSurface(currentHost.identity, mode, inputRoute), currentHost.identity, mode, inputRoute);
           });
       }
       prepared = prepareDispatch(request, frame, this.#clicks);

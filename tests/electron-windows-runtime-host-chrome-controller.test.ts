@@ -1339,6 +1339,35 @@ describe("Windows runtime-host chrome controller", () => {
       }));
   });
 
+  it.each(["applied", "failed"] as const)("fences native placement from layout through the Core receipt: %s", async outcome => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    subject.controller.bindLayout(() => pending);
+    const placement = vi.fn(async () => {
+      if (outcome === "failed") throw new Error("placement receipt failed");
+    });
+    subject.controller.bindPlacement(placement);
+    const task = subject.controller.nativeBoundsChanged();
+    const settled = subject.controller.settleNativePlacement();
+    let completed = false;
+    void settled.then(() => { completed = true; }, () => { completed = true; });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    expect(placement).not.toHaveBeenCalled();
+    release();
+    if (outcome === "applied") {
+      await expect(task).resolves.toBeUndefined();
+      await expect(settled).resolves.toBe(true);
+    } else {
+      await expect(task).rejects.toThrow("placement receipt failed");
+      await expect(settled).rejects.toThrow("placement receipt failed");
+    }
+    expect(placement).toHaveBeenCalledOnce();
+    await expect(subject.controller.settleNativePlacement()).resolves.toBe(false);
+  });
+
   it("does not relayout or persist intermediate presentation geometry", async () => {
     const subject = harness();
     const placement = vi.fn(async () => undefined);

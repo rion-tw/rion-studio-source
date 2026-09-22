@@ -14,7 +14,8 @@ export type WindowsApplicationMenuShortcut = ElectronApplicationMenuShortcut;
  */
 export function installWindowsApplicationMenu(
   menu: WindowsApplicationMenuPort,
-  executeShortcut: WindowsApplicationMenuShortcut
+  executeShortcut: WindowsApplicationMenuShortcut,
+  activateAdjacent: (direction: "next" | "previous", focusedWindow?: import("electron").BaseWindow) => void
 ): void {
   const commands = createElectronApplicationMenuCommands(
     "win32", "Rion Studio", executeShortcut
@@ -27,7 +28,11 @@ export function installWindowsApplicationMenu(
     { role: "editMenu" },
     {
       label: "&View",
-      submenu: commands.view
+      submenu: [...commands.view, { type: "separator" },
+        { label: "Next Tab", accelerator: "Ctrl+Tab",
+          click: (_item, focusedWindow) => activateAdjacent("next", focusedWindow) },
+        { label: "Previous Tab", accelerator: "Ctrl+Shift+Tab",
+          click: (_item, focusedWindow) => activateAdjacent("previous", focusedWindow) }]
     },
     { role: "windowMenu" }
   ]);

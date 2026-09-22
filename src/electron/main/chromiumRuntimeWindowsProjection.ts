@@ -169,18 +169,35 @@ export async function applyChromiumRuntimeWindowsProjection(
     for (const tab of projection.tabPhases) phaseByTab.set(tab.tabId, tab.phase);
     projectionByWindow.set(projection.windowId, projection);
   }
-  for (const tabId of input.tabs.keys()) {
-    if (!ownerByTab.has(tabId)) {
+  const removedTabIds = new Set<string>();
+  for (const [tabId, tab] of input.tabs) {
+    const source = projectionByWindow.get(tab.windowId);
+    if (ownerByTab.has(tabId) && !source) {
       throw projectionError(
         "ELECTRON_CHROMIUM_WINDOWS_PROJECTION_INCOMPLETE",
-        "Core omitted an attached Chromium tab from the Windows topology projection."
+        "Core omitted the source window of a projected Chromium tab."
       );
     }
+    if (!source || ownerByTab.has(tabId)) continue;
+    const current = input.windows.get(tab.windowId)!;
+    if (current.tabIds.includes(tabId) && source.topologyRevision <= current.topologyRevision) {
+      throw projectionError(
+        "ELECTRON_CHROMIUM_WINDOWS_PROJECTION_STALE",
+        "Removing a live Chromium tab requires a newer Core topology revision."
+      );
+    }
+    // Logical close precedes exact surface release. Keep the resource record
+    // for embeddedDestroyTab, but remove its presentation at this commit.
+    removedTabIds.add(tabId);
   }
 
   const projectedTabs = new Map<string, ProjectedTab>();
+  const viewports = new Map<string, ProjectedTab["contentBounds"]>();
   for (const projection of projectionByWindow.values()) {
     const record = input.windows.get(projection.windowId)!;
+    // Capture before any asynchronous Core layout: inactive tabs must use the
+    // same viewport as the active tab even while native border input continues.
+    viewports.set(projection.windowId, Object.freeze({ ...record.host.getContentBounds() }));
     bindChromiumRuntimeWindowLayout({
       ports: input.ports,
       record,
@@ -210,7 +227,8 @@ export async function applyChromiumRuntimeWindowsProjection(
     }
     const layout = await input.ports.layout.resolveWorkspaceLayout(
       specification,
-      host
+      host,
+      viewports.get(windowId)!
     );
     projectedTabs.set(tabId, {
       windowId,
@@ -226,11 +244,13 @@ export async function applyChromiumRuntimeWindowsProjection(
 
   const roleSnapshots = captureChromiumSurfaceProjections(
     input.ports.surfaces,
-    [...input.roles.values()].map((role) => [role.roleId, role.generation])
+    [...input.roles.values()].filter(role => projectionByWindow.has(role.windowId))
+      .map((role) => [role.roleId, role.generation])
   );
   const webSnapshots = captureChromiumSurfaceProjections(
     input.ports.webSurfaces,
-    [...input.webSurfaces.values()].map((surface) => [surface.surfaceId, surface.generation])
+    [...input.webSurfaces.values()].filter(surface => projectionByWindow.has(surface.windowId))
+      .map((surface) => [surface.surfaceId, surface.generation])
   );
 
   const completed: ChromiumSurfaceReparent[] = [];
@@ -261,7 +281,10 @@ export async function applyChromiumRuntimeWindowsProjection(
   try {
     for (const role of input.roles.values()) {
       const projected = projectedTabs.get(role.tabId);
-      if (!projected) continue;
+      if (!projected) {
+        if (removedTabIds.has(role.tabId)) input.ports.surfaces.setVisible(role.roleId, role.generation, false);
+        continue;
+      }
       const bounds = projected.bounds.get(role.roleId);
       if (!bounds) {
         throw projectionError(
@@ -295,7 +318,10 @@ export async function applyChromiumRuntimeWindowsProjection(
     }
     for (const surface of input.webSurfaces.values()) {
       const projected = projectedTabs.get(surface.tabId);
-      if (!projected) continue;
+      if (!projected) {
+        if (removedTabIds.has(surface.tabId)) input.ports.webSurfaces.setVisible(surface.surfaceId, surface.generation, false);
+        continue;
+      }
       const bounds = projected.bounds.get(surface.surfaceId);
       if (!bounds) {
         throw projectionError(
@@ -351,14 +377,17 @@ export async function applyChromiumRuntimeWindowsProjection(
       await host.applyWindowsChromeProjection({
         activeTabId: projection.activeTabId ?? null,
         contentBounds: Object.freeze({ ...contentBounds }),
-        moveTargets: Object.freeze([...projectionByWindow.values()]
-          .filter((target) => target.windowId !== windowId)
-          .map((target) => {
-            const targetRecord = input.windows.get(target.windowId)!;
+        // A Core effect can update only this window. Other admitted hosts
+        // remain move destinations even when absent from this projection batch.
+        moveTargets: Object.freeze([...input.windows]
+          .filter(([targetId, target]) => targetId !== windowId &&
+            !target.host.isDestroyed() && target.host.appKitIdentity === undefined &&
+            (projectionByWindow.get(targetId)?.windowGeneration ?? target.windowGeneration) > 0)
+          .map(([targetId, targetRecord]) => {
             return Object.freeze({
               name: targetRecord.hostTarget.persistedName ?? "Game Window",
-              windowGeneration: target.windowGeneration,
-              windowId: target.windowId
+              windowGeneration: projectionByWindow.get(targetId)?.windowGeneration ?? targetRecord.windowGeneration,
+              windowId: targetId
             });
           })),
         tabs: projection.tabIds.map((tabId) => {
@@ -423,6 +452,7 @@ export async function applyChromiumRuntimeWindowsProjection(
     tab.windowId = projected.windowId;
     tab.specification = projected.specification;
   }
+  for (const tabId of removedTabIds) input.tabs.get(tabId)!.pendingContentFocus?.cancel();
   for (const role of input.roles.values()) {
     role.windowId = projectedTabs.get(role.tabId)?.windowId ?? role.windowId;
   }

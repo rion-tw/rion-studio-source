@@ -24,6 +24,7 @@ import {
 import { pressVisibleMacosRoleKey } from
   "../support/native-application-actions";
 import { clickMacosVisibleRoleControl } from "../support/macos-appkit-ui";
+import { focusWindowsRoleCanvas } from "../support/windows-role-canvas";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   rendererEventCursor,
@@ -389,6 +390,13 @@ describe("Chromium Macro background-tab exact replacement", () => {
     expect((await fixtureState())[ROLE_A_FIXTURE]!.consumerPressedCodes)
       .toContain("Digit2");
 
+    if (context.platform === "windows") {
+      // WebDriver's page-key target is not proof of native Canvas focus.
+      // Establish it before the loss cursor so the tab switch exercises blur.
+      await focusWindowsRoleCanvas({ launchUrl: scenario.roles[0].launchUrl!,
+        mainWindowHandle: context.mainWindowHandle, windowId: WINDOW_ID,
+        roleId: scenario.roles[0].id, fixtureId: ROLE_A_FIXTURE });
+    }
     const firstHiddenAfter = await fixtureCursor();
     const firstHiddenPresentation = await activateAndObserveHidden({
       context,
@@ -419,7 +427,30 @@ describe("Chromium Macro background-tab exact replacement", () => {
       expect(continuityHold.request.inputEpoch).toBe(firstHold.request.inputEpoch);
       expect(continuityHold.receipt.surfaceGeneration)
         .toBe(continuityHold.request.surfaceGeneration);
+      const blurred = await waitFixtureEvent({
+        afterSequence: firstHiddenAfter,
+        kind: "blur",
+        roleId: ROLE_A_FIXTURE
+      });
+      // Windows can deliver blur after hidden. Require consumer restoration
+      // after both losses, not just native submission or key capture.
+      const consumer = await waitExactKey({
+        afterSequence: Math.max(firstHiddenKeydown.sequence, blurred.sequence),
+        code: "Digit2",
+        kind: "consumer-keydown",
+        roleId: ROLE_A_FIXTURE
+      });
+      expect(consumer.consumerPressedCodes).toContain("Digit2");
     }
+    await writeChromiumMacroEvidence("chromium-background-hidden-consumer.json", {
+      state: await fixtureState(),
+      events: await fixtureEvents({ afterSequence: firstHiddenAfter,
+        roleId: ROLE_A_FIXTURE }),
+      resets: await fixtureEvents({ afterSequence: firstHiddenAfter,
+        roleId: ROLE_A_FIXTURE, kind: "consumer-input-reset" }),
+      consumerKeys: await fixtureEvents({ afterSequence: firstHiddenAfter,
+        roleId: ROLE_A_FIXTURE, kind: "consumer-keydown" })
+    });
     expect((await fixtureState())[ROLE_A_FIXTURE]!.consumerPressedCodes)
       .toContain("Digit2");
 

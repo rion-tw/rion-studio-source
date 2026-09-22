@@ -24,6 +24,7 @@ import type { ChromiumRoleSessionPort } from
   "../src/electron/main/chromiumRoleSessionRegistry";
 import {
   ChromiumRuntimeBootstrap,
+  ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION,
   type ChromiumRuntimeCorePort
 } from "../src/electron/main/chromiumRuntimeBootstrap";
 import type { WindowsChromiumTrustedInputRuntimeConfiguration } from
@@ -250,7 +251,7 @@ async function createCore(
     platform,
     appVersion: "23.0.0-native-integration",
     packaged: false,
-    runtimeContractVersion: 43
+    runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
   }, observer);
   activeClients.add(client);
   const core = new Proxy(client, {
@@ -466,7 +467,7 @@ describe("real native Core startup integration", () => {
     activeDirectories.add(directory);
     const binding = await nativeAddon().createAppCore({
       userDataDir: directory, platform: runtimePlatform, appVersion: "23.0.0-test",
-      packaged: false, runtimeContractVersion: 43
+      packaged: false, runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
     });
     try {
       binding.subscribeCoreEvents(() => {}, () => {});
@@ -800,7 +801,7 @@ describe("real native Core startup integration", () => {
         platform: oppositePlatform,
         appVersion: "23.0.0-native-integration",
         packaged: false,
-        runtimeContractVersion: 43
+        runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
       }
     )).rejects.toMatchObject({ code: "CORE_HOST_PLATFORM_MISMATCH" });
     await expectCoreError(

@@ -5,6 +5,7 @@ import { ChromiumPlatformRuntimeHostFactory } from "../main/chromiumRuntimeHostF
 import { ChromiumRoleSurfaceRegistry } from "../main/chromiumRoleSurfaceRegistry";
 import { ChromiumGlobalWebPresentationRegistry } from "../main/chromiumGlobalWebPresentationRegistry";
 import { ChromiumRuntimeLayoutResolver } from "../main/chromiumRuntimeLayoutResolver";
+import { waitForFixtureBarrier } from "./fixtureBarrier";
 
 /** E2E-only, fixture-event barriers. Never bundled into the production entry. */
 export function installWorkspaceInitialPresentationBarrier(): void {
@@ -12,11 +13,7 @@ export function installWorkspaceInitialPresentationBarrier(): void {
   const origin = process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN!;
   const directory = process.env.RION_STUDIO_E2E_ARTIFACT_DIR!;
   const owners = new WeakMap<object, string>();
-  const wait = async (id: string) => {
-    const response = await fetch(`${origin}/role/${id}`);
-    if (!response.ok) throw new Error(`Initial workspace barrier ${id} failed`);
-    await response.text();
-  };
+  const wait = (id: string) => waitForFixtureBarrier(`${origin}/role/${id}`);
   const factory = ChromiumPlatformRuntimeHostFactory.prototype;
   const create = factory.create;
   factory.create = async function (target, initialTab) {
@@ -60,8 +57,8 @@ export function installWorkspaceInitialPresentationBarrier(): void {
   };
   const layouts = ChromiumRuntimeLayoutResolver.prototype;
   const resolve = layouts.resolveWorkspaceLayout;
-  layouts.resolveWorkspaceLayout = async function (tab, host) {
-    const result = await resolve.call(this, tab, host);
+  layouts.resolveWorkspaceLayout = async function (tab, host, contentBounds) {
+    const result = await resolve.call(this, tab, host, contentBounds);
     if (owners.has(host)) writeFileSync(join(directory, `first-host-${host.logicalWindowId}-layout.json`),
       JSON.stringify({ ...result, roles: Object.fromEntries(result.roles), tabId: tab.tabId }));
     return result;

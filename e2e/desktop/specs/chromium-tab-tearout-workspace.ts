@@ -34,13 +34,20 @@ export async function exerciseMixedWorkspaceTearout(input: { mainWindowHandle: s
     tabId = tab?.id ?? "";
     return !!tab && (await rendererCall("listRoleStatuses")).some(r => r.roleId === input.role.id && r.state === "running");
   }, { timeout: 45_000 });
-  const before = await electronDesktopE2eWorkspaceWebRuntime(input.windowId);
+  let before!: Awaited<ReturnType<typeof electronDesktopE2eWorkspaceWebRuntime>>;
+  await browser.waitUntil(async () => {
+    before = await electronDesktopE2eWorkspaceWebRuntime(input.windowId);
+    return before.tabId === tabId && before.phase === "ready" && before.coreSlots.length === 2;
+  }, { timeout: 45_000, timeoutMsg: "The mixed Workspace did not finish its exact initial Role/Website projection" });
   await exerciseVisibleTabTearout({ ...input, tabId, tabName: name, roleId: input.role.id,
     verifyOwner: async windowId => {
-      const current = await electronDesktopE2eWorkspaceWebRuntime(windowId);
-      expect(current.web.generation).toBe(before.web.generation);
-      expect(current.web.surfaceId).toBe(before.web.surfaceId);
-      expect(current.web.contentSessionStoragePath).toBe(before.web.contentSessionStoragePath);
-      expect(current.coreSlots).toEqual(before.coreSlots);
+      await browser.waitUntil(async () => {
+        const current = await electronDesktopE2eWorkspaceWebRuntime(windowId);
+        expect(current.web.generation).toBe(before.web.generation);
+        expect(current.web.surfaceId).toBe(before.web.surfaceId);
+        expect(current.web.contentSessionStoragePath).toBe(before.web.contentSessionStoragePath);
+        expect(current.coreSlots).toEqual(before.coreSlots);
+        return true;
+      }, { timeout: 15_000, timeoutMsg: "The moved mixed Workspace did not publish its exact unchanged surface and slot projection" });
     } });
 }

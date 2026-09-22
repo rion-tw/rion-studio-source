@@ -27,6 +27,14 @@ export class ChromiumExtensionBootstrap {
 
   get outcome(): ExtensionBootstrapOutcome | undefined { return this.#outcome; }
 
+  inspect(): Readonly<{
+    workerVersionId: number | null; nativeLoaded: boolean;
+    workerRunning: boolean; compatibilityReady: boolean;
+  }> {
+    return { workerVersionId: this.#versionId ?? null, nativeLoaded: this.#loaded,
+      workerRunning: this.#running, compatibilityReady: this.#receipt !== undefined };
+  }
+
   nativeLoaded(): void {
     this.#loaded = true;
     this.#maybeReady();

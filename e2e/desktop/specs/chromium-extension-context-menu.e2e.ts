@@ -19,9 +19,12 @@ describe('Generic extension native context menu', () => {
     await $('.app-main-sidebar').$('button*=Roles').click(); await waitForRoute('/roles');
     await $(`[data-selection-id='${role.id}']`).moveTo();
     await $(`[data-selection-id='${role.id}']`).$("button[aria-label='Open']").click();
-    await browser.switchToWindow(main);
+    // WebDriver still targets the launcher. Re-activating it here can steal
+    // Windows foreground before the Role's native activation receipt arrives.
     await browser.waitUntil(async () => (await rendererCall('listRoleStatuses')).some(status =>
-      status.roleId === role.id && status.state === 'running'), { timeout: 30_000 });
+      status.roleId === role.id && status.state === 'running'), {
+      timeout: 30_000, timeoutMsg: 'The visibly launched context-menu Role did not reach running'
+    });
     const tab = (await rendererCall('getEmbeddedRuntimeState')).tabs.find(candidate => candidate.sourceId === role.id);
     if (!tab) throw new Error('Context menu Role has no native tab');
     await verifyGenericExtensionContextMenu({ roleId: role.id, windowId: tab.windowId, url, main });

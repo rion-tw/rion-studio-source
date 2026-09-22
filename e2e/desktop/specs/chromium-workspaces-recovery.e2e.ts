@@ -6,7 +6,7 @@ import { workspaceSlotUi } from "../support/workspace-slot-ui";
 import { browser, expect } from "@wdio/globals";
 
 import type { EmbeddedRuntimeTabSummary } from "../../../src/shared/types";
-import { electronDesktopE2eProbe, electronDesktopE2eRolePlaceholderRuntime, electronDesktopE2eRoleSessionRuntime } from
+import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eProbe, electronDesktopE2eRolePlaceholderRuntime, electronDesktopE2eRoleSessionRuntime } from
   "../support/electron-driver";
 import { clickVisibleElectronPageElement, withRolePageTarget } from
   "../support/electron-role-surface";
@@ -140,15 +140,20 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
     const slotInput = { ...input, windowId: openingTab.windowId, tabId: openingTab.id, slotId: failingSlot.id };
     try {
       await waitFixturePath(`/api/gates/${FAILING_FIXTURE}/waiting`);
-      const healthyReady = await waitRoleInspection(healthyRole.id,
+      await waitRoleInspection(healthyRole.id,
         (inspection) => inspection.coreStatus.automationState === "ready",
         "healthy sibling ready while another slot is gated");
       const loading = await workspaceSlotUi(slotInput);
       expect(loading.phase).toBe("loading");
       expect(loading.width).toBeGreaterThan(0);
-      // The equal split leaves the divider gap outside both cell rectangles.
-      expect(loading.width).toBe(healthyReady.nativeOwner.bounds.width);
-      expect(loading.height).toBe(healthyReady.nativeOwner.bounds.height);
+      // Core rounds each cell edge independently. Equal normalized splits can
+      // differ by one pixel; the loading overlay must match its own cell exactly.
+      const loadingSurface = (await electronDesktopE2eFullscreenToolbarRuntime(openingTab.windowId))
+        .surfaces.find(surface => surface.kind === "role" && surface.id === failingRole.id &&
+          surface.tabId === openingTab.id);
+      expect(loadingSurface).toBeDefined();
+      expect(loading.width).toBe(loadingSurface!.bounds.width);
+      expect(loading.height).toBe(loadingSurface!.bounds.height);
       const healthySlot = workspace.slots.find((slot) => slot.roleId === healthyRole.id)!;
       expect((await workspaceSlotUi({ ...slotInput, slotId: healthySlot.id })).phase).toBe("ready");
       const cursor = await fixtureCursor();

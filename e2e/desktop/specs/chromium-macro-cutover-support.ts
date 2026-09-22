@@ -882,35 +882,12 @@ export async function quitChromiumApplicationVisible(
   context: ChromiumMacroScenarioContext
 ): Promise<void> {
   await browser.switchToWindow(context.mainWindowHandle);
-  if (context.platform === "macos") {
+  process.env.RION_STUDIO_E2E_TERMINAL_NATIVE_QUIT = "1";
+  try {
     await pressVisibleNativeApplicationQuit();
-  } else {
-    const pid = String((await electronDesktopE2eProbe()).processId);
-    await executeFile("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      `$pidValue=${pid}; Add-Type -AssemblyName UIAutomationClient; `
-        + "$root=[System.Windows.Automation.AutomationElement]::RootElement; "
-        + "$processCondition=New-Object System.Windows.Automation.PropertyCondition("
-        + "[System.Windows.Automation.AutomationElement]::ProcessIdProperty,$pidValue); "
-        + "$titleCondition=New-Object System.Windows.Automation.PropertyCondition("
-        + "[System.Windows.Automation.AutomationElement]::NameProperty,'Rion Studio'); "
-        + "$mainCondition=New-Object System.Windows.Automation.AndCondition("
-        + "$processCondition,$titleCondition); "
-        + "$windows=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$mainCondition); "
-        + "if($windows.Count -ne 1){throw 'exact Rion main window unavailable'}; "
-        + "$closeCondition=New-Object System.Windows.Automation.AndCondition("
-        + "(New-Object System.Windows.Automation.PropertyCondition("
-        + "[System.Windows.Automation.AutomationElement]::ControlTypeProperty,"
-        + "[System.Windows.Automation.ControlType]::Button)),"
-        + "(New-Object System.Windows.Automation.PropertyCondition("
-        + "[System.Windows.Automation.AutomationElement]::NameProperty,'Close'))); "
-        + "$buttons=$windows[0].FindAll([System.Windows.Automation.TreeScope]::Descendants,"
-        + "$closeCondition); if($buttons.Count -ne 1){throw 'exact native Close unavailable'}; "
-        + "$invoke=$buttons[0].GetCurrentPattern("
-        + "[System.Windows.Automation.InvokePattern]::Pattern); $invoke.Invoke();"
-    ], { encoding: "utf8" });
+  } catch (error) {
+    delete process.env.RION_STUDIO_E2E_TERMINAL_NATIVE_QUIT;
+    throw error;
   }
   await waitForElectronDesktopE2eTerminalNativeQuit();
 }

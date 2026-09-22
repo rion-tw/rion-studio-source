@@ -833,7 +833,9 @@ export class ChromiumRoleSurfaceRegistry {
     generation: number,
     parent: ChromiumRoleSurfaceParentPort
   ): Promise<void> {
-    const record = this.#activeRecord(roleId, generation);
+    // Core may move an attached tab while its first document is still loading.
+    // Transfer the existing view; document completion retains its own event.
+    const record = this.#activeRecord(roleId, generation, true);
     if (
       !Number.isSafeInteger(parent.id) ||
       parent.id < 1 ||
@@ -860,7 +862,7 @@ export class ChromiumRoleSurfaceRegistry {
     });
     const currentTargetOwner = this.#parentsById.get(parent.id);
     if (
-      this.#activeRecord(roleId, generation) !== record ||
+      this.#activeRecord(roleId, generation, true) !== record ||
       record.parent !== previous || parent.isDestroyed() ||
       (currentTargetOwner !== undefined && currentTargetOwner.parent !== parent)
     ) {
@@ -875,7 +877,8 @@ export class ChromiumRoleSurfaceRegistry {
         generation,
         sourceParent: previous,
         targetParent: parent,
-        isCancelled: () => record.state !== "active" || record.destroyed,
+        isCancelled: () => (record.state !== "active" && record.state !== "opening") ||
+          record.destroyed || record.contents.isDestroyed(),
         detachSource: () => this.#detach(record),
         attachTarget: () => this.#attachTo(record, parent),
         detachTarget: () => this.#detach(record),
@@ -942,7 +945,7 @@ export class ChromiumRoleSurfaceRegistry {
       record.contents.isDestroyed()) {
       return false;
     }
-    if (record.state !== "active") {
+    if (record.state !== "active" && record.state !== "opening") {
       fail(
         "ELECTRON_ROLE_SURFACE_NOT_ACTIVE",
         "The native Chromium role surface is not active."

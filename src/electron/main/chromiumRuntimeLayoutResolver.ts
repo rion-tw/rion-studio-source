@@ -167,7 +167,8 @@ export class ChromiumRuntimeLayoutResolver implements ChromiumRuntimeLayoutPort 
 
   async resolveWorkspaceLayout(
     tab: EmbeddedTabEffectRecord,
-    host: ChromiumRuntimeHostPort
+    host: ChromiumRuntimeHostPort,
+    sampledContentBounds?: ChromiumRoleSurfaceBounds
   ): Promise<ChromiumRuntimeResolvedWorkspaceLayout> {
     if (
       host.logicalWindowId !== tab.target.windowId ||
@@ -178,7 +179,7 @@ export class ChromiumRuntimeLayoutResolver implements ChromiumRuntimeLayoutPort 
         "The tab layout target no longer owns its native Chromium host."
       );
     }
-    const contentBounds = validateContentBounds(host.getContentBounds());
+    const contentBounds = validateContentBounds(sampledContentBounds ?? host.getContentBounds());
     const roleIds = validateRoleIds(tab);
     // Every authoritative slot participates in geometry, including a blocked
     // shared-Role slot whose remote Role surface remains in another window.

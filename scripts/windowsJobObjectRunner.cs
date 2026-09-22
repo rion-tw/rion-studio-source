@@ -249,10 +249,13 @@ public static class RionWindowsJobRunner
         finally { CloseHandle(process); }
     }
 
-    public static bool CanJoinExitedRootAccounting(IntPtr job, IntPtr rootProcess, uint rootProcessId)
+    public static bool CanJoinExitedRootAccounting(IntPtr job, IntPtr rootProcess, uint rootProcessId,
+        bool includeConsoleHost = false, RionWindowsJobProcessDiagnostics processDiagnostics = null)
     {
         // The retained CreateProcess handle pins identity; a live root or any
-        // other native Job member is not eligible for this accounting fence.
+        // unrelated Job member is not eligible for this accounting fence. When
+        // console draining is enabled, Windows may still account for both the
+        // signaled root and its exact console host before removing either one.
         if (WaitForSingleObject(rootProcess, 0) != WaitObject0) return false;
         int bytes = 8 + 2 * IntPtr.Size;
         IntPtr ids = Marshal.AllocHGlobal(bytes);
@@ -262,8 +265,52 @@ public static class RionWindowsJobRunner
             int assigned = Marshal.ReadInt32(ids, 0);
             int listed = Marshal.ReadInt32(ids, 4);
             if (assigned == 0 && listed == 0) return true;
-            return assigned == 1 && listed == 1 &&
-                checked((uint)Marshal.ReadIntPtr(ids, 8).ToInt64()) == rootProcessId;
+            if (assigned != listed || listed < 1 || listed > 2) return false;
+            bool sawRoot = false, sawConsole = false;
+            for (int index = 0; index < listed; index++)
+            {
+                uint id = checked((uint)Marshal.ReadIntPtr(ids, 8 + index * IntPtr.Size).ToInt64());
+                if (id == rootProcessId)
+                {
+                    if (sawRoot) return false;
+                    sawRoot = true;
+                    continue;
+                }
+                if (!includeConsoleHost || sawConsole) return false;
+                if (processDiagnostics != null && processDiagnostics.IsPinnedConsoleHost(id))
+                {
+                    sawConsole = true;
+                    continue;
+                }
+                IntPtr member = OpenProcess(0x00101000, false, id);
+                if (member == IntPtr.Zero)
+                {
+                    if (Marshal.GetLastWin32Error() != 87) return false;
+                }
+                else try
+                {
+                    // A signaled member can already have left native membership
+                    // while Job accounting still includes it. As with an absent
+                    // PID, join ACTIVE_PROCESS_ZERO; never count this as success.
+                    if (WaitForSingleObject(member, 0) == WaitObject0) continue;
+                    bool inJob;
+                    uint length = 32768;
+                    var image = new StringBuilder((int)length);
+                    if (!IsProcessInJob(member, job, out inJob) || !inJob ||
+                        !QueryFullProcessImageName(member, 0, image, ref length))
+                    {
+                        // Exit can win during the identity query itself. Read
+                        // the retained handle again only on that failed query.
+                        if (WaitForSingleObject(member, 0) == WaitObject0) continue;
+                        return false;
+                    }
+                    if (!String.Equals(image.ToString(), System.IO.Path.Combine(
+                            Environment.SystemDirectory, "conhost.exe"), StringComparison.OrdinalIgnoreCase)) return false;
+                }
+                finally { CloseHandle(member); }
+                sawConsole = true;
+            }
+            return true;
         }
         finally { Marshal.FreeHGlobal(ids); }
     }
@@ -384,7 +431,7 @@ public static class RionWindowsJobRunner
             uint? drainedConsoleHost = null;
             bool joinedExitedRootAccounting = false;
             if (activeProcessesAfterRootExit != 0 &&
-                CanJoinExitedRootAccounting(job, process.hProcess, process.dwProcessId))
+                CanJoinExitedRootAccounting(job, process.hProcess, process.dwProcessId, drainSoleConsoleHost, processDiagnostics))
             {
                 try
                 {

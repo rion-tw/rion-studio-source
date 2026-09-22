@@ -13,6 +13,11 @@ state. The exact AppKit/Windows host is validated before and after the private
 main-to-isolated-world operation. Only the original connected main-document
 Canvas receives the event. Readiness resolves a unique/previously observed game
 Canvas without focusing it; a missing or retired target fails explicitly.
+On Windows, a foreground native frame can have no focused WebContents while
+its tab strip owns focus. Compatible readiness and dispatch accept that exact
+unfocused View observation; trusted input retains its content-focus gate.
+Attachment, parent visibility, document identity and focus-fact consistency
+remain required before and after dispatch.
 Under v42, keyboard events merge the current native physical modifier snapshot
 with Core modifiers and retain legacy key codes. A held physical Shift therefore
 affects even a step with no explicit modifiers; there is no modifier isolation.

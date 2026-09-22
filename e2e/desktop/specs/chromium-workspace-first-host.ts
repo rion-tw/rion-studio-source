@@ -25,7 +25,14 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
   let expectedGap = 1;
   let expectedBackground: "material" | "black" = "material";
   const capture = async (name: string) => {
-    const current = await inspect(input.windowId);
+    let current: Awaited<ReturnType<typeof inspect>> | undefined;
+    // Native frame acknowledgement can precede the corresponding Core/chrome
+    // projection. Observe the exact existing fence before sampling any pixels.
+    await browser.waitUntil(async () => {
+      current = await inspect(input.windowId);
+      return true;
+    }, { timeout: 20_000, timeoutMsg: `First host ${name} did not reach a coherent native projection` });
+    if (!current) throw new Error("The first host projection was not observed");
     expect(current.workspaceTabs.find(t => t.tabId === input.tabId)!.slots).toEqual(baseline);
     // A held resize keeps rewriting the layout, so geometry read while it is
     // still moving describes a window the screenshot no longer shows: the
@@ -73,7 +80,9 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
       const waiting = await fetch(`${process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN}/api/gates/first-host-${input.windowId}-${phase}/waiting`, {signal:AbortSignal.timeout(30_000)});
       expect(waiting.ok).toBe(true);
       await capture(`first-host-${phase}-shown`);
-      for (const gap of [1,16] as const) for (const background of ["material","black"] as const) {
+      // Exercise the largest reversals first so native input failures surface
+      // before the remaining combinations. Every gap/background still runs.
+      for (const gap of [16,1] as const) for (const background of ["black","material"] as const) {
       await input.setAppearance(gap,background); expectedBackground = background; expectedGap = gap;
       // Core holding the new appearance does not mean the host has projected it,
       // and the host having projected it does not mean its document has painted
@@ -125,13 +134,15 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
       if (gap === 16 && background === "black") {
         const normal = (await layout()).contentBounds;
         for (const rapid of [false,true]) {
-          let previous = JSON.stringify((await layout()).contentBounds);
           await resizeWorkspaceWindow({inspection:await inspect(input.windowId),edge:"bottomRight",rapid,
             moves: rapid ? [{x:-96,y:-72},{x:0,y:0}] : [
               {x:640-normal.width,y:400-normal.height},{x:320,y:160},{x:0,y:0}],
-            whileHeld:async step => {
-              await browser.waitUntil(async () => JSON.stringify((await layout()).contentBounds) !== previous, {timeout:20_000});
-              previous = JSON.stringify((await layout()).contentBounds);
+            whileHeld:async (step, frame, initialFrame) => {
+              await browser.waitUntil(async () => {
+                const current = (await layout()).contentBounds;
+                return Math.abs(current.width-normal.width-(frame.width-initialFrame.width)) <= 1 &&
+                  Math.abs(current.height-normal.height-(frame.height-initialFrame.height)) <= 1;
+              }, {timeout:20_000,timeoutMsg:`First host ${phase} range step ${step} did not match the native frame`});
               await capture(`${prefix}-${rapid?"rapid":"range"}-${step}-held`);
             }});
           await capture(`${prefix}-${rapid?"rapid":"range"}-ended`);

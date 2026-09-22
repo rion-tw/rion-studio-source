@@ -58,50 +58,47 @@ pub(crate) fn prepare_empty_store(
     user_data_dir: &Path,
     evidence: &V23RoleInitializationEvidence,
 ) -> CoreResult<()> {
+    prepare_empty_store_with_marker(user_data_dir, evidence, write_marker)
+}
+
+fn prepare_empty_store_with_marker(
+    user_data_dir: &Path,
+    evidence: &V23RoleInitializationEvidence,
+    publish_marker: impl FnOnce(&Path, &V23RoleInitializationEvidence) -> CoreResult<()>,
+) -> CoreResult<()> {
     validate_evidence_identity(evidence)
         .map_err(|_| initialization_stage_error("validate-evidence"))?;
     require_real_directory(user_data_dir)
         .map_err(|_| initialization_stage_error("validate-user-data-root"))?;
     let roles = user_data_dir.join("roles");
     ensure_roles_directory(&roles).map_err(|_| initialization_stage_error("prepare-roles-root"))?;
-    let stage = roles.join(format!(
-        ".v23-role-initializing-{}-{}",
-        evidence.role_id, evidence.transition_id
-    ));
     let destination = roles.join(&evidence.role_id);
-    require_absent(&stage).map_err(|_| initialization_stage_error("require-absent-stage"))?;
-    require_absent(&destination)
-        .map_err(|_| initialization_stage_error("require-absent-destination"))?;
+    // Reserve this new UUID atomically without replacing any existing tree.
+    // Windows observers may hold directory or descendant handles throughout
+    // initialization, so publication must not depend on renaming this tree.
+    // The caller publishes the role in SQLite only after verification succeeds.
+    fs::create_dir(&destination)
+        .map_err(|_| initialization_stage_error("reserve-role-directory"))?;
 
     let outcome = (|| {
-        fs::create_dir(&stage).map_err(|_| initialization_stage_error("create-stage"))?;
-        let browser = stage.join("browser");
+        rion_platform::restrict_directory_to_current_user(&destination)
+            .map_err(|_| initialization_stage_error("protect-role-directory"))?;
+        let browser = destination.join("browser");
         fs::create_dir(&browser).map_err(|_| initialization_stage_error("create-browser-root"))?;
         for name in ["system", "webview2", "chromium"] {
             fs::create_dir(browser.join(name))
                 .map_err(|_| initialization_stage_error("create-engine-store"))?;
         }
-        let marker = stage.join(MARKER_FILE_NAME);
-        write_marker(&marker, evidence).map_err(|_| initialization_stage_error("write-marker"))?;
-        rion_platform::restrict_directory_to_current_user(&stage)
-            .map_err(|_| initialization_stage_error("protect-stage"))?;
-        verify_tree(&stage, evidence, true)
-            .map_err(|_| initialization_stage_error("verify-stage"))?;
-        fs::rename(&stage, &destination).map_err(|error| CoreError::Domain {
-            code: "V23_ROLE_INITIALIZATION_EVIDENCE_INVALID",
-            message: format!(
-                "The v23 role tree could not be published (stage: publish-role-tree; kind: {:?}; OS error: {:?}).",
-                error.kind(),
-                error.raw_os_error()
-            ),
-        })?;
+        publish_marker(&destination.join(MARKER_FILE_NAME), evidence)
+            .map_err(|_| initialization_stage_error("write-marker"))?;
         sync_directory(&roles).map_err(|_| initialization_stage_error("sync-roles-root"))?;
         verify_tree(&destination, evidence, true)
             .map_err(|_| initialization_stage_error("verify-published-tree"))
     })();
 
     if outcome.is_err() {
-        remove_exact_tree(&stage);
+        // An incomplete or changed tree has no ready journal and remains
+        // unlaunchable. Only exact evidence authorizes recursive cleanup.
         if verify_tree(&destination, evidence, true).is_ok() {
             remove_exact_tree(&destination);
         }
@@ -225,6 +222,15 @@ fn verify_tree(
     evidence: &V23RoleInitializationEvidence,
     require_empty_stores: bool,
 ) -> CoreResult<()> {
+    verify_store_directories(directory, require_empty_stores)?;
+    let stored = read_marker(&directory.join(MARKER_FILE_NAME))?;
+    if &stored != evidence {
+        return Err(initialization_error());
+    }
+    Ok(())
+}
+
+fn verify_store_directories(directory: &Path, require_empty_stores: bool) -> CoreResult<()> {
     require_real_directory(directory)?;
     let browser = directory.join("browser");
     require_real_directory(&browser)?;
@@ -240,10 +246,6 @@ fn verify_tree(
             return Err(initialization_error());
         }
     }
-    let stored = read_marker(&directory.join(MARKER_FILE_NAME))?;
-    if &stored != evidence {
-        return Err(initialization_error());
-    }
     Ok(())
 }
 
@@ -256,13 +258,6 @@ fn require_real_directory(path: &Path) -> CoreResult<()> {
         return Err(initialization_error());
     }
     Ok(())
-}
-
-fn require_absent(path: &Path) -> CoreResult<()> {
-    match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Ok(_) | Err(_) => Err(initialization_error()),
-    }
 }
 
 fn open_marker_without_following(path: &Path) -> CoreResult<File> {
@@ -349,85 +344,4 @@ pub(crate) fn marker_path(user_data_dir: &Path, role_id: &str) -> std::path::Pat
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn empty_store_evidence_is_strict_and_bound_to_the_exact_role_tree() {
-        let directory = tempfile::tempdir().unwrap();
-        let evidence = new_evidence(
-            "10000000-0000-4000-8000-000000000001".to_owned(),
-            rion_platform::Platform::Macos,
-        );
-        prepare_empty_store(directory.path(), &evidence).unwrap();
-        let role = directory.path().join("roles").join(&evidence.role_id);
-        verify_tree(&role, &evidence, true).unwrap();
-
-        let marker = role.join(MARKER_FILE_NAME);
-        let mut value: serde_json::Value =
-            serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
-        value["unknownField"] = serde_json::json!(true);
-        fs::write(&marker, serde_json::to_vec(&value).unwrap()).unwrap();
-        assert!(read_marker(&marker).is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn marker_symlinks_fail_closed() {
-        use std::os::unix::fs::symlink;
-
-        let directory = tempfile::tempdir().unwrap();
-        let evidence = new_evidence(
-            "10000000-0000-4000-8000-000000000002".to_owned(),
-            rion_platform::Platform::Macos,
-        );
-        prepare_empty_store(directory.path(), &evidence).unwrap();
-        let marker = marker_path(directory.path(), &evidence.role_id);
-        let replacement = directory.path().join("replacement.json");
-        fs::write(&replacement, serde_json::to_vec(&evidence).unwrap()).unwrap();
-        fs::remove_file(&marker).unwrap();
-        symlink(&replacement, &marker).unwrap();
-        assert!(read_marker(&marker).is_err());
-    }
-
-    #[test]
-    fn noncanonical_role_identity_is_rejected_before_path_construction() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut evidence = new_evidence(
-            "10000000-0000-4000-8000-000000000003".to_owned(),
-            rion_platform::Platform::Macos,
-        );
-        evidence.role_id = "../escape".to_owned();
-        assert!(prepare_empty_store(directory.path(), &evidence).is_err());
-        assert!(!directory.path().join("escape").exists());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_filesystem_primitives_publish_one_exact_empty_role_tree() {
-        let directory = tempfile::tempdir().unwrap();
-        let evidence = new_evidence(
-            "10000000-0000-4000-8000-000000000004".to_owned(),
-            rion_platform::Platform::Windows,
-        );
-        let roles = directory.path().join("roles");
-        ensure_roles_directory(&roles).expect("create and protect roles directory");
-        let stage = roles.join(format!(
-            ".v23-role-initializing-{}-{}",
-            evidence.role_id, evidence.transition_id
-        ));
-        let destination = roles.join(&evidence.role_id);
-        fs::create_dir(&stage).expect("create role staging directory");
-        let browser = stage.join("browser");
-        fs::create_dir(&browser).expect("create role browser directory");
-        for name in ["system", "webview2", "chromium"] {
-            fs::create_dir(browser.join(name)).expect("create empty engine store");
-        }
-        write_marker(&stage.join(MARKER_FILE_NAME), &evidence).expect("write durable role marker");
-        rion_platform::restrict_directory_to_current_user(&stage)
-            .expect("protect role staging tree");
-        verify_tree(&stage, &evidence, true).expect("verify protected staging tree");
-        fs::rename(&stage, &destination).expect("publish role tree");
-        verify_tree(&destination, &evidence, true).expect("verify published role tree");
-    }
-}
+mod tests;

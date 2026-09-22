@@ -123,7 +123,8 @@ export interface RawNativeWindowsChromiumTrustedInputHost {
     request: ChromiumNativeTrustedInputRequest
   ) => Promise<ChromiumNativeTrustedInputReceipt>;
   currentInputDeliveryMode: (
-    expected: WindowsChromiumInputSurfaceIdentity
+    expected: WindowsChromiumInputSurfaceIdentity,
+    inputRoute?: "trusted" | "compatible"
   ) => WindowsChromiumInputDeliveryMode | null;
   isInputReady: (
     expected: WindowsChromiumInputSurfaceIdentity,
@@ -131,7 +132,8 @@ export interface RawNativeWindowsChromiumTrustedInputHost {
   ) => boolean;
   probeExactInputSurface: (
     expected: WindowsChromiumInputSurfaceIdentity,
-    deliveryMode: WindowsChromiumInputDeliveryMode
+    deliveryMode: WindowsChromiumInputDeliveryMode,
+    inputRoute?: "trusted" | "compatible"
   ) => WindowsChromiumInputSurfaceProbeReceipt;
 }
 

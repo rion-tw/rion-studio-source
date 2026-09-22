@@ -18,7 +18,7 @@ export function validChromiumViewInputIdentity(value: ChromiumViewInputIdentity)
 
 export function validChromiumViewInputObservation(
   value: ChromiumViewInputObservation, expected: ChromiumViewInputIdentity,
-  mode: "foreground" | "background"
+  mode: "foreground" | "background", inputRoute: "trusted" | "compatible" = "trusted"
 ): boolean {
   if ((mode !== "foreground" && mode !== "background") || !value || !value.identity || !value.bounds) return false;
   return validChromiumViewInputIdentity(value.identity) && sameChromiumViewInputIdentity(value.identity, expected) &&
@@ -33,8 +33,9 @@ export function validChromiumViewInputObservation(
     value.contentsFocused === (value.focusedWebContentsId === expected.webContentsId) &&
     // Visibility chooses the delivery mode; a background parent must not acquire
     // content focus. Submission preserves the exact foreground identity per edge.
+    // Native chrome may own focus; only Canvas compatibility admits no contents.
     (!value.parentForeground ? !value.contentsFocused :
-      mode === "foreground" ? value.focusedWebContentsId !== null : !value.contentsFocused) &&
+      mode === "foreground" ? inputRoute === "compatible" || value.focusedWebContentsId !== null : !value.contentsFocused) &&
     [value.bounds.x, value.bounds.y, value.bounds.width, value.bounds.height].every(Number.isSafeInteger) &&
     value.bounds.width > 0 && value.bounds.height > 0 &&
     Number.isFinite(value.zoomFactor) && value.zoomFactor >= 0.25 && value.zoomFactor <= 5;

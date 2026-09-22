@@ -14,6 +14,8 @@ it.skipIf(process.platform !== "win32")(
       platform: string; literal: string; rejected: string[]; injected: boolean;
       cases: { code: string; exitCode: number; totalProcesses: number;
         activeAtRootExit: number; activeAfterConsoleDrain: number;
+        joinedExitedRootAccounting: boolean;
+        pinnedConsoleHosts: boolean[]; pinnedAfterDispose: boolean[];
         notificationError: number; truncated: boolean;
         marker: { literal: string; empty: string; code: string };
         observations: { ImagePath: string; InJobAtObservation: boolean }[] }[];
@@ -26,8 +28,11 @@ it.skipIf(process.platform !== "win32")(
     for (const entry of result.cases) {
       expect(entry.marker).toEqual({ literal: result.literal, empty: "", code: entry.code });
       expect(entry.activeAfterConsoleDrain, JSON.stringify(entry)).toBe(0);
-      expect(entry.activeAtRootExit).toBeLessThanOrEqual(1);
+      expect(entry.activeAtRootExit).toBeLessThanOrEqual(2);
+      if (entry.activeAtRootExit === 2) expect(entry.joinedExitedRootAccounting).toBe(true);
       expect(entry.notificationError).toBe(0);
+      expect(entry.pinnedConsoleHosts).toEqual([true]);
+      expect(entry.pinnedAfterDispose).toEqual([false]);
       expect(entry.truncated).toBe(false);
       expect(entry.observations).toHaveLength(entry.totalProcesses);
       expect(entry.observations.every(({ InJobAtObservation }) => InJobAtObservation)).toBe(true);

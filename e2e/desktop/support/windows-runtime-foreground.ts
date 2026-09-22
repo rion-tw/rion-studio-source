@@ -3,10 +3,13 @@ import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs
 export async function focusWindowsRuntimeNativeWindow(input: Readonly<{
   processId: number; nativeWindowHandle: string;
   pointerTarget?: "reveal-edge" | "content" | "content-click";
+  contentPoint?: Readonly<{ x: number; y: number }>;
 }>, port = { platform: process.platform, run: runEncodedPowerShellJson }): Promise<void> {
   if (port.platform !== "win32" || !Number.isSafeInteger(input.processId) ||
       input.processId <= 1 || !/^[1-9]\d*$/u.test(input.nativeWindowHandle) ||
-      (input.pointerTarget !== undefined && !["reveal-edge", "content", "content-click"].includes(input.pointerTarget))) {
+      (input.pointerTarget !== undefined && !["reveal-edge", "content", "content-click"].includes(input.pointerTarget)) ||
+      (input.contentPoint !== undefined && (input.pointerTarget !== "content-click" ||
+        ![input.contentPoint.x, input.contentPoint.y].every(value => Number.isFinite(value) && value >= 0)))) {
     throw new Error("Native foreground requires exact Windows process and handle evidence");
   }
   await port.run(String.raw`
@@ -18,6 +21,8 @@ public static class RionRuntimeForeground {
   [StructLayout(LayoutKind.Sequential)] public struct Rect { public int left, top, right, bottom; }
   [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out Rect rect);
   [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hwnd, ref Point point);
+  [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
   [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
   [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
@@ -59,6 +64,17 @@ public static class RionRuntimeForeground {
         GetForegroundWindow() != hwnd)
       throw new InvalidOperationException("native pointer or foreground readback differs");
   }
+  public static void MoveContentPoint(IntPtr hwnd, double x, double y) {
+    double scale = GetDpiForWindow(hwnd) / 96.0;
+    Rect rect;
+    var point = new Point { x = (int)Math.Floor(x * scale), y = (int)Math.Floor(y * scale) };
+    if (scale <= 0 || !GetClientRect(hwnd, out rect) || point.x < rect.left || point.x >= rect.right ||
+        point.y < rect.top || point.y >= rect.bottom || !ClientToScreen(hwnd, ref point) ||
+        !SetCursorPos(point.x, point.y)) throw new InvalidOperationException("exact content point unavailable");
+    Point actual;
+    if (!GetCursorPos(out actual) || actual.x != point.x || actual.y != point.y || GetForegroundWindow() != hwnd)
+      throw new InvalidOperationException("exact content point or foreground changed");
+  }
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
   [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint from, uint to, bool attach);
@@ -94,6 +110,9 @@ public static class RionRuntimeForeground {
 }
 '@
 $handle = [IntPtr][int64]$payload.nativeWindowHandle
+if ([RionRuntimeForeground]::SetThreadDpiAwarenessContext([IntPtr](-4)) -eq [IntPtr]::Zero) {
+  throw 'Per-Monitor-V2 pointer coordinates unavailable'
+}
 $owner = [uint32]0
 [RionRuntimeForeground]::GetWindowThreadProcessId($handle, [ref]$owner) | Out-Null
 if ($owner -ne [uint32]$payload.processId -or
@@ -104,10 +123,14 @@ if (-not [RionRuntimeForeground]::ActivateExact($handle)) {
   throw 'exact runtime HWND did not become foreground'
 }
 if ($payload.pointerTarget -ne 'none') {
-  [RionRuntimeForeground]::MovePointer($handle, $payload.pointerTarget -eq 'reveal-edge')
+  if ($null -ne $payload.contentPoint) {
+    [RionRuntimeForeground]::MoveContentPoint($handle, [double]$payload.contentPoint.x, [double]$payload.contentPoint.y)
+  } else {
+    [RionRuntimeForeground]::MovePointer($handle, $payload.pointerTarget -eq 'reveal-edge')
+  }
   if ($payload.pointerTarget -eq 'content-click') {
     [RionRuntimeForeground]::ClickPointer($handle)
   }
 }
-`, { ...input, pointerTarget: input.pointerTarget ?? "none" }, { timeoutMilliseconds: 30_000 });
+`, { ...input, pointerTarget: input.pointerTarget ?? "none", contentPoint: input.contentPoint ?? null }, { timeoutMilliseconds: 30_000 });
 }

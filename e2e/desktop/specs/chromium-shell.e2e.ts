@@ -21,6 +21,7 @@ import {
 } from
   "../support/native-application-actions";
 import { rendererCall } from "../support/renderer-bridge";
+import { focusWindowsLauncherForVisibleLaunch } from "../support/windows-launcher-foreground";
 import {
   installRuntimeTabShellErrorJournal,
   runtimeTabShellErrors,
@@ -265,6 +266,17 @@ async function createFocusedApplicationShortcutRuntime(input: Readonly<{
     (await rendererCall("getEmbeddedRuntimeState")).windows
       .map((window) => window.windowId)
   );
+  if (input.platform === "windows") {
+    // The preceding tray-menu journey can leave native activation on the host
+    // without returning keyboard focus to Chromium. Establish the visible
+    // launcher target before the one physical shortcut submission.
+    await focusWindowsLauncherForVisibleLaunch();
+    await $(".app-main-sidebar").$("button*=Games").click();
+    await browser.waitUntil(async () => browser.electron.execute((electron) => {
+      const focused = electron.webContents.getFocusedWebContents();
+      return focused !== null && new URL(focused.getURL()).pathname.endsWith("/index.html");
+    }), { timeout: 10_000, timeoutMsg: "Visible launcher click did not establish Chromium keyboard focus" });
+  }
   await pressApplicationShortcut({
     command: "newGameWindow",
     platform: input.platform,

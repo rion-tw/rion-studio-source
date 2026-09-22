@@ -214,14 +214,15 @@ export function bindChromiumRuntimeWindowLayout(input: {
   if (!record.host.bindRuntimeWindowLayout) return;
   record.host.bindRuntimeWindowLayout(async () => {
     const workspaceDividers: WindowsRuntimeWorkspaceDividerProjection[] = [];
-    let contentBounds = record.host.getContentBounds();
+    const contentBounds = Object.freeze({ ...record.host.getContentBounds() });
     for (const tabId of record.tabIds) {
       const tab = input.tabs.get(tabId);
       if (!tab || tab.windowId !== record.host.logicalWindowId) continue;
       const layout = input.ports.layout.resolveWorkspaceLayout
         ? await input.ports.layout.resolveWorkspaceLayout(
             tab.specification,
-            record.host
+            record.host,
+            contentBounds
           )
         : null;
       const bounds = layout?.roles ?? await input.ports.layout.resolveRoleBounds(
@@ -230,7 +231,6 @@ export function bindChromiumRuntimeWindowLayout(input: {
         );
       projectWorkspaceSlotLoads(tab, record, bounds);
       if (layout) {
-        contentBounds = layout.contentBounds;
         const attemptGeneration = tab.specification.attemptGeneration;
         if (tab.specification.workspaceId && attemptGeneration) {
           workspaceDividers.push(...layout.dividers.map((divider) => ({

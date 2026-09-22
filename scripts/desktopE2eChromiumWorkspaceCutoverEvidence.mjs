@@ -182,6 +182,21 @@ function hasLaterCoreContinuationReceipt(observations, observation, index) {
   });
 }
 
+function hasLaterReadyReceipt(observations, observation, index) {
+  if (observation.phase !== "activating") return false;
+  return observations.slice(index + 1).some(candidate =>
+    candidate.phase === "ready" && candidate.visible === true &&
+    candidate.tabId === observation.tabId && candidate.windowId === observation.windowId &&
+    candidate.parentNativeHostId === observation.parentNativeHostId &&
+    candidate.windowGeneration === observation.windowGeneration &&
+    candidate.attemptGeneration === observation.attemptGeneration &&
+    candidate.topologyRevision >= observation.topologyRevision &&
+    candidate.web?.surfaceId === observation.web?.surfaceId &&
+    candidate.web?.generation === observation.web?.generation &&
+    candidate.web?.slotId === observation.web?.slotId &&
+    candidate.web?.contentUrl === observation.web?.contentUrl);
+}
+
 function validCoreStatus(status, roleId) {
   return exactKeys(status, [
     "automationState", "hostKind", "issueReason", "overlayState", "pageHealth",
@@ -283,7 +298,8 @@ function validateWebOnlyHistory(phase, observations, platform) {
       observation,
       platform,
       observation.tabId !== targetTabId ||
-        index < firstTargetReadyObservation && observation.phase === "activating",
+        index < firstTargetReadyObservation && observation.phase === "activating" ||
+        hasLaterReadyReceipt(observations, observation, index),
       hasLaterCoreContinuationReceipt(observations, observation, index)
     )),
     `${phase}: malformed Core/native Web-only history`

@@ -24,6 +24,24 @@ function fixture(_platform: "macos" | "windows") {
 }
 
 describe.each(["macos", "windows"] as const)("%s View trusted-input host bridge", platform => {
+  it("admits compatible input with native chrome focus while retaining trusted and owner fences", () => {
+    const f = fixture(platform);
+    f.change({ viewVisible: true, focusedWebContentsId: null });
+    const { native, identity } = f.host.resolve("role-one", 1)!;
+    expect(native.currentInputDeliveryMode(identity)).toBeNull();
+    expect(() => native.probeExactInputSurface(identity, "foreground")).toThrow();
+    expect(native.currentInputDeliveryMode(identity, "compatible")).toBe("foreground");
+    expect(native.probeExactInputSurface(identity, "foreground", "compatible"))
+      .toMatchObject({ observation: { contentsFocused: false, focusedWebContentsId: null } });
+    f.change({ contentsFocused: true });
+    expect(native.currentInputDeliveryMode(identity, "compatible")).toBeNull();
+    f.change({ contentsFocused: false, viewAttached: false });
+    expect(native.currentInputDeliveryMode(identity, "compatible")).toBeNull();
+    f.retire();
+    expect(() => native.probeExactInputSurface(identity, "foreground", "compatible")).toThrow();
+    expect(f.contents.sendInputEvent).not.toHaveBeenCalled();
+  });
+
   it("admits a visible sibling through the same exact foreground receipt lane", () => {
     const f = fixture(platform);
     f.change({ viewVisible: true });

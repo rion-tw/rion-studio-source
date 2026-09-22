@@ -1459,11 +1459,25 @@ describe("Electron Chromium runtime effect executor", () => {
     ]);
   });
 
-  it("awaits role destruction before closing the last native host", async () => {
-    const subject = harness();
+  it.each(["macos", "windows"] as const)("awaits role destruction before closing the last native host (%s)", async (platform) => {
+    const subject = harness(undefined, platform);
     const specification = tab();
     await createTab(subject, specification);
     await loadRoles(subject, specification);
+
+    if (platform === "windows") {
+      await executeTerminal(subject, effect("window-1", {
+        type: "embeddedFollowRoleOwnership", lifecycleEpoch: 1, roles: [],
+        windows: [{ windowId: "window-1", windowGeneration: 3, topologyRevision: 8,
+          tabIds: [], tabPhases: [], hiddenTabIds: [] }],
+        revealWindowIds: [], focusWindowIds: []
+      }));
+      expect(subject.executor.snapshot().windows[0]!.tabIds).toEqual([]);
+      expect(subject.executor.snapshot().roles).toHaveLength(1);
+      expect(subject.setVisible).toHaveBeenLastCalledWith("role-1", 1, false);
+      expect(subject.closeRole).not.toHaveBeenCalled();
+      expect(subject.hosts[0].close).not.toHaveBeenCalled();
+    }
 
     await executeTerminal(subject, effect("tab-1", {
       type: "embeddedDestroyTab",

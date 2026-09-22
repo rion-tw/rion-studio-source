@@ -18,6 +18,14 @@ const nativePort = (): NativeClosePort => ({ platform: process.platform, run: ru
 const accessibility = String.raw`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class RuntimeTabDpi {
+  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+}
+'@
+[RuntimeTabDpi]::SetThreadDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
 $targetPid = [int]$payload.processId
 $controlName = [string]$payload.controlName
 $nameCondition = New-Object System.Windows.Automation.PropertyCondition(
@@ -146,16 +154,17 @@ export async function closeLoadingWindowsRuntimeTab(
   await invokeWindowsRuntimeTabClose(evidence, port);
 }
 
-/** Select the ready sibling through its visible native control while B is gated. */
+/** Select the gated tab or its ready sibling through the exact visible control. */
 export async function activateWindowsRuntimeTabWhileLoading(input: Readonly<{
   processId: number; loadingTabName: string; selectedTabName: string;
-}>): Promise<void> {
+}>, port: NativeClosePort = nativePort()): Promise<void> {
   const evidence = await readWindowsRuntimeTabLoadingEvidence({
     processId: input.processId, tabName: input.loadingTabName
-  });
+  }, port);
   await invokeWindowsRuntimeTabClose({ ...evidence,
-    controlName: `Activate ${input.selectedTabName}`, pointer: true
-  }, nativePort());
+    controlName: `Activate ${input.selectedTabName}${input.selectedTabName === input.loadingTabName ? ", loading" : ""}`,
+    pointer: true
+  }, port);
 }
 
 async function invokeWindowsRuntimeTabClose(
@@ -176,12 +185,21 @@ if ($payload.pointer) {
   Add-Type @'
 using System.Runtime.InteropServices;
 public static class LoadingTabPointer {
+  [StructLayout(LayoutKind.Sequential)] public struct Point { public int x,y; }
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point point);
+  [DllImport("user32.dll")] public static extern System.IntPtr WindowFromPoint(Point point);
+  [DllImport("user32.dll")] public static extern System.IntPtr GetAncestor(System.IntPtr hwnd, uint flags);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, System.UIntPtr extra);
 }
 '@
   $rect = $buttons[0].Current.BoundingRectangle
-  if (-not [LoadingTabPointer]::SetCursorPos([int]($rect.X+$rect.Width/2), [int]($rect.Y+$rect.Height/2))) { throw 'tab pointer positioning failed' }
+  $x=[int]($rect.X+$rect.Width/2); $y=[int]($rect.Y+$rect.Height/2)
+  if (-not [LoadingTabPointer]::SetCursorPos($x,$y)) { throw 'tab pointer positioning failed' }
+  $point=New-Object LoadingTabPointer+Point
+  if (-not [LoadingTabPointer]::GetCursorPos([ref]$point) -or $point.x -ne $x -or $point.y -ne $y -or
+      [LoadingTabPointer]::GetAncestor([LoadingTabPointer]::WindowFromPoint($point),2) -ne
+        [IntPtr]::new([long]$payload.nativeHandle)) { throw 'exact tab pointer hit target differs' }
   [LoadingTabPointer]::mouse_event(2,0,0,0,[System.UIntPtr]::Zero)
   [LoadingTabPointer]::mouse_event(4,0,0,0,[System.UIntPtr]::Zero)
 } else {
@@ -189,5 +207,5 @@ public static class LoadingTabPointer {
   $invoke = $buttons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
   $invoke.Invoke()
 }
-`, { ...evidence }, { timeoutMilliseconds: 30_000 });
+`, { ...evidence, pointer: evidence.pointer ?? false }, { timeoutMilliseconds: 30_000 });
 }

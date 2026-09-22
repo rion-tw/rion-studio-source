@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect } from "@wdio/globals";
+import { browser, expect } from "@wdio/globals";
 import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eApplicationShortcutRuntime } from "../support/electron-driver";
 import { captureWorkspacePixels } from "../support/workspace-pixels";
 
@@ -27,15 +27,28 @@ export async function expectReadyTabAboveLoadingSibling(windowId: string, readyT
     .toEqual([expect.objectContaining({ visible: false })]);
 }
 
-/** The selected B has a dark native loading presentation while completion is gated. */
-export async function expectLoadingTabPresentation(windowId: string): Promise<void> {
+/** The selected B exposes the native background while completion is gated. */
+export async function expectLoadingTabPresentation(windowId: string, tabId: string,
+  platform: "macos" | "windows"): Promise<void> {
+  await browser.waitUntil(async () => {
+    const owner = await electronDesktopE2eApplicationShortcutRuntime(windowId);
+    return owner.nativeWindow.activeTabId === tabId && owner.coreWindow.activeTabId === tabId;
+  }, { timeout: 20_000, timeoutMsg: "The exact loading tab did not become the native/Core selection" });
   const inspection = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
-  const reference = inspection.surfaces[0]!.bounds;
+  const loading = inspection.surfaces.find(surface => surface.tabId === tabId)!;
+  expect(loading.visible).toBe(true);
+  expect(inspection.surfaces.filter(surface => surface.tabId !== tabId).every(surface => !surface.visible)).toBe(true);
+  const reference = loading.bounds;
   const evidence = await captureWorkspacePixels({ inspection, observeOnly: true, windowEdges: true,
     name: "loading-b-before-navigation-completes", reference, region: reference,
     points: [{ x: reference.x + 5, y: reference.y + reference.height / 2 },
       { x: reference.x + reference.width - 5, y: reference.y + reference.height / 2 }] });
   for (const [r, g, b] of evidence.samples) {
-    expect(r! < 100 && g! < 100 && b! < 100).toBe(true);
+    if (platform === "windows" && inspection.native.workspaceBackground === "material") {
+      // Mica follows Windows appearance; light Mica is not a white compositor
+      // flash or the saturated green ready sibling behind this loading view.
+      expect(Math.max(r!, g!, b!)).toBeLessThan(255);
+      expect(Math.max(r!, g!, b!) - Math.min(r!, g!, b!)).toBeLessThan(40);
+    } else expect(r! < 100 && g! < 100 && b! < 100).toBe(true);
   }
 }

@@ -110,7 +110,9 @@ export interface ChromiumRuntimeLayoutPort {
   ) => Promise<ReadonlyMap<string, ChromiumRoleSurfaceBounds>>;
   resolveWorkspaceLayout?: (
     tab: EmbeddedTabEffectRecord,
-    host: ChromiumRuntimeHostPort
+    host: ChromiumRuntimeHostPort,
+    /** One native viewport shared by all tabs in a window projection. */
+    contentBounds?: ChromiumRoleSurfaceBounds
   ) => Promise<ChromiumRuntimeResolvedWorkspaceLayout>;
 }
 

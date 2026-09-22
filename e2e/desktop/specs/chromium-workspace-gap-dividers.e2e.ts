@@ -336,9 +336,17 @@ async function dragDivider(input: Readonly<{
       windowId: input.windowId
     });
   } else {
+    const current = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
+    const bounds = current.surfaces.filter(surface => surface.visible).map(surface => surface.bounds);
+    if (bounds.length === 0) throw new Error("The divider has no visible Workspace geometry");
+    const extent = input.axis === "horizontal"
+      ? Math.max(...bounds.map(b => b.y + b.height)) - Math.min(...bounds.map(b => b.y))
+      : Math.max(...bounds.map(b => b.x + b.width)) - Math.min(...bounds.map(b => b.x));
     await dragWindowsVisibleWorkspaceDivider(input.mainWindowHandle, {
       ...request,
-      deltaCssPixels: input.delta ?? 192,
+      // Earlier native resize cases may leave a minimum-height host. Keep the
+      // Website document below its toolbar and labels available for pixel proof.
+      deltaCssPixels: input.delta ?? Math.round(extent * 0.15),
       windowId: input.windowId
     });
   }
@@ -493,6 +501,9 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
           await activateWindowsRuntimeTabWhileLoading({ processId: (await electronDesktopE2eProbe()).processId,
             loadingTabName: workspaceB.name, selectedTabName: selected === loadingTabId ? workspaceB.name : WORKSPACE_NAME });
         }
+        await browser.waitUntil(async () => (await rendererCall("getEmbeddedRuntimeState")).windows
+          .find(window => window.id === gameWindow.id)?.activeTabId === selected,
+        { timeout: 20_000, timeoutMsg: `The loading-sibling switch did not select exact tab ${selected}` });
       }
       resizedWhileLoadingWidth = await resizeWorkspaceWithLoadingSibling(gameWindow.id, launched.tabId);
       expect((await rendererCall("getEmbeddedRuntimeState")).windows.find(w => w.id === gameWindow.id)?.activeTabId).toBe(launched.tabId);
@@ -573,6 +584,7 @@ async function restartPhase(): Promise<void> {
   expect(persistedTab?.workspaceSlots).toHaveLength(3);
   expect(persistedTab?.workspaceSlots?.[0]?.rect.width).not.toBe(0.5);
   expect(persistedTab?.workspaceSlots?.[1]?.rect.height).not.toBe(0.5);
+  expect(gameWindow.activeTabId).toBe(persistedTab!.id);
 
   const current = await rendererCall("getEmbeddedRuntimeState");
   if (!current.windows.some((window) => window.id === gameWindow.id && window.visible)) {
@@ -587,10 +599,16 @@ async function restartPhase(): Promise<void> {
       candidate.windowId === gameWindow.id && candidate.sourceId === workspace.id
     );
     if (tab) tabId = tab.id;
-    return Boolean(tab) && runtime.windows.some((window) =>
-      window.id === gameWindow.id && window.visible
-    );
-  }, { timeout: 45_000, timeoutMsg: "The saved three-slot Workspace did not restore" });
+    // A mounts before the rest of the saved cohort. The restore operation then
+    // admits B and finally restores A's saved selection; A's first geometry is
+    // not the completion boundary for the whole window.
+    const window = runtime.windows.find(candidate => candidate.id === gameWindow.id);
+    const tabs = runtime.tabs.filter(candidate => candidate.windowId === gameWindow.id);
+    return Boolean(tab) && window?.visible === true && window.activeTabId === tabId &&
+      !window.projectionPending && tabs.length === gameWindow.tabs.length &&
+      gameWindow.tabs.every(saved => tabs.some(live => live.id === saved.id)) &&
+      !runtime.savedWindows?.some(saved => saved.id === gameWindow.id && saved.state === "restoring");
+  }, { timeout: 45_000, timeoutMsg: "The saved Workspace cohort and active selection did not restore" });
   const restored = await waitForExactGap({
     gap: 16,
     primaryRoleId: primary.id,
@@ -603,8 +621,7 @@ async function restartPhase(): Promise<void> {
 }
 
 describe("Chromium live Workspace gap and paired dividers", () => {
-  it("projects a live 1px to 16px update and persists both native divider axes", async function () {
-    this.timeout(20 * 60_000);
+  it("projects a live 1px to 16px update and persists both native divider axes", async () => {
     const platform = await preparePhase();
     const phase = required("RION_STUDIO_E2E_PHASE");
     if (phase === "chromium-workspace-gap-dividers-seed") {

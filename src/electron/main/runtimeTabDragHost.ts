@@ -10,7 +10,7 @@ export interface RuntimeTabDragHostPort {
   contains: (point: DragPoint) => boolean;
   anchor: (tabId: string, ratio: DragPoint) => DragPoint;
   before: (point: DragPoint, tabId: string, tabIds: readonly string[]) => string | undefined;
-  position: (sessionId: string, bounds: LayoutBounds, held: boolean) => void;
+  position: (sessionId: string, bounds: LayoutBounds, held: boolean) => void | Promise<void>;
   release: (sessionId: string) => void;
 }
 
@@ -27,6 +27,7 @@ export function createRuntimeTabDragHost(input: Readonly<{
   anchor: RuntimeTabDragHostPort["anchor"];
   before?: RuntimeTabDragHostPort["before"];
   ready?: RuntimeTabDragHostPort["ready"];
+  onPositioned?: () => Promise<void>;
 }>): RuntimeTabDragHostPort {
   let lease: string | null = null;
   return {
@@ -55,6 +56,7 @@ export function createRuntimeTabDragHost(input: Readonly<{
       input.native.setIgnoreMouseEvents(held);
       input.native.setBounds(bounds);
       input.native.showInactive();
+      return input.onPositioned?.();
     },
     release: sessionId => {
       if (lease !== sessionId) return;

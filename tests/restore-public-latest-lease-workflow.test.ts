@@ -4,15 +4,6 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const WORKFLOW_PATH = ".github/workflows/restore-public-latest.yml";
-const EXACT_ASSETS = [
-  "Rion.Studio-mac.app.tar.gz",
-  "Rion.Studio-mac.app.tar.gz.sig",
-  "Rion.Studio-mac.dmg",
-  "Rion.Studio-win.exe",
-  "Rion.Studio-win.exe.sig",
-  "SHA256SUMS.txt",
-  "latest.json"
-];
 
 describe("public latest restore durable lease workflow", () => {
   it("runs only from the trusted manual main control plane", async () => {
@@ -47,7 +38,7 @@ describe("public latest restore durable lease workflow", () => {
     expect(source).not.toContain("--path");
   });
 
-  it("captures source, target, and fresh readback through release IDs and seven exact assets", async () => {
+  it("captures source, target, and fresh readback through release IDs and exact current or legacy assets", async () => {
     const source = await workflow();
     const capture = step(source, "Capture exact source and target snapshots by immutable release ID");
     const readback = step(source, "Always capture and classify a fresh latest readback");
@@ -68,14 +59,13 @@ describe("public latest restore durable lease workflow", () => {
     expect(capture).toContain("--require-supported-source");
     expect(source).not.toContain("gh release download");
 
-    for (const asset of EXACT_ASSETS) {
-      expect(capture).toContain(asset);
-      expect(readback).toContain(asset);
-    }
+    expect(capture).toContain("--require-electron --allow-published-without-source");
     for (const block of [capture, readback]) {
       expect(block).toContain("releases/assets/${asset_id}");
       expect(block).toContain("'[.assets[] | select(.name == $name)] | length'");
-      expect(block).toContain("'.assets | length'");
+      expect(block).toContain("node scripts/publicReleaseAssetInventory.mjs");
+      expect(block).toContain('--allow-legacy)"');
+      expect(block).toContain('mapfile -t asset_names <<< "${inventory}"');
     }
     expect(readback).toContain("if: ${{ always() }}");
     expect(readback).toContain('classification = "unknown"');

@@ -37,6 +37,22 @@ afterEach(async () => {
 });
 
 describe("Electron production public latest snapshot", () => {
+  it("binds corresponding source in the snapshot, candidate receipt and checksum inventory", async () => {
+    const fixture = await createFixture({ includeSourceArchive: true, version: "9.1.0" });
+    const input = { assetDirectory: fixture.assetDirectory, release: fixture.release,
+      candidateReceiptPath: fixture.candidateReceiptPath,
+      candidateReceiptSha256: fixture.candidateReceiptSha256 };
+    const snapshot = await createElectronProductionPublicLatestSnapshot(input);
+    expect(snapshot.assets).toHaveLength(8);
+    expect(snapshot.assets.find(asset => asset.name === "Rion.Studio-source.tar.gz")?.digest)
+      .toBe(`sha256:${fixture.assetSha256["Rion.Studio-source.tar.gz"]}`);
+    expect(assertElectronProductionPublicLatestSnapshot(JSON.parse(
+      serializeElectronProductionPublicLatestSnapshot(snapshot).toString("utf8"))))
+      .toEqual(snapshot);
+    await writeFile(path.join(fixture.assetDirectory, "Rion.Studio-source.tar.gz"), "tampered source");
+    await expect(createElectronProductionPublicLatestSnapshot(input)).rejects.toThrow("Rion.Studio-source.tar.gz");
+  });
+
   it("canonically binds a GitHub latest release to all assets and its candidate receipt", async () => {
     const fixture = await createFixture({ reverseReleaseAssets: true });
     const snapshot = await createElectronProductionPublicLatestSnapshot({
@@ -444,6 +460,7 @@ async function createFixture(options: Readonly<{
   idBase?: number;
   includeCandidateReceipt?: boolean;
   includeManifestDigests?: boolean;
+  includeSourceArchive?: boolean;
   isLatest?: boolean;
   reverseReleaseAssets?: boolean;
   version?: string;
@@ -491,6 +508,7 @@ async function createFixture(options: Readonly<{
     ),
     "latest.json": Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)
   };
+  if (options.includeSourceArchive) sources["Rion.Studio-source.tar.gz"] = Buffer.from(`source-${version}\n`);
   const checksumNames = Object.keys(sources).sort();
   sources["SHA256SUMS.txt"] = Buffer.from(
     `${checksumNames.map((name) => `${sha256(sources[name]!)}  ${name}`).join("\n")}\n`
@@ -499,7 +517,7 @@ async function createFixture(options: Readonly<{
     writeFile(path.join(assetDirectory, name), source, { flag: "wx" })
   ));
   const assetSha256 = Object.fromEntries(
-    ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES.map((name) =>
+    Object.keys(sources).sort().map((name) =>
       [name, sha256(sources[name]!)]
     )
   );
@@ -512,7 +530,7 @@ async function createFixture(options: Readonly<{
   );
   const candidateReceiptSha256 = sha256(await readFile(candidateReceiptPath));
   const tag = `v${version}`;
-  const releaseAssets = ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES.map((name, index) => ({
+  const releaseAssets = Object.keys(sources).sort().map((name, index) => ({
     bytes: sources[name]!.length,
     contentType: contentType(name),
     digest: `sha256:${assetSha256[name]}` as const,

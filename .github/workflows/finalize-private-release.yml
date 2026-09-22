@@ -160,6 +160,7 @@ jobs:
             Rion.Studio-mac.dmg
             Rion.Studio-win.exe
             Rion.Studio-win.exe.sig
+            Rion.Studio-source.tar.gz
             SHA256SUMS.txt
             latest.json
           )
@@ -167,8 +168,8 @@ jobs:
             > private-release-before-upload.json
           test "$(jq -r .tag_name private-release-before-upload.json)" = "${TAG}"
           jq -e --argjson allowed \
-            '["Rion.Studio-mac.app.tar.gz","Rion.Studio-mac.app.tar.gz.sig","Rion.Studio-mac.dmg","Rion.Studio-win.exe","Rion.Studio-win.exe.sig","SHA256SUMS.txt","latest.json"]' \
-            '(.assets | length) <= 7 and
+            '["Rion.Studio-mac.app.tar.gz","Rion.Studio-mac.app.tar.gz.sig","Rion.Studio-mac.dmg","Rion.Studio-win.exe","Rion.Studio-win.exe.sig","Rion.Studio-source.tar.gz","SHA256SUMS.txt","latest.json"]' \
+            '(.assets | length) <= 8 and
              ([.assets[].name] | length) == ([.assets[].name] | unique | length) and
              all(.assets[]; .name as $name | $allowed | index($name) != null)' \
             private-release-before-upload.json >/dev/null
@@ -194,7 +195,7 @@ jobs:
           done
           gh api "repos/${SOURCE_CONTROL_REPOSITORY}/releases/${RELEASE_ID}" \
             > private-release-after-upload.json
-          test "$(jq '.assets | length' private-release-after-upload.json)" = "7"
+          test "$(jq '.assets | length' private-release-after-upload.json)" = "8"
           mkdir downloaded-assets
           for name in "${asset_names[@]}"; do
             test "$(jq --arg name "${name}" \
@@ -279,7 +280,7 @@ jobs:
           test "$(jq -r .id private-release-final-read.json)" = "${RELEASE_ID}"
           test "$(jq -r .tag_name private-release-final-read.json)" = "${TAG}"
           test "$(jq -r .prerelease private-release-final-read.json)" = "false"
-          test "$(jq '.assets | length' private-release-final-read.json)" = "7"
+          test "$(jq '.assets | length' private-release-final-read.json)" = "8"
           jq -cS '[.assets[] | {
             id: (.id | tostring), name, size, digest, state
           }] | sort_by(.name)' private-release-final-read.json \

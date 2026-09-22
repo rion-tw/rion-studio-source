@@ -74,6 +74,11 @@ acknowledgement and fresh readback rules remain enforced. Ordinary publication
 requires a strictly newer target; latest restoration may select an older verified
 Electron release. Neither path may produce a new Tauri target.
 
+New releases include `Rion.Studio-source.tar.gz` in the exact eight-file public
+inventory and checksum document. Snapshot, readback and restore retain the exact
+seven-file inventory of previously published releases that predate this archive;
+this compatibility does not permit a new candidate to omit corresponding source.
+
 The former four production updater transactions and terminal-promotion receipts
 are no longer execution gates. Existing receipts retain their original semantics:
 fixtures and installer replacement tests do not prove a source updater actually

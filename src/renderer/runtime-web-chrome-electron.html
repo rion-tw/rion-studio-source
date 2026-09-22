@@ -9,22 +9,31 @@
   </head>
   <body>
     <nav aria-label="Web navigation" data-rion-workspace-web-chrome>
-      <button id="back" type="button" aria-label="Back" title="Back" disabled>
-        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m9.5 3-5 5 5 5M5 8h7" /></svg>
-      </button>
-      <button id="forward" type="button" aria-label="Forward" title="Forward" disabled>
-        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m6.5 3 5 5-5 5M11 8H4" /></svg>
-      </button>
-      <button id="reload" type="button" aria-label="Reload" title="Reload">
-        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M13 5V2.5L11.2 4A5.5 5.5 0 1 0 13.4 9" /></svg>
-      </button>
-      <button id="home" type="button" aria-label="Home" title="Home">
-        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m2.5 7 5.5-4.5L13.5 7v6H9.8V9.5H6.2V13H2.5z" /></svg>
-      </button>
-      <span id="navigation-status" role="status" hidden></span>
-      <form id="location-form" novalidate>
-        <input id="location" placeholder="Search or enter an address" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Address" />
+      <div class="navigation-actions">
+        <button id="back" type="button" aria-label="Back" title="Back" disabled>
+          <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m9.5 3-5 5 5 5M5 8h7" /></svg>
+        </button>
+        <button id="forward" type="button" aria-label="Forward" title="Forward" disabled>
+          <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m6.5 3 5 5-5 5M11 8H4" /></svg>
+        </button>
+        <button id="reload" type="button" aria-label="Reload" title="Reload" disabled>
+          <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M13 5V2.5L11.2 4A5.5 5.5 0 1 0 13.4 9" /></svg>
+        </button>
+        <button id="home" type="button" aria-label="Home" title="Home" disabled>
+          <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m2.5 7 5.5-4.5L13.5 7v6H9.8V9.5H6.2V13H2.5z" /></svg>
+        </button>
+      </div>
+      <form id="location-form" data-state="home" novalidate>
+        <span id="address-state" role="img" aria-label="Home" title="Home">
+          <svg class="state-home" aria-hidden="true" viewBox="0 0 16 16"><path d="m2.5 7 5.5-4.5L13.5 7v6H9.8V9.5H6.2V13H2.5z" /></svg>
+          <svg class="state-idle" aria-hidden="true" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" /><ellipse cx="8" cy="8" rx="2.5" ry="5.5" /><path d="M2.5 8h11" /></svg>
+          <svg class="state-loading" aria-hidden="true" viewBox="0 0 16 16"><path d="M8 2.5A5.5 5.5 0 1 1 2.5 8" /></svg>
+          <svg class="state-error" aria-hidden="true" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" /><path d="M8 4.5v4M8 11h.01" /></svg>
+        </span>
+        <input id="location" placeholder="Search or enter an address" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Address" aria-describedby="navigation-status" disabled />
+        <span id="navigation-summary" aria-hidden="true" hidden></span>
       </form>
     </nav>
+    <span id="navigation-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
   </body>
 </html>

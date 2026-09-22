@@ -10,6 +10,7 @@ const productCssPaths = [
   path.join(root, "src", "renderer", "src", "styles.css"),
   path.join(root, "src", "renderer", "src", "boot.css"),
   path.join(root, "src", "renderer", "runtime-windows-host.css"),
+  path.join(root, "src", "renderer", "runtime-web-chrome.css"),
   path.join(root, "src", "shared", "browser-overlay", "macroOverlay.css"),
   path.join(root, "src", "shared", "browser-overlay", "runtimeIndicators.css")
 ];

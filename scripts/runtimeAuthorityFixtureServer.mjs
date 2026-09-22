@@ -1364,6 +1364,7 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (request.method === "GET" && url.pathname === "/web-navigation/fail") {
+      recordFixtureEvent({ kind: "web-navigation-failed", roleId: "workspace-web-navigation" });
       response.destroy();
       return;
     }

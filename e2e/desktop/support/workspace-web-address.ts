@@ -36,16 +36,36 @@ export async function verifyVisibleWorkspaceWebAddress(input: {
       async () => {
         const location = await $("#location");
         await location.waitForDisplayed({ timeout: 10_000 });
+        await location.waitForEnabled({ timeout: 10_000 });
+        await $("#address-state").click();
         await location.click();
         await expect(location).toHaveValue(input.contentUrl);
-        await browser.keys([Key.Ctrl, "a"]);
+        const selected = await browser.execute(() => {
+          const input = document.querySelector<HTMLInputElement>("#location")!;
+          return [input.selectionStart, input.selectionEnd, input.value.length];
+        });
+        expect(selected).toEqual([0, input.contentUrl.length, input.contentUrl.length]);
+        const sizes = await browser.execute(() => ({
+          toolbar: document.querySelector("nav")!.getBoundingClientRect().height,
+          button: document.querySelector("#reload")!.getBoundingClientRect().height,
+          field: document.querySelector("#location-form")!.getBoundingClientRect().height
+        }));
+        expect(sizes).toEqual({ toolbar: 40, button: 30, field: 30 });
         await browser.keys("discard this draft");
+        await expect(location).toHaveValue("discard this draft");
         await browser.action("key").down(Key.Escape).up(Key.Escape).perform();
         await expect(location).toHaveValue(input.contentUrl.replace(/^https:\/\/(?:www\.)?/u, ""));
         await location.click();
         await expect(location).toHaveValue(input.contentUrl);
+        await browser.keys("file:///invalid");
+        await browser.action("key").down(Key.Enter).up(Key.Enter).perform();
+        await expect($("#location-form")).toHaveAttribute("data-state", "invalid");
+        await expect(location).toHaveAttribute("aria-invalid", "true");
+        await expect(location).toHaveValue("file:///invalid");
+        await expect($("#navigation-status")).toHaveText("Enter a valid HTTP or HTTPS address, or a search term.");
         await browser.keys([Key.Ctrl, "a"]);
         await browser.keys("rion 中文 & cats+#");
+        await expect(location).not.toHaveAttribute("aria-invalid", "true");
         await expect(location).toHaveValue("rion 中文 & cats+#");
         await browser.action("key").down(Key.Enter).up(Key.Enter).perform();
       }

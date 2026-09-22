@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { updateWorkspaceWebTheme } from "../src/electron/main/workspaceWebTheme";
+import { updateWorkspaceStartAppearance } from "../src/electron/main/workspaceStartPage";
+import { workspaceWebChromeCopy } from "../src/electron/main/workspaceWebStatus";
 
 import type { GlobalWebProfilePathsRecord } from "../src/shared/generated";
 import {
@@ -363,6 +365,40 @@ describe("Chromium paired Workspace Web presentation", () => {
     await subject.subject.dispose();
     updateWorkspaceWebTheme("light");
   });
+  it.each(["darwin", "win32"] as const)("hydrates, updates and releases localized chrome subscriptions on %s", async platform => {
+    const subject = harness(null, platform);
+    const creation = subject.subject.create(subject.input);
+    await vi.waitFor(() => expect(subject.views).toHaveLength(2));
+    updateWorkspaceStartAppearance({ language: "zh-TW" });
+    const shell = subject.views[0]!.webContents;
+    const content = subject.views[1]!.webContents;
+    shell.finish(shell.loadedUrls[0]!);
+    content.finish("https://fixture.test/start");
+    await creation;
+    expect(shell.sent.at(-1)?.value).toMatchObject({ language: "zh-TW", labels: workspaceWebChromeCopy("zh-TW") });
+    subject.subject.setVisible(subject.input.surfaceId, 1, false);
+    const loadedUrls = [...content.loadedUrls];
+    for (const language of ["zh-CN", "ja", "en"] as const) {
+      updateWorkspaceStartAppearance({ language });
+      expect(shell.sent.at(-1)?.value).toMatchObject({ language, labels: workspaceWebChromeCopy(language) });
+    }
+    expect(content.loadedUrls).toEqual(loadedUrls);
+    expect(content.reload).not.toHaveBeenCalled();
+    const count = shell.sent.length;
+    updateWorkspaceStartAppearance({ language: "en" });
+    expect(shell.sent).toHaveLength(count);
+    shell.sent.length = 0;
+    shell.finish(shell.loadedUrls[0]!);
+    expect(shell.sent.at(-1)?.value).toMatchObject({ language: "en", labels: workspaceWebChromeCopy("en") });
+    shell.close.mockImplementation(() => shell.destroy());
+    content.close.mockImplementation(() => content.destroy());
+    await subject.subject.dispose();
+    const closedCount = shell.sent.length;
+    updateWorkspaceStartAppearance({ language: "ja" });
+    expect(shell.sent).toHaveLength(closedCount);
+    updateWorkspaceStartAppearance({ language: "en" });
+    expect(subject.errors).not.toHaveBeenCalled();
+  });
   it.each(["darwin", "win32"] as const)("retains exact retirement and classifies a missing local chrome document on %s", async platform => {
     const fixture = harness(null, platform);
     const creation = fixture.subject.create(fixture.input);
@@ -438,9 +474,9 @@ describe("Chromium paired Workspace Web presentation", () => {
       isolatedSessions: true,
       containedFullscreen: false,
       containedFullscreenRevision: 0,
-      chromeBounds: { x: 10, y: 20, width: 700, height: 34 },
+      chromeBounds: { x: 10, y: 20, width: 700, height: 40 },
       chromeVisible: true,
-      contentBounds: { x: 10, y: 54, width: 700, height: 466 },
+      contentBounds: { x: 10, y: 60, width: 700, height: 460 },
       contentVisible: true
     });
     expect(shell.windowOpenHandler?.({ url: "https://popup.test" }))
@@ -560,8 +596,8 @@ describe("Chromium paired Workspace Web presentation", () => {
     });
     subject.subject.setVisible("web-tab-1-1", 1, false);
 
-    expect(subject.views[0]!.bounds).toEqual({ x: 40, y: 60, width: 900, height: 34 });
-    expect(subject.views[1]!.bounds).toEqual({ x: 40, y: 94, width: 900, height: 606 });
+    expect(subject.views[0]!.bounds).toEqual({ x: 40, y: 60, width: 900, height: 40 });
+    expect(subject.views[1]!.bounds).toEqual({ x: 40, y: 100, width: 900, height: 600 });
     expect(subject.subject.readProjection("web-tab-1-1", 1)).toEqual({
       bounds: { x: 40, y: 60, width: 900, height: 640 },
       visible: false,
@@ -588,7 +624,7 @@ describe("Chromium paired Workspace Web presentation", () => {
     expect(subject.subject.runtimeEvidence("web-tab-1-1", 1)).toMatchObject({
       containedFullscreen: true,
       containedFullscreenRevision: 1,
-      chromeBounds: { x: 10, y: 20, width: 700, height: 34 },
+      chromeBounds: { x: 10, y: 20, width: 700, height: 40 },
       chromeVisible: false,
       contentBounds: { x: 10, y: 20, width: 700, height: 500 },
       contentVisible: true,
@@ -601,7 +637,7 @@ describe("Chromium paired Workspace Web presentation", () => {
     expect(subject.subject.runtimeEvidence("web-tab-1-1", 1)).toMatchObject({
       containedFullscreen: true,
       containedFullscreenRevision: 1,
-      chromeBounds: { x: 30, y: 40, width: 800, height: 34 },
+      chromeBounds: { x: 30, y: 40, width: 800, height: 40 },
       chromeVisible: false,
       contentBounds: { x: 30, y: 40, width: 800, height: 600 },
       slotBounds: { x: 30, y: 40, width: 800, height: 600 }
@@ -611,9 +647,9 @@ describe("Chromium paired Workspace Web presentation", () => {
     expect(subject.subject.runtimeEvidence("web-tab-1-1", 1)).toMatchObject({
       containedFullscreen: false,
       containedFullscreenRevision: 2,
-      chromeBounds: { x: 30, y: 40, width: 800, height: 34 },
+      chromeBounds: { x: 30, y: 40, width: 800, height: 40 },
       chromeVisible: true,
-      contentBounds: { x: 30, y: 74, width: 800, height: 566 },
+      contentBounds: { x: 30, y: 80, width: 800, height: 560 },
       contentVisible: true,
       slotBounds: { x: 30, y: 40, width: 800, height: 600 }
     });

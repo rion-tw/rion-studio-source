@@ -1,5 +1,5 @@
 import { isWorkspaceStartUrl } from "./workspaceStartPage";
-import type { ResolvedTheme } from "./types";
+import type { AppLanguage, ResolvedTheme } from "./types";
 export const WORKSPACE_WEB_CHROME_ACTION_CHANNEL =
   "rion:workspace-web-chrome:action";
 export const WORKSPACE_WEB_CHROME_STATE_CHANNEL =
@@ -23,6 +23,8 @@ export interface WorkspaceWebChromeAction {
 }
 
 export interface WorkspaceWebChromeState {
+  readonly language: AppLanguage;
+  readonly labels: WorkspaceWebChromeLabels;
   readonly resolvedTheme: ResolvedTheme;
   readonly surfaceId: string;
   readonly generation: number;
@@ -32,6 +34,18 @@ export interface WorkspaceWebChromeState {
   readonly loading?: boolean;
   readonly errorCode?: number;
   readonly statusText?: string;
+}
+
+const labelKeys = [
+  "navigation", "back", "forward", "reload", "home", "address", "placeholder",
+  "website", "loading", "failed", "invalid", "emptyAddress", "invalidAddress"
+] as const;
+
+export type WorkspaceWebChromeLabels = Readonly<Record<typeof labelKeys[number], string>>;
+
+function validLabels(value: unknown): value is WorkspaceWebChromeLabels {
+  return isRecord(value) && exactKeys(value, labelKeys) && labelKeys.every(key =>
+    typeof value[key] === "string" && value[key].trim().length > 0 && value[key].length <= 512);
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -105,11 +119,13 @@ export function parseWorkspaceWebChromeState(
   if (
     !isRecord(value) ||
     !exactKeys(value, [
-      "surfaceId", "generation", "url", "canGoBack", "canGoForward", "resolvedTheme",
+      "surfaceId", "generation", "url", "canGoBack", "canGoForward", "resolvedTheme", "language", "labels",
       ...("loading" in value ? ["loading"] : []),
       ...("errorCode" in value ? ["errorCode"] : []),
       ...("statusText" in value ? ["statusText"] : [])
     ]) ||
+    typeof value.language !== "string" || !["en", "zh-TW", "zh-CN", "ja"].includes(value.language) ||
+    !validLabels(value.labels) ||
     !validIdentifier(value.surfaceId) ||
     !Number.isSafeInteger(value.generation) ||
     (value.generation as number) < 1 ||
@@ -125,6 +141,8 @@ export function parseWorkspaceWebChromeState(
     surfaceId: value.surfaceId,
     generation: value.generation as number,
     url: value.url,
+    language: value.language as AppLanguage,
+    labels: Object.freeze({ ...value.labels }),
     resolvedTheme: value.resolvedTheme,
     canGoBack: value.canGoBack,
     canGoForward: value.canGoForward,

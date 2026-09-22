@@ -19,8 +19,9 @@ export async function expectWorkspaceWebTheme(target: ThemeTarget, theme: Resolv
       const colors = await browser.execute(() => {
         const body = getComputedStyle(document.body);
         const location = getComputedStyle(document.querySelector("#location")!);
+        const field = getComputedStyle(document.querySelector("#location-form")!);
         return { background: body.backgroundColor, foreground: body.color,
-          inputBackground: location.backgroundColor, inputForeground: location.color };
+          inputBackground: field.backgroundColor, inputForeground: location.color };
       });
       const brightness = (color: string) => {
         const channels = color.match(/[\d.]+/gu)!.slice(0, 3).map(Number);
@@ -52,6 +53,25 @@ export async function exerciseWorkspaceWebThemes(target: ThemeTarget): Promise<v
       await browser.execute(() => document.documentElement.dataset.theme) === theme,
     { timeout: 10_000, timeoutMsg: `Settings did not apply ${theme}` });
     await expectWorkspaceWebTheme(target, theme);
+  }
+  let triggerLabel = "Language";
+  for (const [language, option, nextTrigger, home] of [
+    ["zh-TW", "繁體中文", "語言", "首頁"],
+    ["zh-CN", "简体中文", "语言", "首页"],
+    ["ja", "日本語", "言語", "ホーム"],
+    ["en", "English", "Language", "Home"]
+  ]) {
+    await $(`button[aria-label='${triggerLabel}']`).click();
+    const item = await $(`[role='option']=${option}`);
+    await item.waitForClickable({ timeout: 10_000 });
+    await item.click();
+    await $(`button[aria-label='${nextTrigger}']`).waitForDisplayed({ timeout: 10_000 });
+    await withWorkspaceWebChromeTarget(target.chromeShellUrl, target.contentUrl, target.mainWindowHandle, async () => {
+      await expect($("html")).toHaveAttribute("lang", language);
+      await expect($("#home")).toHaveAttribute("aria-label", home);
+      await expect($("#address-state")).toHaveAttribute("title", home);
+    });
+    triggerLabel = nextTrigger;
   }
   await $("button=Back to app").click();
   await $(".app-main-sidebar").waitForDisplayed({ timeout: 10_000 });

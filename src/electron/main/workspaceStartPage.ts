@@ -2,14 +2,20 @@ import page from "../../shared/generated/workspace-start.html?raw";
 import { isWorkspaceStartUrl, WORKSPACE_START_URL, workspaceStartAppearanceScript } from "../../shared/workspaceStartPage";
 import type { ChromiumRoleSessionPort } from "./chromiumRoleSessionRegistry";
 import type { ChromiumRoleSurfaceWebContentsPort } from "./chromiumRoleSurfacePorts";
-import type { ResolvedTheme } from "../../shared/types";
+import type { AppLanguage, ResolvedTheme } from "../../shared/types";
 import { readWorkspaceWebTheme, updateWorkspaceWebTheme } from "./workspaceWebTheme";
 
 const sessions = new WeakSet<ChromiumRoleSessionPort>();
 const contents = new Set<ChromiumRoleSurfaceWebContentsPort>();
-let language = "en";
+let language: AppLanguage = "en";
+const languageListeners = new Set<() => void>();
 
-export function readWorkspaceWebLanguage(): string { return language; }
+export function readWorkspaceWebLanguage(): AppLanguage { return language; }
+
+export function subscribeWorkspaceWebLanguage(listener: () => void): () => void {
+  languageListeners.add(listener);
+  return () => { languageListeners.delete(listener); };
+}
 
 export function installWorkspaceStartProtocol(session: ChromiumRoleSessionPort): void {
   if (sessions.has(session)) return;
@@ -41,8 +47,11 @@ export function observeWorkspaceStartPage(target: ChromiumRoleSurfaceWebContents
   target.on("destroyed", destroyed);
 }
 
-export function updateWorkspaceStartAppearance(patch: { language?: string; theme?: ResolvedTheme }): void {
+export function updateWorkspaceStartAppearance(patch: { language?: AppLanguage; theme?: ResolvedTheme }): void {
+  const languageChanged = patch.language !== undefined && language !== patch.language;
   language = patch.language ?? language;
   if (patch.theme !== undefined) updateWorkspaceWebTheme(patch.theme);
+  // EventBound: only the acknowledged language setting publishes new chrome copy.
+  if (languageChanged) for (const listener of languageListeners) listener();
   for (const target of contents) apply(target);
 }

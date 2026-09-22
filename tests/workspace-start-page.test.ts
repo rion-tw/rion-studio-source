@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { workspaceWebChromeCopy } from "../src/electron/main/workspaceWebStatus";
 import { pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -49,7 +50,7 @@ describe("packaged website entrance", () => {
     expect(isWorkspaceStartUrl(nativeUrl)).toBe(platform === "macos");
     expect(isWorkspaceStartUrl(`${WORKSPACE_START_URL}?injected=1`)).toBe(false);
     const identity = { surfaceId: "web-1", generation: 1 };
-    expect(parseWorkspaceWebChromeState({ ...identity, url: WORKSPACE_START_URL, canGoBack: false, canGoForward: false, resolvedTheme: "light" })).not.toBeNull();
+    expect(parseWorkspaceWebChromeState({ ...identity, url: WORKSPACE_START_URL, canGoBack: false, canGoForward: false, resolvedTheme: "light", language: "en", labels: workspaceWebChromeCopy("en") })).not.toBeNull();
     expect(parseWorkspaceWebChromeAction({ ...identity, type: "navigate", url: WORKSPACE_START_URL })).toBeNull();
     expect(resolveWorkspaceWebAddress(WORKSPACE_START_URL)).toBeNull();
   });

@@ -61,11 +61,16 @@ A workspace slot contains exactly one of a Role, a Website, or nothing. A
 Website has no configurable name or start URL. Missing `web.lastUrl` resolves to
 the packaged `rion-start://home/` entrance; otherwise launch resumes the last
 successfully committed canonical HTTP(S) main-frame URL. Home always returns to
-the Rion entrance and clears `lastUrl`. Each Website owns a separate 34
+the Rion entrance and clears `lastUrl`. Each Website owns a separate 40
 logical-pixel local chrome WebContentsView above its remote content
 WebContentsView. That sibling exposes Back, Forward, Reload, Home, and an
-editable HTTP(S) URL. A missing scheme becomes `https://`; arbitrary search text
-and non-HTTP(S) schemes are rejected. The website DOM never contains Rion chrome,
+editable HTTP(S) URL/search field. A missing URL scheme becomes `https://`;
+search text resolves to an encoded Google search, while non-HTTP(S) schemes and
+credential-bearing URLs are rejected. Localized loading and failure indicators
+follow exact native navigation events. Reload remains available while loading.
+The first undragged mouse click into an unfocused address selects the full URL;
+subsequent clicks and drags retain native selection behavior. No new keyboard
+shortcuts or Tab interception are installed. The website DOM never contains Rion chrome,
 while tab audio and window zoom continue through the shared native projection.
 
 Workspace Websites are single-surface browsers and never create in-slot tabs.

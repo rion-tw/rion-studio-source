@@ -1,3 +1,4 @@
+import { workspaceWebChromeCopy } from "../src/electron/main/workspaceWebStatus";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -55,7 +56,8 @@ describe("Workspace Web chrome shared contract", () => {
       url: "https://fixture.test/start",
       canGoBack: false,
       canGoForward: true,
-      resolvedTheme: "light"
+      resolvedTheme: "light",
+      language: "en", labels: workspaceWebChromeCopy("en")
     };
     expect(parseWorkspaceWebChromeState(state)).toEqual(state);
     expect(parseWorkspaceWebChromeState({ ...state, resolvedTheme: "dark" }))
@@ -68,5 +70,17 @@ describe("Workspace Web chrome shared contract", () => {
       .toBeNull();
     expect(parseWorkspaceWebChromeState({ ...state, unexpected: "field" }))
       .toBeNull();
+    for (const language of [undefined, null, "fr", {}, 1]) {
+      expect(parseWorkspaceWebChromeState({ ...state, language })).toBeNull();
+    }
+    for (const labels of [undefined, null, {}, { ...state.labels, back: "" },
+      { ...state.labels, back: 1 }, { ...state.labels, back: "x".repeat(513) },
+      { ...state.labels, injected: "extra" }]) {
+      expect(parseWorkspaceWebChromeState({ ...state, labels })).toBeNull();
+    }
+    for (const language of ["en", "zh-TW", "zh-CN", "ja"] as const) {
+      const localized = { ...state, language, labels: workspaceWebChromeCopy(language) };
+      expect(parseWorkspaceWebChromeState(localized)).toEqual(localized);
+    }
   });
 });

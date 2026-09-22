@@ -2,12 +2,14 @@
 
 import { ipcRenderer } from "electron";
 import { installWorkspaceWebAddress } from "../../shared/workspaceWebAddress";
+import { renderWorkspaceWebChrome } from "../../shared/workspaceWebChromePresentation";
 
 import {
   WORKSPACE_WEB_CHROME_ACTION_CHANNEL,
   WORKSPACE_WEB_CHROME_STATE_CHANNEL,
   parseWorkspaceWebChromeAction,
-  parseWorkspaceWebChromeState
+  parseWorkspaceWebChromeState,
+  type WorkspaceWebChromeState
 } from "../../shared/workspaceWebChrome";
 import {
   RUNTIME_ROLE_PLACEHOLDER_CHANNEL,
@@ -21,6 +23,8 @@ import {
 let identity: Readonly<{ surfaceId: string; generation: number }> | null = null;
 let committedUrl = "";
 let applyAddress: ((url: string) => void) | undefined;
+let latestState: WorkspaceWebChromeState | null = null;
+let validation: "empty" | "invalid" | null = null;
 
 function elements() {
   return {
@@ -55,25 +59,11 @@ ipcRenderer.on(
       surfaceId: state.surfaceId,
       generation: state.generation
     });
-    document.documentElement.dataset.theme = state.resolvedTheme;
-    document.documentElement.style.colorScheme = state.resolvedTheme;
+    latestState = state;
     const navigationChanged = committedUrl !== state.url;
     committedUrl = state.url;
-    const status = document.querySelector<HTMLElement>("#navigation-status");
-    if (status) {
-      status.textContent = state.statusText ?? "";
-      status.title = state.statusText ?? "";
-      status.hidden = !state.statusText;
-      status.dataset.failed = String(state.errorCode !== undefined);
-    }
-    document.querySelector("nav")?.setAttribute("aria-busy", String(state.loading === true));
-    const controls = elements();
-    if (navigationChanged) {
-      applyAddress?.(state.url);
-      controls.location?.removeAttribute("aria-invalid");
-    }
-    if (controls.back) controls.back.disabled = !state.canGoBack;
-    if (controls.forward) controls.forward.disabled = !state.canGoForward;
+    if (navigationChanged) applyAddress?.(state.url);
+    renderWorkspaceWebChrome(state, validation);
   }
 );
 
@@ -89,9 +79,13 @@ window.addEventListener("DOMContentLoaded", () => {
   controls.home?.addEventListener("click", () => send("home"));
   if (controls.location && controls.form) {
     applyAddress = installWorkspaceWebAddress(controls.location, controls.form,
-      (url) => send("navigate", url));
+      (url) => send("navigate", url), (reason) => {
+        validation = reason;
+        if (latestState) renderWorkspaceWebChrome(latestState, validation);
+      });
     applyAddress(committedUrl);
   }
+  if (latestState) renderWorkspaceWebChrome(latestState, validation);
 });
 
 function installRuntimeRolePlaceholder(): void {

@@ -1,5 +1,6 @@
 import { createTransparentRuntimeView } from "./transparentRuntimeView";
-import { workspaceWebStatus } from "./workspaceWebStatus";
+import { workspaceWebChromeCopy, workspaceWebStatus } from "./workspaceWebStatus";
+import { readWorkspaceWebLanguage, subscribeWorkspaceWebLanguage } from "./workspaceStartPage";
 import { WORKSPACE_START_URL } from "../../shared/workspaceStartPage";
 import { readWorkspaceWebTheme, subscribeWorkspaceWebTheme } from "./workspaceWebTheme";
 import { pathToFileURL } from "node:url";
@@ -33,7 +34,7 @@ import {
 } from "./chromiumGlobalWebSurfaceRegistry";
 import { buildRemoteContentWebPreferences } from "./security";
 
-export const CHROMIUM_WORKSPACE_WEB_CHROME_HEIGHT = 34;
+export const CHROMIUM_WORKSPACE_WEB_CHROME_HEIGHT = 40;
 
 type PresentationState = "open" | "draining" | "disposed";
 type ChromeState = "opening" | "active" | "closing" | "quarantined";
@@ -103,7 +104,7 @@ interface ChromeListeners {
 }
 
 interface ChromeRecord {
-  readonly unsubscribeTheme: () => void;
+  readonly unsubscribeAppearance: () => void;
   readonly surfaceId: string;
   readonly chromeSurfaceId: string;
   readonly slotId: string;
@@ -635,7 +636,7 @@ export class ChromiumGlobalWebPresentationRegistry {
       destroyed,
       loaded,
       listeners: undefined as unknown as ChromeListeners,
-      unsubscribeTheme: () => {},
+      unsubscribeAppearance: () => {},
       parent: input.parent,
       slotBounds: Object.freeze({ ...input.bounds }),
       visible: input.visible,
@@ -651,7 +652,7 @@ export class ChromiumGlobalWebPresentationRegistry {
     record.listeners = {
       destroyed: () => {
         record.destroyedObserved = true;
-        record.unsubscribeTheme();
+        record.unsubscribeAppearance();
         if (!record.loadSettled) {
           record.loadSettled = true;
           record.loaded.reject(presentationError(
@@ -686,7 +687,10 @@ export class ChromiumGlobalWebPresentationRegistry {
         if (destination !== this.#documentUrl) event.preventDefault();
       }
     };
-    record.unsubscribeTheme = subscribeWorkspaceWebTheme(() => this.#refreshChromeState(record));
+    const refresh = () => this.#refreshChromeState(record);
+    const unsubscribeTheme = subscribeWorkspaceWebTheme(refresh);
+    const unsubscribeLanguage = subscribeWorkspaceWebLanguage(refresh);
+    record.unsubscribeAppearance = () => { unsubscribeTheme(); unsubscribeLanguage(); };
     return record;
   }
 
@@ -785,7 +789,7 @@ export class ChromiumGlobalWebPresentationRegistry {
   }
 
   #removeListeners(record: ChromeRecord): void {
-    record.unsubscribeTheme();
+    record.unsubscribeAppearance();
     record.contents.removeListener("destroyed", record.listeners.destroyed);
     record.contents.removeListener("did-finish-load", record.listeners.didFinishLoad);
     record.contents.removeListener("did-fail-load", record.listeners.didFailLoad);
@@ -1020,6 +1024,8 @@ export class ChromiumGlobalWebPresentationRegistry {
       generation: record.generation,
       url: evidence.currentUrl,
       resolvedTheme: readWorkspaceWebTheme(),
+      language: readWorkspaceWebLanguage(),
+      labels: workspaceWebChromeCopy(readWorkspaceWebLanguage()),
       canGoBack: evidence.canGoBack,
       canGoForward: evidence.canGoForward,
       loading: evidence.loading,

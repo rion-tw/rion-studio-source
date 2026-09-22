@@ -22,27 +22,44 @@ export function resolveWorkspaceWebAddress(value: string): string | null {
     /^\[[^\]]+\](?::\d+)?$/u.test(host) ||
     /^[^\s:@]+\.[^\s:@]+(?::\d+)?$/u.test(host)
   )) return canonicalWorkspaceWebUrl(input);
-  return `https://www.google.com/search?q=${encodeURIComponent(input)}`;
+  return canonicalWorkspaceWebUrl(`https://www.google.com/search?q=${encodeURIComponent(input)}`);
 }
 
 /** Local editing state follows authoritative navigation events without polling. */
 export function installWorkspaceWebAddress(
   input: HTMLInputElement,
   form: HTMLFormElement,
-  navigate: (url: string) => void
+  navigate: (url: string) => void,
+  validationChanged: (reason: "empty" | "invalid" | null) => void = () => {}
 ): (url: string) => void {
   let committedUrl = "";
   let composing = false;
+  let firstPointer: { x: number; y: number; dragged: boolean } | null = null;
   const clearError = () => {
     input.removeAttribute("aria-invalid");
     input.removeAttribute("title");
+    validationChanged(null);
   };
   const restore = () => {
     input.value = displayWorkspaceWebUrl(committedUrl);
     clearError();
   };
   input.addEventListener("focus", () => { input.value = isWorkspaceStartUrl(committedUrl) ? "" : committedUrl; });
-  input.addEventListener("blur", restore);
+  input.addEventListener("pointerdown", (event) => {
+    firstPointer = event.button === 0 && document.activeElement !== input
+      ? { x: event.clientX, y: event.clientY, dragged: false } : null;
+  });
+  input.addEventListener("pointermove", (event) => {
+    if (firstPointer && Math.hypot(event.clientX - firstPointer.x, event.clientY - firstPointer.y) > 4) {
+      firstPointer.dragged = true;
+    }
+  });
+  input.addEventListener("pointercancel", () => { firstPointer = null; });
+  input.addEventListener("click", (event) => {
+    if (firstPointer && !firstPointer.dragged && event.detail === 1) input.select();
+    firstPointer = null;
+  });
+  input.addEventListener("blur", () => { firstPointer = null; restore(); });
   input.addEventListener("input", clearError);
   input.addEventListener("compositionstart", () => { composing = true; });
   input.addEventListener("compositionend", () => { composing = false; });
@@ -62,6 +79,7 @@ export function installWorkspaceWebAddress(
     const destination = resolveWorkspaceWebAddress(input.value);
     if (!destination) {
       input.setAttribute("aria-invalid", "true");
+      validationChanged(input.value.trim() ? "invalid" : "empty");
       return;
     }
     clearError();
@@ -69,7 +87,6 @@ export function installWorkspaceWebAddress(
   });
   return (url) => {
     committedUrl = url;
-    if (document.activeElement !== input) input.value = displayWorkspaceWebUrl(url);
-    clearError();
+    if (document.activeElement !== input) restore();
   };
 }

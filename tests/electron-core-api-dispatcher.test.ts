@@ -1,6 +1,7 @@
 import type { CoreCommand } from "../src/shared/generated";
 import { describe, expect, it, vi } from "vitest";
 import { readWorkspaceWebTheme, subscribeWorkspaceWebTheme, updateWorkspaceWebTheme } from "../src/electron/main/workspaceWebTheme";
+import { readWorkspaceWebLanguage, subscribeWorkspaceWebLanguage, updateWorkspaceStartAppearance } from "../src/electron/main/workspaceStartPage";
 
 import {
   createElectronCoreApiDispatcher,
@@ -96,6 +97,32 @@ function runtimeActionHarness() {
 }
 
 describe("Electron Core-backed API dispatcher", () => {
+  it.each(["macos", "windows"])("publishes website chrome language only after acknowledgement on %s", async (_platform) => {
+    updateWorkspaceStartAppearance({ language: "en" });
+    const changed = vi.fn();
+    const unsubscribe = subscribeWorkspaceWebLanguage(changed);
+    const h = harness();
+    let acknowledge!: () => void;
+    h.coreInvoke.mockImplementationOnce(async command => {
+      if (command.type === "logsStatus") return { marker: "log-status" };
+      await new Promise<void>(resolve => { acknowledge = resolve; });
+      return { command };
+    });
+    try {
+      const pending = h.dispatcher.invoke(identity, "setOverlayLanguage", ["zh-TW"]);
+      expect(readWorkspaceWebLanguage()).toBe("en");
+      expect(changed).not.toHaveBeenCalled();
+      acknowledge(); await pending;
+      expect(readWorkspaceWebLanguage()).toBe("zh-TW");
+      expect(changed).toHaveBeenCalledOnce();
+      h.coreInvoke.mockRejectedValueOnce(new Error("setting rejected"));
+      await expect(h.dispatcher.invoke(identity, "setOverlayLanguage", ["ja"])).rejects.toThrow("setting rejected");
+      expect(readWorkspaceWebLanguage()).toBe("zh-TW");
+      expect(changed).toHaveBeenCalledOnce();
+    } finally {
+      unsubscribe(); updateWorkspaceStartAppearance({ language: "en" });
+    }
+  });
   it.each(["macos", "windows"])("publishes a theme only after Core acknowledges it on %s", async (_platform) => {
     updateWorkspaceWebTheme("light");
     const changed = vi.fn();

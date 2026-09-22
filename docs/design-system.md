@@ -135,6 +135,15 @@ no runtime favicon service is used.
   through its exact local-shell state. Open and hidden rows follow acknowledged
   setting events; new or reloaded rows receive the current theme. Shared tokens
   style the controls without reloading website content or changing address drafts.
+- The Website navigation row is 40px high with token-owned 30px controls,
+  14px icons, and an 8px-radius inset address field. Its fixed leading icon
+  distinguishes home, website, loading and failure; short status text appears
+  from 520px row width, with complete localized descriptions available at every
+  width. Very narrow slots scroll the navigation-button group horizontally
+  while reserving an editable address field. Validation errors take precedence
+  over navigation failure and loading. Motion and transparency preferences are
+  respected. Four-locale labels follow acknowledged language-setting events,
+  preserving drafts and selection just like theme changes.
 - The macOS native tab controller does not receive theme; its appearance and API
   remain unchanged.
 - Shadow DOM overlays use the same token names, but `:host` fixes a high-contrast

@@ -83,13 +83,13 @@ describe("macOS retained AppKit workspace-divider projection", () => {
     });
   });
 
-  it("does not rewrite an unchanged divider projection", () => {
+  it("repairs native stacking on an unchanged projection and preserves rollback", () => {
     const state = createMacosAppKitWorkspaceDividerProjectionState();
-    const apply = vi.fn((revision: string, bounds, dividers) => ({
-      projectionRevision: revision,
-      dividerCount: dividers.length,
-      contentBounds: { ...bounds }
-    }));
+    let backgroundCoversContent: boolean;
+    const apply = vi.fn((revision: string, bounds, dividers) => {
+      backgroundCoversContent = false;
+      return { projectionRevision: revision, dividerCount: dividers.length, contentBounds: { ...bounds } };
+    });
     prepareMacosAppKitWorkspaceDividerProjection({
       identity,
       projection: projection(),
@@ -105,11 +105,16 @@ describe("macOS retained AppKit workspace-divider projection", () => {
       apply
     });
 
+    // Chromium can reorder native siblings after a content attachment while
+    // every Core geometry/appearance field remains unchanged.
+    backgroundCoversContent = true;
     replay.commit();
+    expect(backgroundCoversContent).toBe(false);
+    expect(apply).toHaveBeenCalledTimes(2);
     replay.rollback();
 
-    expect(apply).toHaveBeenCalledOnce();
-    expect(state).toMatchObject({ nativeRevision: 1, version: 1 });
+    expect(apply).toHaveBeenCalledTimes(3);
+    expect(state).toMatchObject({ nativeRevision: 3, version: 3 });
   });
 
   it("applies both axes against the one Core-projected content bounds", () => {

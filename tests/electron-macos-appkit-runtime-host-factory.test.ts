@@ -279,10 +279,14 @@ describe("macOS AppKit Chromium runtime host", () => {
     });
   });
 
-  it("does not rewrite an unchanged native tab projection for a layout event", async () => {
+  it("accepts attachment layout without rewriting tabs or emitting a layout feedback loop", async () => {
     const fixture = new Fixture();
     const launchTarget = target();
     const host = await fixture.factory.create(launchTarget, tab(launchTarget));
+    await admitHost(host);
+    fixture.onLayout.mockClear();
+    host.notifySurfaceAttachment?.();
+    expect(fixture.onLayout).toHaveBeenCalledOnce();
     const priorProjects = fixture.order.filter((item) =>
       item === "controller-project"
     ).length;
@@ -309,9 +313,11 @@ describe("macOS AppKit Chromium runtime host", () => {
 
     transaction.commit();
     transaction.finalize?.();
+    await Promise.resolve();
 
     expect(fixture.order.filter((item) => item === "controller-project"))
       .toHaveLength(priorProjects);
+    expect(fixture.onLayout).toHaveBeenCalledOnce();
   });
 
   it("restores the verified native phase projection after readback failure", async () => {

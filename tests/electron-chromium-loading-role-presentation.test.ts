@@ -4,6 +4,31 @@ import { createTab, harness, loadRoles } from "./support/electronChromiumRuntime
 import { effect, tab } from "./support/electronChromiumRuntimeEffectFixtures";
 
 describe.each(["macos", "windows"] as const)("%s mounted loading Role", platform => {
+  it("publishes one AppKit layout after mount visibility, before navigation completes", async () => {
+    let attach!: () => void, complete!: () => void;
+    const navigation = new Promise<void>(resolve => { complete = resolve; });
+    const subject = harness(async input => {
+      attach = () => input.onAttached?.();
+      await navigation;
+      return { roleId: input.roleId, generation: input.generation, parentId: input.parent.id, url: input.url };
+    }, platform);
+    const specification = tab();
+    await createTab(subject, specification);
+    const host = subject.hosts[0]!;
+    host.notifySurfaceAttachment.mockImplementation(() => {
+      expect(subject.setVisible).toHaveBeenLastCalledWith("role-1", 1, host.isVisible());
+      expect(subject.executor.snapshot().roles).toEqual([]);
+    });
+    const load = await subject.executor.execute(effect("tab-1", { type: "embeddedLoadRoles",
+      roles: [{ roleId: "role-1", resolvedEngine: "chromium", url: specification.roles[0]!.role.launchUrl, zoomFactor: 1 }] }));
+    if (!isCoreEffectEventContinuation(load)) throw new Error("missing loading continuation");
+    expect(host.notifySurfaceAttachment).not.toHaveBeenCalled();
+    attach(); attach();
+    expect(host.notifySurfaceAttachment).toHaveBeenCalledTimes(platform === "macos" ? 1 : 0);
+    complete(); await load.completion;
+    expect(host.notifySurfaceAttachment).toHaveBeenCalledTimes(platform === "macos" ? 1 : 0);
+  });
+
   it("does not retain an opening owner after synchronous creation rejection", async () => {
     const subject = harness(undefined, platform);
     const specification = tab();
@@ -38,11 +63,13 @@ describe.each(["macos", "windows"] as const)("%s mounted loading Role", platform
     const close = await subject.executor.execute(effect("tab-1", { type: "embeddedDestroyTab", tabId: "tab-1" }));
     if (isCoreEffectEventContinuation(close)) await close.completion;
     const visibilityCalls = subject.setVisible.mock.calls.length;
+    const attachmentCalls = subject.hosts[0]!.notifySurfaceAttachment.mock.calls.length;
     attach(); attach(); complete();
     await terminal;
     expect(subject.executor.snapshot().roles).toEqual([]);
     expect(subject.executor.snapshot().tabs).toEqual([]);
     expect(subject.setVisible).toHaveBeenCalledTimes(visibilityCalls);
+    expect(subject.hosts[0]!.notifySurfaceAttachment).toHaveBeenCalledTimes(attachmentCalls);
     expect(subject.hosts[0]!.focus).not.toHaveBeenCalled();
   });
 

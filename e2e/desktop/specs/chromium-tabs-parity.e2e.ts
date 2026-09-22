@@ -1,4 +1,5 @@
 import { exerciseWindowLaunchReuse } from "./chromium-window-launch-reuse";
+import { exerciseRoleFirstPaint, expectRolePaint } from "./chromium-role-first-paint";
 // [journey:CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-TEAROUT-046]
 // [journey:CHROMIUM-WINDOWS-RUNTIME-TAB-TEAROUT-046]
 import { exerciseMixedWorkspaceTearout } from "./chromium-tab-tearout-workspace";
@@ -492,6 +493,7 @@ async function launchRoleIntoWindow(
     expect(inspection.surfaces.filter((surface) => surface.visible)).toEqual([
       expect.objectContaining({ tabId: loading.previousTab.id, visible: true })
     ]);
+    await expectRolePaint(gameWindow.id, loading.previousTab.id, "green", "ready-a-after-b-navigation-completes");
     if (loading.platform === "macos") {
       await waitForFocusedMacosAppKitRuntime({ processId: processId!,
         runtimeTabName: loading.previousTab.name, windowId: gameWindow.id });
@@ -1107,6 +1109,8 @@ async function seedPhase(input: Readonly<{
 }>): Promise<void> {
   await fixtureRequest("/api/reset", {});
   const { gameWindow, roles, targetWindow } = await createEntitiesThroughVisibleUi();
+  await exerciseRoleFirstPaint({ ...input, roles,
+    createWindow: createGameWindowThroughVisibleUi, launchRole: launchRoleIntoWindow });
   if (input.platform === "macos") await exerciseMacosLauncherDuringLoading({
     ...input, window: await createGameWindowThroughVisibleUi("Native Launcher Loading Window"), roles,
     launchRole: (role, window, afterSubmit) => launchRoleIntoWindow(role, window, undefined, afterSubmit)

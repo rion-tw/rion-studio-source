@@ -870,10 +870,12 @@ export class ChromiumRuntimeEffectExecutor {
           const creation = this.#input.surfaces.create({
             onAttached: () => {
               if (signal?.aborted || this.#openingRoles.get(role.roleId) !== record ||
+                  this.#attachedRoles.get(role.roleId) === record ||
                   this.#tabs.get(tabId) !== tab || this.#windows.get(tab.windowId) !== windowRecord ||
                   this.#closingRoleGenerations.get(role.roleId) === generation) return;
               this.#attachedRoles.set(role.roleId, record);
               this.#applyWindowVisibility(windowRecord);
+              if (windowRecord.host.appKitIdentity) windowRecord.host.notifySurfaceAttachment?.();
             },
             roleId: role.roleId,
             tabId,
@@ -949,11 +951,9 @@ export class ChromiumRuntimeEffectExecutor {
           "The loading tab retired before native readiness.");
       }
       if (slotLoad) return;
+      this.#applyWindowVisibility(windowRecord);
       if (tab.webViews.size === 0) {
-        this.#applyWindowVisibility(windowRecord);
         windowRecord.host.releaseAppKitSurfaceAttachment?.(tabId);
-      } else {
-        this.#applyWindowVisibility(windowRecord);
       }
       await this.#reconcileRolePlaceholders();
     });

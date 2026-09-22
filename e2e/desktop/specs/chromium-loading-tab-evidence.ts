@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { browser, expect } from "@wdio/globals";
-import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eApplicationShortcutRuntime } from "../support/electron-driver";
+import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eApplicationShortcutRuntime, electronDesktopE2eGameWindowRuntime } from "../support/electron-driver";
 import { captureWorkspacePixels } from "../support/workspace-pixels";
 
 /** Observe the real screen before releasing B's navigation, without changing focus. */
@@ -27,7 +27,7 @@ export async function expectReadyTabAboveLoadingSibling(windowId: string, readyT
     .toEqual([expect.objectContaining({ visible: false })]);
 }
 
-/** The selected B exposes the native background while completion is gated. */
+/** The selected B exposes its native loading presentation while completion is gated. */
 export async function expectLoadingTabPresentation(windowId: string, tabId: string,
   platform: "macos" | "windows"): Promise<void> {
   await browser.waitUntil(async () => {
@@ -43,8 +43,15 @@ export async function expectLoadingTabPresentation(windowId: string, tabId: stri
     name: "loading-b-before-navigation-completes", reference, region: reference,
     points: [{ x: reference.x + 5, y: reference.y + reference.height / 2 },
       { x: reference.x + reference.width - 5, y: reference.y + reference.height / 2 }] });
+  if (platform === "macos") {
+    expect((await electronDesktopE2eGameWindowRuntime(windowId)).currentRuntime?.appKitStatusPresentation).toBe("loading");
+  }
   for (const [r, g, b] of evidence.samples) {
-    if (platform === "windows" && inspection.native.workspaceBackground === "material") {
+    if (platform === "macos") {
+      // The AppKit status backdrop uses NSColor.windowBackgroundColor in both
+      // light and dark appearances; the workspace underlay must not cover it.
+      expect(Math.max(r!, g!, b!) - Math.min(r!, g!, b!)).toBeLessThan(40);
+    } else if (inspection.native.workspaceBackground === "material") {
       // Mica follows Windows appearance; light Mica is not a white compositor
       // flash or the saturated green ready sibling behind this loading view.
       expect(Math.max(r!, g!, b!)).toBeLessThan(255);

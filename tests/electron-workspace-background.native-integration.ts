@@ -17,6 +17,10 @@ it.skipIf(process.platform !== "darwin")("retains one AppKit workspace backgroun
     expect(result.platform).toBe("darwin");
     expect(result.beforeProjectionCoverage).toBe(true);
     expect(result.rejectedProjectionPreserved).toBe(true);
+    expect(result.attachmentStages).toEqual(["black", "material"].flatMap(background =>
+      ["first-role", "second-role", "reattached-role"].map(stage => ({
+        background, stage, boundsUnchanged: true, stackingVerified: true
+      }))));
     expect(result.observations).toHaveLength(14);
     expect(new Set(result.observations.map((item: { address: string }) => item.address)).size).toBe(1);
     expect(new Set(result.observations.slice(1).map((item: { nativeViews: number }) => item.nativeViews)).size).toBe(1);

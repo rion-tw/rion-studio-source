@@ -388,11 +388,13 @@ NS_ASSUME_NONNULL_BEGIN
   BOOL black = [projection[@"background"] isEqualToString:@"black"];
   if (!_workspaceBackground ||
       _workspaceBackground.superview != _window.contentView ||
+      _window.contentView.subviews.firstObject != _workspaceBackground ||
       _workspaceBackground.black != black ||
       !NSEqualRects(_workspaceBackground.frame, _window.contentView.bounds) ||
       !_workspaceDividerOverlay ||
       !_window.contentView ||
       _workspaceDividerOverlay.superview != _window.contentView ||
+      _window.contentView.subviews.lastObject != _workspaceDividerOverlay ||
       !NSEqualRects(_workspaceDividerOverlay.frame, expectedOverlayFrame) ||
       _workspaceDividerOverlay.hidden != (dividers.count == 0) ||
       _workspaceDividerViews.count != dividers.count) {

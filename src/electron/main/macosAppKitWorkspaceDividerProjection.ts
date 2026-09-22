@@ -77,21 +77,6 @@ function cloneDividers(
   })));
 }
 
-function sameDividers(
-  left: readonly AppKitRuntimeWorkspaceDividerLayoutRecord[],
-  right: readonly AppKitRuntimeWorkspaceDividerLayoutRecord[]
-): boolean {
-  return left.length === right.length && left.every((divider, index) => {
-    const candidate = right[index];
-    return candidate !== undefined && divider.tabId === candidate.tabId &&
-      divider.attemptGeneration === candidate.attemptGeneration &&
-      divider.dividerIndex === candidate.dividerIndex &&
-      divider.axis === candidate.axis && divider.visible === candidate.visible &&
-      sameBounds(divider.bounds, candidate.bounds) &&
-      JSON.stringify(divider.resizeIndicators) === JSON.stringify(candidate.resizeIndicators);
-  });
-}
-
 function identitiesMatch(
   left: AppKitRuntimeHostIdentityRecord,
   right: AppKitRuntimeHostIdentityRecord
@@ -254,7 +239,6 @@ export function prepareMacosAppKitWorkspaceDividerProjection(
   let phase: "prepared" | "committed" | "rolled-back" | "failed" =
     "prepared";
   let committedVersion = 0;
-  let nativeMutationCommitted = false;
   let quarantineRequired = false;
 
   const applyExact = (
@@ -305,17 +289,11 @@ export function prepareMacosAppKitWorkspaceDividerProjection(
       // native compensation region so malformed Core bounds never mutate the
       // last verified AppKit projection.
       requireContainedDividers(nextContentBounds, nextDividers);
-      if (
-        previousContentBounds && sameBounds(previousContentBounds, nextContentBounds) &&
-        sameDividers(previousDividers, nextDividers) && previousBackground === nextBackground
-      ) {
-        committedVersion = state.version;
-        phase = "committed";
-        return;
-      }
+      // Equal geometry does not prove native stacking: Chromium may have
+      // attached/reparented a View since the last accepted Core projection.
+      // AppKit idempotently repairs and verifies its background/overlay order.
       try {
         committedVersion = applyExact(nextContentBounds, nextDividers, nextBackground);
-        nativeMutationCommitted = true;
         phase = "committed";
       } catch (error) {
         phase = "failed";
@@ -334,10 +312,6 @@ export function prepareMacosAppKitWorkspaceDividerProjection(
           "ELECTRON_MACOS_APPKIT_DIVIDER_ROLLBACK_STALE",
           "The committed native divider projection changed before rollback."
         );
-      }
-      if (!nativeMutationCommitted) {
-        phase = "rolled-back";
-        return;
       }
       if (!compensateToPrevious(nextContentBounds)) {
         phase = "failed";

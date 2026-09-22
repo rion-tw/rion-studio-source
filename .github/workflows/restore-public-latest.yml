@@ -97,16 +97,6 @@ jobs:
           evidence_root="${PWD}/restore-evidence"
           work_root="${PWD}/restore-work/initial"
           mkdir -p "${evidence_root}" "${work_root}"
-          asset_names=(
-            Rion.Studio-mac.app.tar.gz
-            Rion.Studio-mac.app.tar.gz.sig
-            Rion.Studio-mac.dmg
-            Rion.Studio-win.exe
-            Rion.Studio-win.exe.sig
-            SHA256SUMS.txt
-            latest.json
-          )
-
           capture_release_by_id() {
             local release_id="$1"
             local is_latest="$2"
@@ -126,7 +116,9 @@ jobs:
             test "$(jq -r .object.type <<< "${tag_ref}")" = "commit"
             tag_commit="$(jq -r .object.sha <<< "${tag_ref}")"
             [[ "${tag_commit}" =~ ^[0-9a-f]{40}$ ]]
-            test "$(jq '.assets | length' "${root}/release-api.json")" = "7"
+            local inventory asset_names
+            inventory="$(node scripts/publicReleaseAssetInventory.mjs "${root}/release-api.json" --allow-legacy)"
+            mapfile -t asset_names <<< "${inventory}"
             for name in "${asset_names[@]}"; do
               test "$(jq --arg name "${name}" \
                 '[.assets[] | select(.name == $name)] | length' \
@@ -193,7 +185,7 @@ jobs:
           source_version="$(jq -r .latestJson.version \
             "${evidence_root}/source-public-latest-snapshot.json")"
           node scripts/releaseArtifacts.mjs "${work_root}/target/assets" "${target_version}" \
-            --verify-checksums --require-electron
+            --verify-checksums --require-electron --allow-published-without-source
           node scripts/releaseArtifacts.mjs "${work_root}/source/assets" "${source_version}" \
             --verify-checksums --require-supported-source
 
@@ -344,15 +336,6 @@ jobs:
           evidence_root="${PWD}/restore-evidence"
           work_root="${PWD}/restore-work/readback"
           mkdir -p "${evidence_root}" "${work_root}"
-          asset_names=(
-            Rion.Studio-mac.app.tar.gz
-            Rion.Studio-mac.app.tar.gz.sig
-            Rion.Studio-mac.dmg
-            Rion.Studio-win.exe
-            Rion.Studio-win.exe.sig
-            SHA256SUMS.txt
-            latest.json
-          )
           capture_fresh_latest() {
             gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" \
               > "${work_root}/latest-lookup.json"
@@ -373,7 +356,9 @@ jobs:
             test "$(jq -r .object.type <<< "${tag_ref}")" = "commit"
             tag_commit="$(jq -r .object.sha <<< "${tag_ref}")"
             [[ "${tag_commit}" =~ ^[0-9a-f]{40}$ ]]
-            test "$(jq '.assets | length' "${work_root}/release-api.json")" = "7"
+            local inventory asset_names
+            inventory="$(node scripts/publicReleaseAssetInventory.mjs "${work_root}/release-api.json" --allow-legacy)"
+            mapfile -t asset_names <<< "${inventory}"
             for name in "${asset_names[@]}"; do
               test "$(jq --arg name "${name}" \
                 '[.assets[] | select(.name == $name)] | length' \

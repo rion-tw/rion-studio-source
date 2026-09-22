@@ -17,7 +17,6 @@ import {
   assertElectronProductionPublicLatestRecoveryObservationBindings
 } from "./electronProductionPublicLatestRecovery.mjs";
 import {
-  ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES,
   ELECTRON_PRODUCTION_PUBLIC_RELEASE_REPOSITORY,
   assertElectronProductionPublicLatestSnapshot,
   createElectronProductionPublicLatestSnapshot
@@ -833,7 +832,7 @@ function exactKnownRelease(value, expected) {
     value?.draft !== false ||
     value?.prerelease !== false ||
     !Array.isArray(value?.assets) ||
-    value.assets.length !== ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES.length
+    value.assets.length !== expected.assets.length
   ) return null;
   const normalizedAssets = [];
   const observedIds = new Set();

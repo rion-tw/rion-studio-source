@@ -6,20 +6,15 @@ import { isDeepStrictEqual } from "node:util";
 import path from "node:path";
 
 import { serializeCanonicalJson } from "./canonicalJson.mjs";
+import { assertPublicReleaseAssetNames, LEGACY_PUBLIC_RELEASE_ASSET_NAMES,
+  PUBLIC_RELEASE_ASSET_NAMES } from "./publicReleaseAssetInventory.mjs";
 
 export const ELECTRON_PRODUCTION_PUBLIC_LATEST_SNAPSHOT_KIND =
   "rion-electron-production-public-latest-snapshot";
 export const ELECTRON_PRODUCTION_PUBLIC_RELEASE_REPOSITORY =
   "rion-tw/rion-studio";
-export const ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES = Object.freeze([
-  "Rion.Studio-mac.app.tar.gz",
-  "Rion.Studio-mac.app.tar.gz.sig",
-  "Rion.Studio-mac.dmg",
-  "Rion.Studio-win.exe",
-  "Rion.Studio-win.exe.sig",
-  "SHA256SUMS.txt",
-  "latest.json"
-].sort(compareStrings));
+// Historical candidate receipts retain their original seven-asset schema.
+export const ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES = LEGACY_PUBLIC_RELEASE_ASSET_NAMES;
 
 const CANDIDATE_RECEIPT_NAME = "electron-production-candidate-receipt.json";
 const MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024;
@@ -57,7 +52,7 @@ export async function createElectronProductionPublicLatestSnapshot(input) {
   const names = (await readdir(assetDirectory.path)).sort(compareStrings);
   assertStringArrayEqual(
     names,
-    ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES,
+    release.assets.map(asset => asset.name),
     "public release asset inventory"
   );
 
@@ -497,7 +492,7 @@ async function verifyChecksumsDocument(assetDirectory, identities) {
     MAX_DOCUMENT_BYTES
   );
   const lines = source.toString("utf8").trimEnd().split("\n");
-  const expectedNames = ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES
+  const expectedNames = [...identities.keys()].sort(compareStrings)
     .filter((name) => name !== "SHA256SUMS.txt");
   if (lines.length !== expectedNames.length) {
     throw new Error("The public release checksum inventory is incomplete.");
@@ -608,11 +603,11 @@ async function optionalCandidateReceiptBinding(input) {
   );
   assertExactKeys(
     receipt.assets,
-    ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES,
+    [...input.identities.keys()],
     "candidate asset digest map"
   );
   const assets = {};
-  for (const name of ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES) {
+  for (const name of input.identities.keys()) {
     const digest = requiredDigest(receipt.assets[name], `candidate ${name} SHA-256`);
     assertEqual(digest, input.identities.get(name).sha256,
       `candidate ${name} SHA-256`);
@@ -774,7 +769,7 @@ function normalizeReleaseMetadata(value) {
   }).sort((left, right) => compareStrings(left.name, right.name));
   assertStringArrayEqual(
     assets.map((asset) => asset.name),
-    ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES,
+    assertPublicReleaseAssetNames(assets.map(asset => asset.name), { allowLegacy: true }),
     "public release metadata asset inventory"
   );
   return Object.freeze({
@@ -852,7 +847,7 @@ function assertSnapshotAssets(value, releaseTag) {
   });
   assertStringArrayEqual(
     assets.map((asset) => asset.name),
-    ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES,
+    assertPublicReleaseAssetNames(assets.map(asset => asset.name), { allowLegacy: true }),
     "public latest snapshot sorted asset inventory"
   );
   return Object.freeze(assets);
@@ -957,7 +952,7 @@ function assertCandidateReceiptSummary(value, release, latestJson, assets) {
   ).href;
   assertEqual(updaterEndpoint, new URL("latest.json", updaterBaseUrl).href,
     "public latest snapshot candidate updater endpoint");
-  assertExactKeys(value.assets, ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES,
+  assertExactKeys(value.assets, assets.map(asset => asset.name),
     "public latest snapshot candidate asset map");
   const assetDigests = {};
   for (const asset of assets) {
@@ -1151,7 +1146,7 @@ function maximumBytesForAsset(name) {
 
 function requiredAssetName(value) {
   if (typeof value !== "string" ||
-      !ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES.includes(value)) {
+      !PUBLIC_RELEASE_ASSET_NAMES.includes(value)) {
     throw new Error(`The public release asset name ${JSON.stringify(value)} is invalid.`);
   }
   return value;

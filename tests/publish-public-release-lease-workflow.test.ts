@@ -11,6 +11,7 @@ const EXACT_ASSETS = [
   "Rion.Studio-mac.dmg",
   "Rion.Studio-win.exe",
   "Rion.Studio-win.exe.sig",
+  "Rion.Studio-source.tar.gz",
   "SHA256SUMS.txt",
   "latest.json"
 ];
@@ -91,7 +92,7 @@ describe("Electron durable public publisher", () => {
     );
   });
 
-  it("stages exactly seven Electron assets as non-latest and captures both releases by ID", async () => {
+  it("stages all eight Electron assets and captures published legacy sources by exact inventory", async () => {
     const source = await workflow();
     const stage = step(
       source,
@@ -100,7 +101,8 @@ describe("Electron durable public publisher", () => {
 
     for (const asset of EXACT_ASSETS) expect(stage).toContain(asset);
     expect(stage).toContain("--draft=false --latest=false");
-    expect(stage).toContain('test "$(jq \'.assets | length\' "${api_file}")" = "7"');
+    expect(stage).toContain('node scripts/publicReleaseAssetInventory.mjs "${api_file}" --allow-legacy');
+    expect(stage).toContain('for name in "${release_asset_names[@]}"');
     expect(stage).toContain("releases/${release_id}");
     expect(stage).toContain("releases/assets/${asset_id}");
     expect(stage).toContain("releases?per_page=100");

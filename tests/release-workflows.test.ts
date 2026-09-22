@@ -3,6 +3,17 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("desktop shell migration workflows", () => {
+  it("installs pinned source-archive verification dependencies in the manifest job", async () => {
+    const workflow = await readWorkflow(".github/workflows/desktop-release-build.yml");
+    const manifest = workflow.slice(workflow.indexOf("\n  manifest:"));
+    const verification = manifest.indexOf("verifyElectronSourceArchive");
+    expect(verification).toBeGreaterThan(0);
+    expect(manifest).toContain("node-version-file: .nvmrc");
+    const install = manifest.indexOf("pnpm install --frozen-lockfile --ignore-scripts");
+    expect(install).toBeGreaterThan(manifest.indexOf("- name: Setup Node"));
+    expect(install).toBeLessThan(verification);
+  });
+
   it("retires every provisional release job while keeping the existing Electron release entry", async () => {
     const retired = [
       "electron-production-abandoned-lease-recovery.yml", "electron-production-candidate.yml",

@@ -113,6 +113,7 @@ jobs:
             Rion.Studio-mac.dmg
             Rion.Studio-win.exe
             Rion.Studio-win.exe.sig
+            Rion.Studio-source.tar.gz
             SHA256SUMS.txt
             latest.json
           )
@@ -134,7 +135,7 @@ jobs:
           test "$(jq -r .prerelease "${input_root}/private-release-api.json")" = "false"
           test "$(jq '.draft | type == "boolean"' \
             "${input_root}/private-release-api.json")" = "true"
-          test "$(jq '.assets | length' "${input_root}/private-release-api.json")" = "7"
+          test "$(jq '.assets | length' "${input_root}/private-release-api.json")" = "8"
           for name in "${asset_names[@]}"; do
             test "$(jq --arg name "${name}" \
               '[.assets[] | select(.name == $name)] | length' \
@@ -285,7 +286,7 @@ jobs:
              .kind == "rion-electron-v23-publication-input" and
              .controlSha == $control_sha and .sourceSha == $source_sha and
              .tag == $tag and .version == $version and
-             .release.prerelease == false and (.assets | keys | length) == 7' \
+             .release.prerelease == false and (.assets | keys | length) == 8' \
             "${input_root}/stable-publication-input.json" >/dev/null
           node scripts/releaseArtifacts.mjs "${input_root}/release-assets" \
             "${EXPECTED_VERSION}" --verify-checksums --require-electron
@@ -431,6 +432,7 @@ jobs:
             Rion.Studio-mac.dmg
             Rion.Studio-win.exe
             Rion.Studio-win.exe.sig
+            Rion.Studio-source.tar.gz
             SHA256SUMS.txt
             latest.json
           )
@@ -438,8 +440,11 @@ jobs:
             local api_file="$1"
             local output_root="$2"
             mkdir -p "${output_root}"
-            test "$(jq '.assets | length' "${api_file}")" = "7"
-            for name in "${asset_names[@]}"; do
+            local inventory
+            inventory="$(node scripts/publicReleaseAssetInventory.mjs "${api_file}" --allow-legacy)"
+            local release_asset_names
+            mapfile -t release_asset_names <<< "${inventory}"
+            for name in "${release_asset_names[@]}"; do
               test "$(jq --arg name "${name}" \
                 '[.assets[] | select(.name == $name)] | length' "${api_file}")" = "1"
               local asset_id expected_size expected_digest
@@ -539,8 +544,8 @@ jobs:
           cmp "${marker_source}" "${work_root}/target-notes.md"
           if test "$(jq -r .draft "${work_root}/target-before-stage.json")" = "true"; then
             jq -e --argjson allowed \
-              '["Rion.Studio-mac.app.tar.gz","Rion.Studio-mac.app.tar.gz.sig","Rion.Studio-mac.dmg","Rion.Studio-win.exe","Rion.Studio-win.exe.sig","SHA256SUMS.txt","latest.json"]' \
-              '(.assets | length) <= 7 and
+              '["Rion.Studio-mac.app.tar.gz","Rion.Studio-mac.app.tar.gz.sig","Rion.Studio-mac.dmg","Rion.Studio-win.exe","Rion.Studio-win.exe.sig","Rion.Studio-source.tar.gz","SHA256SUMS.txt","latest.json"]' \
+              '(.assets | length) <= 8 and
                ([.assets[].name] | length) == ([.assets[].name] | unique | length) and
                all(.assets[]; .name as $name | $allowed | index($name) != null)' \
               "${work_root}/target-before-stage.json" >/dev/null
@@ -756,9 +761,9 @@ jobs:
             throw new Error("The last-moment public latest metadata changed.");
           }
           NODE
-          for name in Rion.Studio-mac.app.tar.gz Rion.Studio-mac.app.tar.gz.sig \
-            Rion.Studio-mac.dmg Rion.Studio-win.exe Rion.Studio-win.exe.sig \
-            SHA256SUMS.txt latest.json; do
+          inventory="$(node scripts/publicReleaseAssetInventory.mjs "${work_root}/source-release-api.json" --allow-legacy)"
+          mapfile -t source_asset_names <<< "${inventory}"
+          for name in "${source_asset_names[@]}"; do
             asset_id="$(jq -r --arg name "${name}" \
               '.assets[] | select(.name == $name) | .id' \
               "${work_root}/source-release-api.json")"
@@ -818,9 +823,6 @@ jobs:
           evidence_root="${PWD}/stable-publication-evidence"
           work_root="${PWD}/stable-publication-work/readback"
           mkdir -p "${work_root}/assets"
-          asset_names=(Rion.Studio-mac.app.tar.gz Rion.Studio-mac.app.tar.gz.sig \
-            Rion.Studio-mac.dmg Rion.Studio-win.exe Rion.Studio-win.exe.sig \
-            SHA256SUMS.txt latest.json)
           capture_fresh_latest() {
             gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" \
               > "${work_root}/latest-lookup.json"
@@ -832,7 +834,9 @@ jobs:
             test "$(jq -r .id "${work_root}/release-api.json")" = "${release_id}"
             test "$(jq -r .draft "${work_root}/release-api.json")" = "false"
             test "$(jq -r .prerelease "${work_root}/release-api.json")" = "false"
-            test "$(jq '.assets | length' "${work_root}/release-api.json")" = "7"
+            local inventory asset_names
+            inventory="$(node scripts/publicReleaseAssetInventory.mjs "${work_root}/release-api.json" --allow-legacy)"
+            mapfile -t asset_names <<< "${inventory}"
             release_tag="$(jq -r .tag_name "${work_root}/release-api.json")"
             tag_ref="$(gh api \
               "repos/${PUBLIC_RELEASE_REPOSITORY}/git/ref/tags/${release_tag}")"

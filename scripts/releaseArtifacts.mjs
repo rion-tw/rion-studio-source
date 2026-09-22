@@ -207,7 +207,8 @@ async function runCli() {
   if (!directoryArg || !version) {
     throw new Error(
       "Usage: node scripts/releaseArtifacts.mjs <directory> <version> " +
-      "[--write-checksums|--verify-checksums] [--require-electron|--require-supported-source|--require-tauri-v22]"
+      "[--write-checksums|--verify-checksums] [--require-electron|--require-supported-source|--require-tauri-v22] " +
+      "[--allow-published-without-source]"
     );
   }
   const directory = resolve(directoryArg);
@@ -216,9 +217,10 @@ async function runCli() {
   const requireTauriV22 = flags.includes("--require-tauri-v22");
   const requireElectron = flags.includes("--require-electron");
   const requireSupportedSource = flags.includes("--require-supported-source");
+  const allowPublishedWithoutSource = flags.includes("--allow-published-without-source");
   const unknownFlags = flags.filter(
     (flag) => !["--write-checksums", "--verify-checksums", "--require-tauri-v22",
-      "--require-electron", "--require-supported-source"].includes(flag)
+      "--require-electron", "--require-supported-source", "--allow-published-without-source"].includes(flag)
   );
   if (unknownFlags.length > 0) {
     throw new Error(`Unknown release artifact flags: ${unknownFlags.join(", ")}`);
@@ -229,8 +231,12 @@ async function runCli() {
   if ([requireTauriV22, requireElectron, requireSupportedSource].filter(Boolean).length > 1) {
     throw new Error("Choose exactly one release runtime policy.");
   }
+  if (allowPublishedWithoutSource && (!verifyChecksums || !requireElectron)) {
+    throw new Error("Published legacy Electron assets require checksum and runtime verification.");
+  }
   await verifyReleaseAssets(directory, version, {
     allowChecksums: verifyChecksums,
+    allowLegacyCandidateWithoutSourceArchive: requireSupportedSource || allowPublishedWithoutSource,
     allowLegacyManifestWithoutDigests: requireSupportedSource
   });
   if (requireTauriV22) await assertStableTauriV22PublicReleaseAssets(directory);
@@ -239,7 +245,8 @@ async function runCli() {
     const sourceRuntime = await identifyPublicReleaseRuntime(directory);
     if (sourceRuntime === "electron-v23") {
       await verifyReleaseAssets(directory, version, {
-        allowChecksums: verifyChecksums
+        allowChecksums: verifyChecksums,
+        allowLegacyCandidateWithoutSourceArchive: true
       });
     }
     console.log(`Verified source runtime: ${sourceRuntime}`);

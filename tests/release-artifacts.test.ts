@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 
 import {
   CHECKSUM_ASSET_NAME,
@@ -227,6 +227,32 @@ describe("stable Tauri v22 public release policy", () => {
 });
 
 describe("sole Electron release target policy", () => {
+  it("consumes and restores a verified published legacy release without admitting it as a new candidate", async () => {
+    const directory = await createReleaseFixture("9.0.0", { omit: "Rion.Studio-source.tar.gz" });
+    const runtime = await createMacRuntimeArchiveFixture("electron");
+    onTestFinished(async () => {
+      await rm(directory, { recursive: true, force: true });
+      await rm(runtime, { recursive: true, force: true });
+    });
+    await copyFile(join(runtime, "Rion.Studio-mac.app.tar.gz"), join(directory, "Rion.Studio-mac.app.tar.gz"));
+    const manifestPath = join(directory, "latest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.platforms["darwin-aarch64"].sha256 = createHash("sha256")
+      .update(await readFile(join(directory, "Rion.Studio-mac.app.tar.gz"))).digest("hex");
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    await writeReleaseChecksums(directory);
+    const base = ["scripts/releaseArtifacts.mjs", directory, "9.0.0", "--verify-checksums"];
+    runScript([...base, "--require-supported-source"]);
+    runScript([...base, "--require-electron", "--allow-published-without-source"]);
+    const candidate = spawnSync(process.execPath, [...base, "--require-electron"], { encoding: "utf8" });
+    expect(candidate.status).not.toBe(0);
+    expect(candidate.stderr).toContain("Missing required release assets: Rion.Studio-source.tar.gz");
+    await writeFile(join(directory, "Rion.Studio-win.exe"), "changed installer");
+    const tampered = spawnSync(process.execPath, [...base, "--require-supported-source"], { encoding: "utf8" });
+    expect(tampered.status).not.toBe(0);
+    expect(tampered.stderr).toContain("sha256 does not match");
+  });
+
   it("accepts the complete Electron archive and identifies its source engine", async () => {
     const directory = await createMacRuntimeArchiveFixture("electron");
     await expect(assertElectronPublicReleaseAssets(directory)).resolves.toBeUndefined();

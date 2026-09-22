@@ -114,6 +114,25 @@ async function validateWebOnlyHistory(
 
 describe("Chromium Workspace cutover paired replacements", () => {
   it.each(["macos", "windows"] as const)(
+    "accepts visible recovery activation only with its exact later ready receipt on %s", async platform => {
+      const ready = webOnlyObservation({ attemptGeneration: "one", generation: 1, phase: "ready", visible: true });
+      const degraded = webOnlyObservation({ attemptGeneration: "one", generation: 1, phase: "degraded", visible: true });
+      const activating = webOnlyObservation({ attemptGeneration: "two", generation: 2, phase: "activating", visible: true });
+      const recovered = webOnlyObservation({ attemptGeneration: "two", generation: 2, phase: "ready", visible: true });
+      await expect(validateWebOnlyHistory([ready, degraded, activating, recovered], undefined, platform))
+        .resolves.toMatchObject({ navigationFailureRecovered: true });
+      for (const change of [
+        { parentNativeHostId: 99 }, { windowGeneration: 99 }, { attemptGeneration: "other" },
+        { web: { ...recovered.web, generation: 99 } },
+        { web: { ...recovered.web, surfaceId: "replaced" } }
+      ]) {
+        await expect(validateWebOnlyHistory([ready, degraded, activating, { ...recovered, ...change }], undefined, platform))
+          .rejects.toThrow();
+      }
+      await expect(validateWebOnlyHistory([ready, degraded, activating], undefined, platform)).rejects.toThrow();
+    }
+  );
+  it.each(["macos", "windows"] as const)(
     "accepts exact hidden restore activation before readiness on %s", async platform => {
       const activating = webOnlyObservation({
         attemptGeneration: "restore-1", generation: 1, phase: "activating", visible: false

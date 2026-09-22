@@ -1,4 +1,6 @@
 import { readWindowsShortcutDiagnostic } from "./windowsRuntimeShortcutDiagnostics";
+import { executeWindowsRuntimeTabShortcut } from "./windowsRuntimeTabShortcut";
+import { createElectronApplicationMenuDispatch } from "./electronApplicationMenuDispatch";
 import { capturePassiveAppKitHosts, closeAppKitInputHost } from "./macosAppKitRuntimeEventPorts";
 import { createRuntimeTabDragBootstrap } from "./runtimeTabDragBootstrap";
 import { requireChromiumRuntimeSnapshot } from "./chromiumRuntimeSnapshotCapture";
@@ -1318,29 +1320,13 @@ async function bootstrapReadyPhase(
       zoomRuntimeWindow: (target, action) =>
         runtimeActionServices.zoomRuntimeWindow(target, action)
     });
-  const executeNativeApplicationShortcut = (
-    command: Parameters<typeof focusedApplicationShortcuts.execute>[0],
-    focusedWindow?: BaseWindow
-  ): void => {
-    void focusedApplicationShortcuts.execute(command, focusedWindow).catch(
-      (error: unknown) => revealShellError(normalizeRionBridgeError(
-        error,
-        "ELECTRON_APPLICATION_SHORTCUT_FAILED"
-      ))
-    );
-  };
-  const executeNativeQuickAccessShortcut = (focusedWindow?: BaseWindow): void => {
-    try {
-      focusedApplicationShortcuts.executeQuickAccess(focusedWindow);
-    } catch (error) {
-      revealShellError(normalizeRionBridgeError(
-        error,
-        "ELECTRON_QUICK_ACCESS_SHORTCUT_FAILED"
-      ));
-    }
-  };
+  const { executeShortcut: executeNativeApplicationShortcut, executeQuickAccess: executeNativeQuickAccessShortcut } =
+    createElectronApplicationMenuDispatch(focusedApplicationShortcuts, revealShellError);
   if (runtimePlatform === "win32") {
-    installWindowsApplicationMenu(Menu, executeNativeApplicationShortcut);
+    installWindowsApplicationMenu(Menu, executeNativeApplicationShortcut, (direction, focusedWindow) => {
+      void executeWindowsRuntimeTabShortcut({ core: activeCore(), native: readChromiumRuntimeSnapshot,
+        direction, focusedWindow }).catch(error => revealShellError(normalizeRionBridgeError(error)));
+    });
   } else {
     installMacosApplicationMenu(
       Menu,

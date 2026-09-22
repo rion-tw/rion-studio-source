@@ -7,11 +7,23 @@ export function createRuntimeTabDrag(input: Readonly<{
   tabs: HTMLElement;
   current: () => WindowsRuntimeHostProjection | null;
   submit: (command: WindowsRuntimeHostCommand) => void;
-  suppressClick: (tabId: string) => void;
   closeMenu: () => void;
 }>) {
   let active: { tabId: string; pointerId: number; x: number; y: number;
     ratio: { x: number; y: number }; windowGeneration: number } | null = null;
+  let suppressedPointer: number | null = null;
+  // Captured pointerup/click targets the stable toolbar, even if a projection
+  // replaced the original button. Pointerup owns activation; keyboard/AX click
+  // remains on the button. Never carry suppression into another pointer press.
+  input.toolbar.addEventListener("pointerdown", () => {
+    if (!active) suppressedPointer = null;
+  }, true);
+  input.toolbar.addEventListener("click", event => {
+    if (suppressedPointer === null || event.pointerId !== suppressedPointer) return;
+    suppressedPointer = null;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
   const release = () => {
     const previous = active;
     active = null;
@@ -24,14 +36,24 @@ export function createRuntimeTabDrag(input: Readonly<{
     const current = input.current();
     release();
     if (!current || current.windowGeneration !== gesture.windowGeneration || !current.tabs.some(t => t.tabId === gesture.tabId)) return;
-    input.suppressClick(gesture.tabId);
     input.submit({ type: "tabDragStart", windowGeneration: current.windowGeneration, projectionRevision: current.projectionRevision,
       windowId: current.windowId, tabId: gesture.tabId, sessionId: crypto.randomUUID(), ratio: gesture.ratio });
     event.preventDefault();
   });
-  input.toolbar.addEventListener("pointerup", release);
-  input.toolbar.addEventListener("pointercancel", release);
-  input.toolbar.addEventListener("lostpointercapture", release);
+  input.toolbar.addEventListener("pointerup", event => {
+    if (!active || active.pointerId !== event.pointerId || event.button !== 0) return;
+    const gesture = active;
+    release();
+    const current = input.current();
+    if (!current || current.windowGeneration !== gesture.windowGeneration || !current.tabs.some(t => t.tabId === gesture.tabId)) return;
+    input.submit({ type: "activateTab", projectionRevision: current.projectionRevision,
+      windowId: current.windowId, tabId: gesture.tabId });
+  });
+  const cancel = (event: PointerEvent) => {
+    if (active?.pointerId === event.pointerId) release();
+  };
+  input.toolbar.addEventListener("pointercancel", cancel);
+  input.toolbar.addEventListener("lostpointercapture", cancel);
   const geometry = () => {
     const current = input.current();
     if (!current) return;
@@ -52,6 +74,7 @@ export function createRuntimeTabDrag(input: Readonly<{
       element.addEventListener("pointerdown", event => {
         const current = input.current();
         if (!event.isPrimary || event.button !== 0 || active || !current) return;
+        suppressedPointer = event.pointerId;
         input.closeMenu();
         const rect = element.closest(".runtime-tab")!.getBoundingClientRect();
         const fraction = (v: number) => Math.max(0, Math.min(1, v));

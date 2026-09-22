@@ -6,6 +6,7 @@ import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs
 import { electronDesktopE2eProbe } from "./electron-driver";
 import { windowsNativeDialogDeclarations } from "./windows-native-dialog";
 import { captureNativeProcessAttribution } from "./native-process-attribution";
+import { focusWindowsLauncherForVisibleLaunch } from "./windows-launcher-foreground";
 
 const executeFile = promisify(execFile);
 const nativeFocusScript = fileURLToPath(new URL("./macos-native-focus.swift", import.meta.url));
@@ -94,9 +95,11 @@ export async function cancelVisibleNativeDiagnosticsSaveDialog(input: Readonly<{
 export type VisibleWindowsApplicationShortcut =
   | "altDown" | "altUp" | "altDigit1" | "altDigit1Tap"
   | "nextTab"
+  | "previousTab"
   | "shiftDigit3"
   | "shiftDigit4"
-  | "shiftDigit3Twice"
+  | "shiftDigit3TapHoldShift"
+  | "digit3Tap"
   | "shiftDigit5Hold"
   | "shiftDigit5Release"
   | "shiftDigit2ThenDigit3Hold"
@@ -469,22 +472,6 @@ public static class RionNativeShortcutInput {
       }
     };
   }
-  public static bool SendRepeatedShiftChord(ushort shift, ushort digit) {
-    int size = Marshal.SizeOf(typeof(Input));
-    if (SendInput(1, new[] { ScanCodeInput(shift, false) }, size) != 1) return false;
-    bool applied = true;
-    try {
-      for (int cycle = 0; cycle < 2; cycle++) {
-        if (SendInput(1, new[] { ScanCodeInput(digit, false) }, size) != 1) { applied = false; break; }
-        System.Threading.Thread.Sleep(20);
-        if (SendInput(1, new[] { ScanCodeInput(digit, true) }, size) != 1) { applied = false; break; }
-        if (cycle == 0) System.Threading.Thread.Sleep(600);
-      }
-    } finally {
-      if (SendInput(1, new[] { ScanCodeInput(shift, true) }, size) != 1) applied = false;
-    }
-    return applied;
-  }
   public static bool SendScanChord(ushort[] scanCodes) {
     if (scanCodes == null || scanCodes.Length == 0) return false;
     Input[] inputs = new Input[scanCodes.Length * 2];
@@ -501,6 +488,10 @@ public static class RionNativeShortcutInput {
   public static bool SendShiftSequence(string command, ushort shift, ushort digit) {
     Input[] inputs;
     if (command == "shiftUp") inputs = new[] { ScanCodeInput(shift, true) };
+    else if (command == "shiftDigit3TapHoldShift")
+      inputs = new[] { ScanCodeInput(shift, false), ScanCodeInput(digit, false), ScanCodeInput(digit, true) };
+    else if (command == "digit3Tap")
+      inputs = new[] { ScanCodeInput(digit, false), ScanCodeInput(digit, true) };
     else if (command == "shiftDigit5Hold")
       inputs = new[] { ScanCodeInput(shift, false), ScanCodeInput(digit, false) };
     else if (command == "shiftDigit5Release")
@@ -593,9 +584,10 @@ $shiftModifier = $false
 switch ($command) {
   { $_ -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap') } { $key = [byte]0x31; $modifier = $false }
   'nextTab' { $key = [byte]0x09 }
+  'previousTab' { $key = [byte]0x09; $shiftModifier = $true }
   'shiftDigit3' { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
   'shiftDigit4' { $key = [byte]0x34; $modifier = $false; $shiftModifier = $true }
-  'shiftDigit3Twice' { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
+  { $_ -in @('shiftDigit3TapHoldShift', 'digit3Tap') } { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
   'shiftDigit5Hold' { $key = [byte]0x35; $modifier = $false; $shiftModifier = $true }
   'shiftDigit5Release' { $key = [byte]0x35; $modifier = $false; $shiftModifier = $true }
   'shiftDigit2ThenDigit3Hold' { $key = [byte]0x32; $modifier = $false; $shiftModifier = $true }
@@ -623,9 +615,7 @@ $scanCodes.Add($keyScan)
 [Console]::Error.WriteLine('shortcut-stage: submit-native-chord')
 $submitted = if ($command -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap')) {
   [RionNativeShortcutInput]::SendAltSequence($command)
-} elseif ($command -eq 'shiftDigit3Twice') {
-  [RionNativeShortcutInput]::SendRepeatedShiftChord($shiftScan, $keyScan)
-} elseif ($command -in @('shiftDigit5Hold', 'shiftDigit5Release', 'shiftDigit2ThenDigit3Hold', 'shiftDigit3ThenDigit2Hold', 'shiftUp')) {
+} elseif ($command -in @('shiftDigit3TapHoldShift', 'digit3Tap', 'shiftDigit5Hold', 'shiftDigit5Release', 'shiftDigit2ThenDigit3Hold', 'shiftDigit3ThenDigit2Hold', 'shiftUp')) {
   [RionNativeShortcutInput]::SendShiftSequence($command, $shiftScan, $keyScan)
 } else { [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray()) }
 if (-not $submitted) {
@@ -984,38 +974,32 @@ end run`,
     return;
   }
 
+  const launcher = await focusWindowsLauncherForVisibleLaunch();
+  if (!launcher || launcher.processId !== probe.processId) throw new Error("Exact quit launcher unavailable");
   const script = String.raw`
 Add-Type @'
 using System;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
 public static class RionNativeQuitInput {
-  public delegate bool EnumProc(IntPtr hwnd, IntPtr value);
-  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr value);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
 }
 '@
 $targetPid = [uint32]$payload.processId
-$matches = New-Object System.Collections.Generic.List[System.IntPtr]
-[RionNativeQuitInput]::EnumWindows({
-  param($hwnd, $value)
-  $candidateProcessId = [uint32]0
-  [RionNativeQuitInput]::GetWindowThreadProcessId($hwnd, [ref]$candidateProcessId) | Out-Null
-  if ($candidateProcessId -eq $targetPid -and [RionNativeQuitInput]::IsWindowVisible($hwnd)) { $matches.Add($hwnd) }
-  return $true
-}, [IntPtr]::Zero) | Out-Null
-if ($matches.Count -ne 1) { throw "exact visible Rion main window unavailable" }
-if (-not [RionNativeQuitInput]::SetForegroundWindow($matches[0])) { throw "Rion main window could not become foreground" }
+$handle = [IntPtr][int64]$payload.nativeWindowHandle
+$owner = [uint32]0
+[RionNativeQuitInput]::GetWindowThreadProcessId($handle, [ref]$owner) | Out-Null
+if ($owner -ne $targetPid -or -not [RionNativeQuitInput]::IsWindowVisible($handle) -or
+    [RionNativeQuitInput]::GetForegroundWindow() -ne $handle) { throw 'exact quit launcher lost foreground or ownership' }
 $KEYUP = [uint32]2
 [RionNativeQuitInput]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
 [RionNativeQuitInput]::keybd_event(0x51, 0, 0, [UIntPtr]::Zero)
 [RionNativeQuitInput]::keybd_event(0x51, 0, $KEYUP, [UIntPtr]::Zero)
 [RionNativeQuitInput]::keybd_event(0x11, 0, $KEYUP, [UIntPtr]::Zero)
 `;
-  await runEncodedPowerShellJson(script, { processId: probe.processId }, {
+  await runEncodedPowerShellJson(script, launcher, {
     timeoutMilliseconds: 10_000
   });
 }

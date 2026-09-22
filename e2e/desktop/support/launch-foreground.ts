@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { browser, expect } from "@wdio/globals";
 import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
+import { WINDOWS_PROBE_CAPTION_HANDLERS } from "../../../scripts/electronWindowsProbeInitialClick.mjs";
 import { electronDesktopE2eGameWindowRuntime } from "./electron-driver";
 import { fixtureRequest } from "./fixture";
 
@@ -57,12 +58,34 @@ export async function leaveLaunchInBackground(input: Readonly<{
     externalProcessId = Number(stdout.trim());
   } else {
     const output = await runEncodedPowerShellJson(String.raw`
-$fixture = Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoProfile', '-STA', '-File', ('"' + $payload.script + '"')) -PassThru
-if (-not $fixture.WaitForInputIdle(15000)) { throw 'External focus fixture did not create its window' }
-if (-not (New-Object -ComObject WScript.Shell).AppActivate($fixture.Id)) { throw 'External fixture activation failed' }
-@{ processId = $fixture.Id } | ConvertTo-Json -Compress
-`, { script: fileURLToPath(new URL("./launch-foreground-window.ps1", import.meta.url)) }, {
-      timeoutMilliseconds: 20_000
+${foregroundApi}
+${WINDOWS_PROBE_CAPTION_HANDLERS}
+$eventName = 'Local\RionLaunchForeground-' + [Guid]::NewGuid().ToString('N')
+$ready = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $eventName)
+$fixture = $null
+try {
+ $fixture = Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File', ('"' + $payload.script + '"'), '-ReadyEventName', $eventName, '-ReadyPath', ('"' + $payload.readyPath + '"')) -RedirectStandardError ($payload.readyPath + '.stderr.log') -PassThru
+ if (-not $ready.WaitOne(15000)) { throw 'External focus fixture did not signal its visible window' }
+ $window = Get-Content -LiteralPath $payload.readyPath -Raw | ConvertFrom-Json
+ if ($window.processId -ne $fixture.Id) { throw 'External focus fixture identity changed' }
+ [RionProbeCaption]::SetThreadDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
+ $handle = [IntPtr][int64]$window.nativeWindowHandle
+ [RionProbeCaption]::Click($handle, [uint32]$fixture.Id) | Out-Null
+ $ack = [Diagnostics.Stopwatch]::StartNew()
+ while ([LaunchForeground]::GetForegroundWindow() -ne $handle) {
+  if ($ack.ElapsedMilliseconds -gt 2000) { throw 'External fixture caption click did not activate its exact HWND' }
+  Start-Sleep -Milliseconds 10
+ }
+ @{ processId = $fixture.Id } | ConvertTo-Json -Compress
+} catch {
+ if ($fixture -and -not $fixture.HasExited) { $fixture.Kill(); $fixture.WaitForExit() }
+ throw
+} finally { $ready.Dispose() }
+`, {
+      script: fileURLToPath(new URL("./launch-foreground-window.ps1", import.meta.url)),
+      readyPath: join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, `launch-foreground-${input.windowId}-ready.json`)
+    }, {
+      timeoutMilliseconds: 25_000
     });
     externalProcessId = (JSON.parse(output) as { processId: number }).processId;
   }

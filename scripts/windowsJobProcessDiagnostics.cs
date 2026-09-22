@@ -5,8 +5,9 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
-// Diagnostic observations only. Job accounting remains the completion/count
-// authority. Completion notifications can race process exit or PID reuse:
+// Job event evidence and diagnostics. Native accounting remains the completion/
+// count authority; retained console handles fence identity, never success.
+// Completion notifications can race process exit or PID reuse:
 // https://learn.microsoft.com/windows/win32/api/winnt/ns-winnt-jobobject_associate_completion_port
 public sealed class RionWindowsJobProcessObservation
 {
@@ -24,6 +25,7 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
     private readonly Thread worker;
     private readonly List<RionWindowsJobProcessObservation> observations =
         new List<RionWindowsJobProcessObservation>();
+    private readonly Dictionary<uint, IntPtr> consoleHandles = new Dictionary<uint, IntPtr>();
     private bool disposed;
     private readonly ManualResetEvent emptyOrStopped = new ManualResetEvent(false);
     private volatile bool receivedEmptyNotification;
@@ -113,12 +115,12 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
                     Truncated = true;
                     continue;
                 }
-                observations.Add(ReadImage(unchecked((uint)value.ToInt64())));
+                observations.Add(ReadImage(unchecked((uint)value.ToInt64()), true));
             }
         }
     }
 
-    private RionWindowsJobProcessObservation ReadImage(uint processId)
+    private RionWindowsJobProcessObservation ReadImage(uint processId, bool pinConsole = false)
     {
         var observation = new RionWindowsJobProcessObservation { ProcessId = processId };
         IntPtr process = OpenProcess(0x1000, false, processId); // QUERY_LIMITED_INFORMATION
@@ -127,6 +129,7 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
             observation.ImageQueryError = Marshal.GetLastWin32Error();
             return observation;
         }
+        bool retained = false;
         try
         {
             bool inJob;
@@ -143,9 +146,24 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
                 observation.ImageQueryError = Marshal.GetLastWin32Error();
             else
                 observation.ImagePath = image.ToString();
+            if (pinConsole && observation.ImageQueryError == 0 && String.Equals(
+                observation.ImagePath, System.IO.Path.Combine(Environment.SystemDirectory, "conhost.exe"),
+                StringComparison.OrdinalIgnoreCase) && !consoleHandles.ContainsKey(processId))
+            {
+                // Native membership and image identity were proven while alive.
+                // Pin that identity through exit; a disappearing image is not a
+                // reason to guess from a reused PID or fail a valid Job drain.
+                consoleHandles.Add(processId, process);
+                retained = true;
+            }
             return observation;
         }
-        finally { CloseHandle(process); }
+        finally { if (!retained) CloseHandle(process); }
+    }
+
+    public bool IsPinnedConsoleHost(uint processId)
+    {
+        lock (observations) { return consoleHandles.ContainsKey(processId); }
     }
 
     public RionWindowsJobProcessObservation[] Snapshot()
@@ -204,6 +222,11 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
         bool stopped = worker.Join(30000);
         if (posted) CloseHandle(port);
         if (!stopped) throw new TimeoutException("Windows Job diagnostic consumer did not stop.");
+        lock (observations)
+        {
+            foreach (IntPtr handle in consoleHandles.Values) CloseHandle(handle);
+            consoleHandles.Clear();
+        }
         emptyOrStopped.Dispose();
         if (!posted) throw new Win32Exception(postError);
     }

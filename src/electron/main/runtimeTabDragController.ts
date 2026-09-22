@@ -226,7 +226,9 @@ export class RuntimeTabDragController {
     const anchor = host.anchor(session.start.tabId, session.start.ratio);
     const placement = this.#placement(session, point, anchor);
     if (!session.terminal) {
-      host.position(session.start.sessionId, placement.bounds, !session.released);
+      // The native move publishes a Core placement revision. Consume its exact
+      // receipt before the next sample captures source/target topology fences.
+      await host.position(session.start.sessionId, placement.bounds, !session.released);
     }
   }
 

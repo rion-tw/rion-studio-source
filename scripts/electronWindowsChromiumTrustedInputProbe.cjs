@@ -43,6 +43,7 @@ void (async () => {
   let controlView;
   let onPrivateReceipt;
   let parent;
+  let registeredOwnerAddon;
   let view;
   const armWaiters = new Map();
   const inputWaiters = new Map();
@@ -84,6 +85,13 @@ void (async () => {
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true,
         partition: `rion-input-probe-host-${randomUUID()}` }
     });
+    // Match the production host: physical-input evidence belongs to this
+    // exact registered HWND and must exist before attaching any Role view.
+    const owner = addon.registerWindowsRuntimeShortcutOwner(parent.getNativeWindowHandle(), "1");
+    registeredOwnerAddon = addon;
+    if (!owner.registered || owner.ownerRevision !== "1" || owner.uiThreadId < 1) {
+      throw new Error("The probe HWND did not acquire its exact physical-input evidence owner.");
+    }
     const parentBounds = parent.getContentBounds();
     const { ChromiumViewAttachmentCoordinator, ChromiumViewInputSubmission,
       ChromiumViewTrustedInputHost, ChromiumViewFocusAdmission,
@@ -566,6 +574,8 @@ void (async () => {
     controlView = undefined;
     focus.dispose();
     await attachments.dispose();
+    registeredOwnerAddon.unregisterWindowsRuntimeShortcutOwner(parent.getNativeWindowHandle(), "1");
+    registeredOwnerAddon = undefined;
     closeWindow(parent);
     parent = undefined;
     app.exit(0);
@@ -579,6 +589,9 @@ void (async () => {
           if (parent?.contentView.children.includes(target)) parent.contentView.removeChildView(target);
           target.webContents.close({ waitForBeforeUnload: false });
         }
+      }
+      if (registeredOwnerAddon && parent && !parent.isDestroyed()) {
+        registeredOwnerAddon.unregisterWindowsRuntimeShortcutOwner(parent.getNativeWindowHandle(), "1");
       }
       closeWindow(parent);
     } catch {

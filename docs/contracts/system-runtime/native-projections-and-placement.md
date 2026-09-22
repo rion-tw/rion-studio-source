@@ -134,6 +134,9 @@ or ambiguous matches fail without choosing an arbitrary primary display. Modern
 fingerprints retain exact matching. Launch and empty-window registration retain
 their topology revision fences; an unchanged legacy saved record may acknowledge
 registration before a native placement event persists the current display data.
+If a snapshot read observes a newer Core revision, admission also captures any
+exact-window native work admitted during that read. Only admitted work permits
+another snapshot; absent work or a failed receipt still rejects the mismatch.
 
 Legacy saved Workspace tabs that predate complete Workspace-slot snapshots merge
 their saved Role geometry onto the current source Workspace by slot ID, then
@@ -172,6 +175,9 @@ source generation while resolving the tab's current owner after each transfer.
 Native callbacks never synchronously re-enter Core. AppKit owns held native UI;
 the Windows bundled toolbar starts a scoped native desktop-pointer subscription.
 Latest motion samples may coalesce, but terminal barriers cannot be overwritten.
+An already attached loading Role may transfer its exact view before first-load
+completion; that completion acknowledges the current parent without reloading.
+Audibility snapshots read that live loading surface without granting early focus.
 
 Both adapters show the real live Chromium window outside all tab strips. One
 provisional transient host is reused throughout a multi-tab gesture; single-tab
@@ -184,10 +190,20 @@ Session-scoped pointer pass-through is restored before any asynchronous cleanup;
 late callbacks cannot release a newer session's lease. Persistence failure must
 not visually compensate an already accepted drag destination. Unknown transfer
 outcomes remain failed/indeterminate rather than retrying toward convergence.
+Windows position updates await their event-bound placement receipt before the
+next sample reads transfer fences, so their own revision cannot overtake a merge.
 
 Activation, native tab-menu lookup, and close resolve the current owner from
 Core's logical topology and validate the exact native projection. There is no
 legacy shell tab store or background ownership reconciliation. A newer gesture
 supersedes the old session; callbacks for retired sessions are silent no-ops.
+Windows menu destinations include other admitted live Core hosts even when an
+effect projects only the source window; absent, unregistered or destroyed hosts
+cannot become destinations merely because they appeared in an earlier batch.
 Empty floating hosts are hidden on re-entry, retained through the physical
 terminal callback, and retired through the existing exact Core provision fence.
+
+Windows native menu accelerators own Ctrl+Tab and Ctrl+Shift+Tab even while a
+selected document is loading. The adapter reads Core's ordered non-hidden tabs
+and submits one `embeddedTabActivate` under the exact focused host, generation,
+selection and topology fence; the launcher is not a runtime shortcut target.

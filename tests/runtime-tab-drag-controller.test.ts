@@ -68,6 +68,32 @@ function harness(single = false) {
 }
 
 describe("Core-admitted live tab tearout", () => {
+  it("orders a native placement receipt before reading the next transfer fence", async () => {
+    const h = harness();
+    let release!: () => void;
+    const placement = new Promise<void>(resolve => { release = resolve; });
+    let placementApplied = false;
+    h.host("floating").position = vi.fn(async () => {
+      await placement;
+      placementApplied = true;
+      h.windows.find(w => w.windowId === "floating")!.revision += 1;
+    });
+    h.start(); await h.controller.settle(); h.sample("move");
+    await vi.waitFor(() => expect(h.host("floating").position).toHaveBeenCalledOnce());
+    h.sample("end", 100, 20);
+    // Flush already queued promise work while the authoritative receipt is held.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(h.commands.filter(c => c.type === "embeddedTabMove")).toHaveLength(1);
+    expect(h.host("floating").release).toHaveBeenCalledWith("drag");
+    release(); await h.controller.settle();
+    expect(placementApplied).toBe(true);
+    expect(h.commands.filter(c => c.type === "embeddedTabMove").at(-1)).toMatchObject({
+      sourceWindowId: "floating", sourceTopologyRevision: 3
+    });
+    expect(h.windows.some(w => w.windowId === "floating")).toBe(false);
+    expect(h.errors).toEqual([]);
+  });
+
   it("creates one transient host, transfers the same tab back and forth, and retires the empty preview", async () => {
     const h = harness(); h.start(); await h.controller.settle();
     const tab = h.windows[0]!.tabs[0];

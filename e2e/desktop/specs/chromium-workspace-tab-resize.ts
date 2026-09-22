@@ -7,10 +7,12 @@ import { expectWorkspacePixels } from "./chromium-workspace-gap-evidence";
 export async function resizeWorkspaceWithLoadingSibling(windowId: string, tabId: string): Promise<number> {
   const before = await inspect(windowId);
   const width = Math.max(...before.surfaces.filter(s => s.tabId === tabId).map(s => s.bounds.x+s.bounds.width));
-  await resizeWorkspaceWindow({ inspection: before, edge: "bottomRight", moves:[{x:-96,y:-64}],
+  // Earlier native tracking-limit cases can leave this window at minimum width.
+  // Grow it so this case always exercises a real active/inactive layout change.
+  await resizeWorkspaceWindow({ inspection: before, edge: "right", moves:[{x:96,y:0}],
     whileHeld: async () => {
       await browser.waitUntil(async () => Math.max(...(await inspect(windowId)).surfaces
-        .filter(s => s.tabId === tabId).map(s => s.bounds.x+s.bounds.width)) < width, { timeout:20_000 });
+        .filter(s => s.tabId === tabId).map(s => s.bounds.x+s.bounds.width)) > width, { timeout:20_000 });
       await expectWorkspacePixels({ inspection: await inspect(windowId), tabId,
         name:"resize-with-loading-sibling-held", background:"black" });
     } });

@@ -300,6 +300,9 @@ export class ChromiumExtensionSessions {
       const bootstrapped = await this.#deadline(readiness.result);
       this.#clearBootstrap(entry.handle.session as Session, packageRecord.id);
       if (bootstrapped.status !== "completed") {
+        this.#input.logger?.extensionDiagnostic("warn", "extension_bootstrap_incomplete",
+          "The extension bootstrap did not receive every required native acknowledgement.",
+          { extensionId: packageRecord.id, roleId: entry.handle.roleId, ...readiness.inspect() });
         await this.#unload(native, packageRecord.id);
         this.#record(entry, packageRecord.id, "bootstrap", "degraded",
           bootstrapped.status === "indeterminate"

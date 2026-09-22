@@ -396,6 +396,10 @@ function windowsInputParent(
  */
 export class WindowsElectronChromiumRuntimeHostFactory
 implements ChromiumRuntimeHostFactoryPort {
+  async settleWindowNativePlacement(windowId: string): Promise<boolean> {
+    return await this.#activeByLogicalWindow.get(windowId)?.chrome.settleNativePlacement() ?? false;
+  }
+
   readonly #windows: WindowsBrowserWindowFactoryPort;
   readonly #displays: WindowsRuntimeHostDisplayResolverPort;
   readonly #runtimeDocumentPath: string;
@@ -833,6 +837,7 @@ implements ChromiumRuntimeHostFactoryPort {
     });
     record.host = Object.freeze({
       tabDrag: createRuntimeTabDragHost({ native,
+        onPositioned: () => record.chrome.nativeBoundsChanged(),
         ready: record.chrome.tabDragGeometry.ready,
         contains: record.chrome.tabDragGeometry.contains,
         anchor: record.chrome.tabDragGeometry.anchor,
@@ -1582,6 +1587,10 @@ implements ChromiumRuntimeHostFactoryPort {
   ): WindowsChromiumInputRuntimeParentBinding | null {
     if (this.#platform !== "win32") return null;
     return this.#windows!.resolveInputParent(parent);
+  }
+
+  async settleWindowsNativePlacement(windowId: string): Promise<boolean> {
+    return await this.#windows?.settleWindowNativePlacement(windowId) ?? false;
   }
 
   /** macOS renames through its AppKit lane; only Windows draws its own bar. */

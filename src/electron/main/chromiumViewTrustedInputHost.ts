@@ -42,10 +42,11 @@ export class ChromiumViewTrustedInputHost implements WindowsChromiumTrustedInput
       }
     };
     const probe = (expected: WindowsChromiumInputSurfaceIdentity,
-      deliveryMode: WindowsChromiumInputDeliveryMode): ChromiumViewTrustedInputProbeReceipt => {
+      deliveryMode: WindowsChromiumInputDeliveryMode,
+      inputRoute: "trusted" | "compatible" = "trusted"): ChromiumViewTrustedInputProbeReceipt => {
       requireCurrent(expected);
       const raw = attachment.observe();
-      if (!validChromiumViewInputObservation(raw, identity, deliveryMode)) {
+      if (!validChromiumViewInputObservation(raw, identity, deliveryMode, inputRoute)) {
         throw new Error("The exact View input observation is not ready.");
       }
       const observation = Object.freeze({ ...raw, identity: Object.freeze({ ...raw.identity }),
@@ -67,11 +68,11 @@ export class ChromiumViewTrustedInputHost implements WindowsChromiumTrustedInput
         }
         return this.#focus(request);
       },
-      currentInputDeliveryMode: expected => {
+      currentInputDeliveryMode: (expected, inputRoute = "trusted") => {
         requireCurrent(expected);
         const observation = attachment.observe();
         const mode = observation.viewVisible ? "foreground" : "background";
-        return validChromiumViewInputObservation(observation, identity, mode) ? mode : null;
+        return validChromiumViewInputObservation(observation, identity, mode, inputRoute) ? mode : null;
       },
       isInputReady: (expected, mode) => {
         try { probe(expected, mode); return true; } catch { return false; }

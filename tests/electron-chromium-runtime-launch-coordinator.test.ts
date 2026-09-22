@@ -1294,6 +1294,78 @@ describe("Electron Chromium runtime launch coordinator", () => {
     expect(launchCommands[0]!.target.bounds).toEqual(liveBounds);
   });
 
+  it.each(["applied", "failed"] as const)("fences empty registration on its pending native placement projection: %s", async outcome => {
+    let entered!: () => void, release!: () => void;
+    const waiting = new Promise<"waiting">(resolve => { entered = () => resolve("waiting"); });
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const settleWindowProjection = vi.fn(async (windowId: string) => {
+      expect(windowId).toBe(WINDOW_ID);
+      entered(); await pending;
+      if (outcome === "failed") throw new Error("placement projection failed");
+      state.nativeSnapshot = { ...state.nativeSnapshot, windows: state.nativeSnapshot.windows.map(window =>
+        ({ ...window, topologyRevision: state.coreSnapshot.logicalWindows[0]!.revision })) };
+      return true;
+    });
+    const { coordinator, state, coreInvoke } = launchHarness({ observedSnapshots: true, settleWindowProjection,
+      onRegister: (_command, current) => {
+        advanceWindowTopology(current, 1);
+        current.nativeSnapshot = { ...current.nativeSnapshot, windows: current.nativeSnapshot.windows.map(window =>
+          ({ ...window, topologyRevision: window.topologyRevision - 1 })) };
+      }
+    });
+    const saved = emptySavedWindow();
+    state.coreSnapshot.state.gameWindows.push(saved);
+    const registration = coordinator.openEmptySavedGameWindow(saved);
+    try {
+      expect(await Promise.race([waiting, registration.then(() => "completed", () => "rejected")])).toBe("waiting");
+      expect(coreInvoke).not.toHaveBeenCalledWith(expect.objectContaining({ type: "embeddedWindowRetireProvision" }));
+    } finally { release(); }
+    if (outcome === "applied") {
+      await expect(registration).resolves.toBeUndefined();
+      expect(state.nativeSnapshot.windows[0]!.topologyRevision).toBe(2);
+    } else {
+      await expect(registration).rejects.toThrow("placement projection failed");
+      expect(state.nativeSnapshot.windows).toEqual([]);
+    }
+    expect(settleWindowProjection).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["applied", "failed"] as const)("awaits placement admitted during the fenced snapshot read: %s", async outcome => {
+    let checked = false, admitted = false;
+    const settleWindowProjection = vi.fn(async () => {
+      checked = true;
+      if (!admitted) return false;
+      admitted = false;
+      if (outcome === "failed") throw new Error("late placement failed");
+      state.nativeSnapshot = { ...state.nativeSnapshot, windows: state.nativeSnapshot.windows.map(window =>
+        ({ ...window, topologyRevision: state.coreSnapshot.logicalWindows[0]!.revision })) };
+      return true;
+    });
+    const { coordinator, state, coreInvoke } = launchHarness({ observedSnapshots: true, settleWindowProjection,
+      onRegister: (_command, current) => {
+        advanceWindowTopology(current, 1);
+        current.nativeSnapshot = { ...current.nativeSnapshot, windows: current.nativeSnapshot.windows.map(window =>
+          ({ ...window, topologyRevision: window.topologyRevision - 1 })) };
+      }
+    });
+    const invoke = coreInvoke.getMockImplementation()!;
+    coreInvoke.mockImplementation(async command => {
+      const result = await invoke(command);
+      if (command.type === "appSnapshot" && checked) { admitted = true; checked = false; }
+      return result;
+    });
+    const saved = emptySavedWindow();
+    state.coreSnapshot.state.gameWindows.push(saved);
+    const registration = coordinator.openEmptySavedGameWindow(saved);
+    if (outcome === "applied") {
+      await expect(registration).resolves.toBeUndefined();
+      expect(state.nativeSnapshot.windows[0]!.topologyRevision).toBe(2);
+    } else {
+      await expect(registration).rejects.toThrow("late placement failed");
+      expect(state.nativeSnapshot.windows).toEqual([]);
+    }
+  });
+
   it("rejects an unrelated saved-window identity change during empty registration", async () => {
     const { coordinator, coreInvoke, state } = launchHarness({
       onRegister: (_command, harness) => {

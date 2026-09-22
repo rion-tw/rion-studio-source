@@ -610,10 +610,10 @@ async function withElectronRoleKeyboardTarget<Value>(
     await canvas.waitForDisplayed({ timeout: 10_000 });
     if (options.focusCanvas !== false) {
       if (probe && nativeWindowHandle) {
-        // ChromeDriver can deliver DOM keys without native WebContents focus.
-        // A real content click establishes the same focus a user supplies.
+        // Establish native foreground before clicking the hit-tested Canvas.
+        // An arbitrary center click can open an overlaid verification control.
         await focusWindowsRuntimeNativeWindow({
-          processId: probe.processId, nativeWindowHandle, pointerTarget: "content-click"
+          processId: probe.processId, nativeWindowHandle
         });
       }
       const point = await browser.execute(visibleCanvasPoint);
@@ -624,7 +624,7 @@ async function withElectronRoleKeyboardTarget<Value>(
         ...point
       }).down("left").up("left").perform();
       const focused = await browser.execute(() =>
-        document.activeElement === document.querySelector("#game-input-canvas")
+        document.hasFocus() && document.activeElement === document.querySelector("#game-input-canvas")
       );
       if (!focused) throw new Error("The visible canvas click did not establish keyboard focus");
     }
@@ -847,10 +847,16 @@ export async function dragWindowsVisibleWorkspaceDivider(
     }
     // Avoid the geometric center where a perpendicular divider can overlap
     // this hit surface in a three-or-more-slot Workspace.
-    const startX = Math.round(location.x + size.width *
-      (exactAxis === "horizontal" ? 0.25 : 0.5));
-    const startY = Math.round(location.y + size.height *
-      (exactAxis === "vertical" ? 0.25 : 0.5));
+    // Keep the half-CSS-pixel center until mapping to physical pixels. Rounding
+    // a 1px divider here lands on its excluded right/bottom edge instead.
+    const startX = location.x + size.width *
+      (exactAxis === "horizontal" ? 0.25 : 0.5);
+    const startY = location.y + size.height *
+      (exactAxis === "vertical" ? 0.25 : 0.5);
+    // Held-drag observations use the launcher-only E2E bridge. Select that
+    // document before native mouse-down, so inspecting Core cannot switch
+    // browser targets or steal focus while the divider owns pointer capture.
+    await switchTrackedWindow(mainWindowHandle);
     await runEncodedPowerShellJson(String.raw`
 Add-Type @'
 using System;
@@ -893,8 +899,8 @@ if ([RionWorkspaceDividerDrag]::GetForegroundWindow() -ne $handle) {
 $scale = [RionWorkspaceDividerDrag]::GetDpiForWindow($handle) / 96.0
 if ($scale -le 0) { throw 'exact divider HWND has no native DPI' }
 $start = New-Object RionWorkspaceDividerDrag+Point
-$start.x = [int][Math]::Round([double]$payload.startX * $scale)
-$start.y = [int][Math]::Round([double]$payload.startY * $scale)
+$start.x = [int][Math]::Floor([double]$payload.startX * $scale)
+$start.y = [int][Math]::Floor([double]$payload.startY * $scale)
 $end = New-Object RionWorkspaceDividerDrag+Point
 $end.x = [int][Math]::Round([double]$payload.endX * $scale)
 $end.y = [int][Math]::Round([double]$payload.endY * $scale)
@@ -931,6 +937,7 @@ public static class DividerRelease {
 `, {}, { timeoutMilliseconds: 10_000 });
       }
     }
+    await switchTrackedWindow(hostHandle);
     await browser.waitUntil(async () =>
       (await divider.getAttribute("data-dragging")) !== "true", {
       timeout: 10_000,

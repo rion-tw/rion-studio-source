@@ -6,6 +6,7 @@ import { focusVisibleMacosAppKitRuntime, waitForFocusedMacosAppKitRuntime } from
 import { rendererCall } from "./renderer-bridge";
 import { readWindowsRuntimeTabCloseEvidence } from "./windows-runtime-tab-close";
 import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
+import { pressWindowsRuntimeWindowControl } from "./windows-runtime-window-control";
 
 import { $, browser, expect } from "@wdio/globals";
 import { execFile } from "node:child_process";
@@ -490,11 +491,11 @@ export async function dragVisibleWindowsRuntimeTab(input: Readonly<{
     windowId: document.documentElement.dataset.runtimeWindowId!,
     targetId: before ?? [...document.querySelectorAll<HTMLElement>(".runtime-tab[data-tab-id]")].at(-1)!.dataset.tabId!
   }), input.beforeTabId ?? null));
-  const source = await nativeTabPoint({ platform: "windows", mainWindowHandle: input.mainWindowHandle,
-    windowId: context.windowId, tabId: input.tabId, tabName: "", focus: true });
   const target = await nativeTabPoint({ platform: "windows", mainWindowHandle: input.mainWindowHandle,
     windowId: context.windowId, tabId: context.targetId, tabName: "" });
   target.x += input.beforeTabId ? -20 : 20;
+  const source = await nativeTabPoint({ platform: "windows", mainWindowHandle: input.mainWindowHandle,
+    windowId: context.windowId, tabId: input.tabId, tabName: "", focus: true });
   try { await nativeTabPointer("windows", "start", source, target); }
   finally { await nativeTabPointer("windows", "end", target, target); }
 }
@@ -511,7 +512,16 @@ export async function selectVisibleWindowsRuntimeTabMenuAction(input: Readonly<{
   if ((input.action === "move") !== (input.targetWindowId !== undefined)) {
     throw new Error("A Windows move action requires one exact target window");
   }
+  const processId = (await electronDesktopE2eProbe()).processId;
   await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
+    const point = await readVisibleWindowsRuntimeTabPoint(input.tabId);
+    const close = await $(`[data-runtime-tab-close][data-tab-id='${input.tabId}']`);
+    const controlName = await close.getAttribute("aria-label");
+    if (!controlName) throw new Error("The menu source omitted its native tab identity");
+    const evidence = await readWindowsRuntimeTabCloseEvidence({
+      processId, tabId: input.tabId, windowId: point.windowId, controlName
+    });
+    await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle: evidence.nativeHandle });
     const source = await $(
       `[data-runtime-tab-activate][data-tab-id='${input.tabId}']`
     );
@@ -534,7 +544,19 @@ export async function selectVisibleWindowsRuntimeTabMenuAction(input: Readonly<{
           `[data-runtime-tab-menu-action='${action}']` +
           `[data-target-window-id='${input.targetWindowId}']`
         );
-    await target.waitForClickable({ timeout: 10_000 });
+    try {
+      await target.waitForClickable({ timeout: 10_000 });
+    } catch (error) {
+      const menu = await browser.execute(() => ({
+        focused: document.hasFocus(),
+        projection: document.documentElement.dataset.runtimeProjectionRevision,
+        menu: document.querySelector("[data-runtime-tab-menu]")?.outerHTML,
+        tabs: [...document.querySelectorAll(".runtime-tab")].map(tab => ({
+          id: (tab as HTMLElement).dataset.tabId, phase: (tab as HTMLElement).dataset.phase
+        }))
+      }));
+      throw new Error(`Native tab menu did not expose its exact action: ${JSON.stringify(menu)}`, { cause: error });
+    }
     if (input.action === "mute" || input.action === "unmute") {
       expect(await target.getAttribute("aria-checked")).toBe(String(input.action === "unmute"));
     }
@@ -718,6 +740,15 @@ export async function clickVisibleRuntimeWindowControl(input: Readonly<{
   windowId?: string;
 }>): Promise<void> {
   if (input.platform === "windows") {
+    if (input.windowId) {
+      const { processId } = await electronDesktopE2eProbe();
+      const inspection = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
+      if (!inspection.nativeWindowHandle) throw new Error("Exact runtime HWND is unavailable");
+      await pressWindowsRuntimeWindowControl({
+        processId, nativeWindowHandle: inspection.nativeWindowHandle, command: input.command
+      });
+      return;
+    }
     await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
       const command = input.command === "maximize"
         ? "toggleMaximizeWindow"

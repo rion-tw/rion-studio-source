@@ -17,7 +17,8 @@ function observation(mode: "normal" | "hidden" | "revealed" | "pinned", revision
       windowId: "window", windowGeneration: 3, topologyRevision: revision,
       projectionRevision: revision, fullscreen, revealed: mode === "revealed",
       alwaysShowToolbarInFullScreen: mode === "pinned", toolbarVisible: shown,
-      nativeControlsVisible: shown, nativeWindowControlCount: shown ? 3 : 0
+      nativeControlsVisible: shown, nativeWindowControlCount: shown ? 3 : 0,
+      workspaceBackground: "material"
     },
     surfaces: [{ id: "surface", tabId: "tab", kind: "role", visible: true,
       bounds: { x: 0, y: shown ? 40 : 2, width: fullscreen ? 1024 : 960,
@@ -40,6 +41,21 @@ async function validate(observations: unknown[], platform: "macos" | "windows" =
 }
 
 describe("Windows fullscreen toolbar aggregate evidence", () => {
+  it.each(["material", "black"])("accepts the current projected %s background", async background => {
+    await expect(validate(history().map(value => ({ ...value,
+      native: { ...value.native, workspaceBackground: background }
+    })))).resolves.toMatchObject({ pinnedAndRevealed: true });
+  });
+  it.each([undefined, null, "transparent", false])("rejects missing or malformed background %j", async background => {
+    await expect(validate(history().map(value => ({ ...value,
+      native: { ...value.native, workspaceBackground: background }
+    })))).rejects.toThrow("malformed");
+  });
+  it("still rejects unknown native projection fields", async () => {
+    await expect(validate(history().map(value => ({ ...value,
+      native: { ...value.native, unexpected: true }
+    })))).rejects.toThrow("malformed");
+  });
   it("allows a larger fullscreen window while proving the exact toolbar inset", async () => {
     await expect(validate(history(), "windows")).resolves.toMatchObject({ autoHideObserved: true });
   });

@@ -15,12 +15,14 @@ describe("Windows native application menu", () => {
     const setApplicationMenu = vi.fn();
 
     const executeShortcut = vi.fn();
+    const activateAdjacent = vi.fn();
     installWindowsApplicationMenu(
       {
         buildFromTemplate: buildFromTemplate as never,
         setApplicationMenu: setApplicationMenu as never
       },
-      executeShortcut
+      executeShortcut,
+      activateAdjacent
     );
 
     const fileMenu = capturedTemplate[0];
@@ -42,7 +44,7 @@ describe("Windows native application menu", () => {
     });
     expect(viewItems.map((item) => "accelerator" in item
       ? item.accelerator
-      : null)).toEqual(["Ctrl+0", "Ctrl+Plus", "Ctrl+-", null, "F11"]);
+      : null)).toEqual(["Ctrl+0", "Ctrl+Plus", "Ctrl+-", null, "F11", null, "Ctrl+Tab", "Ctrl+Shift+Tab"]);
     expect(fullscreen).toMatchObject({
       accelerator: "F11",
       label: "Toggle Full Screen",
@@ -59,6 +61,11 @@ describe("Windows native application menu", () => {
       typeof fullscreen.click !== "function"
     ) throw new Error("Expected native shortcut callbacks");
     const focusedWindow = { id: 92 };
+    for (const index of [6, 7]) {
+      const item = viewItems[index] as MenuItemConstructorOptions;
+      item.click!({} as never, focusedWindow as never, {} as never);
+    }
+    expect(activateAdjacent.mock.calls).toEqual([["next", focusedWindow], ["previous", focusedWindow]]);
     create.click({} as never, focusedWindow as never, {} as never);
     zoomIn.click({} as never, focusedWindow as never, {} as never);
     fullscreen.click({} as never, focusedWindow as never, {} as never);

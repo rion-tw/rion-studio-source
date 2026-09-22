@@ -1,13 +1,6 @@
 import { runEncodedPowerShellJson } from "./encodedPowerShell.mjs";
 
-/** One visible caption click establishes the probe's foreground precondition. */
-export async function clickWindowsProbeCaption({ processId, nativeWindowHandle },
-  port = { platform: process.platform, run: runEncodedPowerShellJson }) {
-  if (port.platform !== "win32" || !Number.isSafeInteger(processId) || processId <= 1 ||
-      !/^[1-9][0-9]*$/u.test(nativeWindowHandle)) {
-    throw new Error("Probe activation requires an exact Windows process and HWND.");
-  }
-  return JSON.parse(await port.run(String.raw`
+export const WINDOWS_PROBE_CAPTION_HANDLERS = String.raw`
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -61,6 +54,17 @@ public static class RionProbeCaption {
   }
 }
 '@
+`;
+
+/** One visible caption click establishes the probe's foreground precondition. */
+export async function clickWindowsProbeCaption({ processId, nativeWindowHandle },
+  port = { platform: process.platform, run: runEncodedPowerShellJson }) {
+  if (port.platform !== "win32" || !Number.isSafeInteger(processId) || processId <= 1 ||
+      !/^[1-9][0-9]*$/u.test(nativeWindowHandle)) {
+    throw new Error("Probe activation requires an exact Windows process and HWND.");
+  }
+  return JSON.parse(await port.run(String.raw`
+${WINDOWS_PROBE_CAPTION_HANDLERS}
 $priorDpi = [RionProbeCaption]::SetThreadDpiAwarenessContext([IntPtr](-4))
 if ($priorDpi -eq [IntPtr]::Zero) { throw 'Probe caption DPI context is unavailable.' }
 try {

@@ -8,6 +8,7 @@ import type {} from "@wdio/electron-service";
 import { desktopE2eSpecForPhase } from "./phaseSpecs";
 import { requestElectronDesktopE2eClose, electronDesktopE2eProbe } from "./support/electron-driver";
 import { electronLauncherWindowHandle } from "./support/window-target";
+import { focusWindowsLauncherForVisibleLaunch } from "./support/windows-launcher-foreground";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -48,6 +49,7 @@ const electronApplication = packaged
     };
 
 let launcherPrepared = false;
+let preparedLauncherHandle: string | undefined;
 
 export const config = {
   runner: "local",
@@ -81,8 +83,10 @@ export const config = {
   connectionRetryTimeout: 70_000,
   waitforTimeout: 10_000,
   mochaOpts: {
-    // Native resize/pixel matrices include both initial loading barriers.
-    timeout: (phase === "chromium-workspace-gap-dividers-seed" ? 20 : 8) * 60_000
+    // Both initial-loading matrices plus the ready-content pixel matrix can
+    // exceed 20 minutes on Windows ARM64. Per-action deadlines remain bounded;
+    // this outer budget only allows all required native captures to complete.
+    timeout: (phase === "chromium-workspace-gap-dividers-seed" ? 35 : 8) * 60_000
   },
   beforeSession: (): void => {
     if (packaged) return;
@@ -117,8 +121,12 @@ export const config = {
       }))
       .filter(({ handle }) => webDriverHandles.has(handle));
     const launcherHandle = electronLauncherWindowHandle(windows);
+    preparedLauncherHandle = launcherHandle;
     await runnerBrowser.switchToWindow(launcherHandle);
     runnerBrowser.electron.windowHandle = launcherHandle;
+    if (process.platform === "win32" && !packaged) {
+      await focusWindowsLauncherForVisibleLaunch();
+    }
     if (process.platform === "darwin" && !packaged) {
       try {
         registerNativeFailureSampler(await prepareNativeFailureSampler({
@@ -134,6 +142,9 @@ export const config = {
   after: async (): Promise<void> => {
     if (packaged) return;
     if (process.env.RION_STUDIO_E2E_TERMINAL_NATIVE_QUIT === "1") return;
+    // A failed journey may leave the driver in a remote store/Role document.
+    // The authenticated shutdown bridge belongs to the original launcher.
+    if (preparedLauncherHandle) await browser.switchToWindow(preparedLauncherHandle);
     await requestElectronDesktopE2eClose();
     // Electron has completed its authoritative final flush and now owns shutdown.
     // The protocol-stub override keeps Runner from sending DELETE to an exited app.

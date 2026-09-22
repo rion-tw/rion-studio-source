@@ -1,6 +1,6 @@
 import { verifyTemporaryWindowTitle } from "../support/temporary-window-title";
 import { extensionTerminalIds, expectExtensionPassedClassification, verifyExtensionPermissionsAfterRestart } from "../support/extensions-permissions";
-import { verifyBusterStoreNavigation } from "../support/extensions-store-navigation";
+import { storeDetailLinkSelector, verifyBusterStoreNavigation } from "../support/extensions-store-navigation";
 import { join } from "node:path";
 import { $, browser, expect } from "@wdio/globals";
 import { captureNativeApplicationObservation } from "../support/native-application-observation";
@@ -82,7 +82,7 @@ describe("Extensions store and per-role configuration", () => {
       await search.click();
       await search.setValue("AdBlock");
       await browser.keys("Enter");
-      const result = await $(`a[href*="/detail/"][href*="${EXTENSION_ID}"]`);
+      const result = await $(storeDetailLinkSelector(EXTENSION_ID));
       await result.waitForClickable({ timeout: 30_000 });
       await result.click();
       await browser.waitUntil(async () => new URL(await browser.getUrl()).pathname.endsWith(`/${EXTENSION_ID}`), { timeout: 30_000 });

@@ -3,6 +3,7 @@ import { writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { isAbsolute, join } from "node:path";
 import { CoreAddonClient, type RawNodeApiCoreFactory } from "../core/coreAddonClient";
+import { ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION } from "../main/chromiumRuntimeBootstrap";
 import type { ElectronDesktopE2eRetainedV22Precondition } from "./desktopE2eBridge";
 import { markRecoveryExportFailed, type RecoverySourceBinding } from "./sessionRecoverySeed";
 const requireNativeModule = createRequire(import.meta.url);
@@ -112,7 +113,8 @@ export async function seedRetainedV22Role(platform: {
       await core.shutdown();
       await markRecoveryExportFailed(addon, {
         appVersion: app.getVersion(), packaged: false, platform: platform.platform,
-        runtimeContractVersion: 43, userDataDir: userDataDirectory, startupBackupLabel: "electron-desktop-e2e-recovery-target"
+        runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION,
+        userDataDir: userDataDirectory, startupBackupLabel: "electron-desktop-e2e-recovery-target"
       }, role.id, transferId);
     }
     const precondition = Object.freeze({

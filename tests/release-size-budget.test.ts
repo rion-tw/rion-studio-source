@@ -1,8 +1,10 @@
-import { mkdtemp, open } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 
 import {
   RELEASE_SIZE_LIMITS,
@@ -75,12 +77,19 @@ describe("release artifact size budget", () => {
 });
 
 async function fixtureDirectory() {
-  return mkdtemp(join(tmpdir(), "rion-release-size-"));
+  const directory = await mkdtemp(join(tmpdir(), "rion-release-size-"));
+  onTestFinished(() => rm(directory, { recursive: true, force: true }));
+  return directory;
 }
 
 async function sparseFile(path: string, size: number) {
   const handle = await open(path, "w");
   try {
+    // NTFS otherwise allocates the full truncated length, unlike Unix sparse
+    // files. Keep real stat-based boundary checks without consuming gigabytes.
+    if (process.platform === "win32") {
+      await promisify(execFile)("fsutil.exe", ["sparse", "setflag", path], { windowsHide: true });
+    }
     await handle.truncate(size);
   } finally {
     await handle.close();

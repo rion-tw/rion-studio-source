@@ -148,6 +148,7 @@ export class WindowsRuntimeHostChromeController {
   #layoutLane: Promise<void> = Promise.resolve();
   #placementObserver: (() => Promise<void>) | null = null;
   #placementLane: Promise<void> = Promise.resolve();
+  readonly #nativePlacementTasks = new Set<Promise<void>>();
   #commandLane: Promise<void> = Promise.resolve();
   #pendingMinimize: Deferred<void> | null = null;
   #pending: {
@@ -602,7 +603,21 @@ export class WindowsRuntimeHostChromeController {
     }
   }
 
-  async nativeBoundsChanged(): Promise<void> {
+  nativeBoundsChanged(): Promise<void> {
+    const task = this.#applyNativeBoundsChanged();
+    this.#nativePlacementTasks.add(task);
+    const release = () => { this.#nativePlacementTasks.delete(task); };
+    void task.then(release, release);
+    return task;
+  }
+
+  async settleNativePlacement(): Promise<boolean> {
+    const tasks = [...this.#nativePlacementTasks];
+    await Promise.all(tasks);
+    return tasks.length > 0;
+  }
+
+  async #applyNativeBoundsChanged(): Promise<void> {
     // Resize/move events emitted by a programmatic presentation transition
     // belong to that pending event-bound transaction. Their intermediate
     // geometry must not enqueue relayout work ahead of the exact native

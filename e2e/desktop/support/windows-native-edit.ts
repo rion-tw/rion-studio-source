@@ -43,11 +43,22 @@ export const windowsNativeEditDeclarations = String.raw`
     if (SendText(edit, 0x000C, UIntPtr.Zero, text, 0x22, 2000, out result) == IntPtr.Zero ||
         result == UIntPtr.Zero)
       throw new InvalidOperationException("native file-name write was not acknowledged");
-    var readback = new System.Text.StringBuilder(text.Length + 2);
-    if (ReadText(edit, 0x000D, new UIntPtr((uint)readback.Capacity), readback, 0x22, 2000,
-        out result) == IntPtr.Zero || !String.Equals(readback.ToString(), text, StringComparison.Ordinal))
+    VerifyExactFileName(dialog, edit, text);
+  }
+  public static void VerifyExactFileName(IntPtr dialog, IntPtr edit, string text) {
+    if (!String.Equals(ReadExactFileName(dialog, edit, text.Length + 2), text, StringComparison.Ordinal))
       throw new InvalidOperationException("native file-name readback differs from fixture path");
+  }
+  public static string ReadExactFileName(IntPtr dialog, IntPtr edit, int capacity) {
+    if (edit == IntPtr.Zero || !IsChild(dialog, edit) || GetForegroundWindow() != dialog)
+      throw new InvalidOperationException("exact native file-name ownership lost");
+    UIntPtr result;
+    var readback = new System.Text.StringBuilder(capacity);
+    if (ReadText(edit, 0x000D, new UIntPtr((uint)readback.Capacity), readback, 0x22, 2000,
+        out result) == IntPtr.Zero)
+      throw new InvalidOperationException("native file-name read was not acknowledged");
     if (!IsChild(dialog, edit) || GetForegroundWindow() != dialog)
       throw new InvalidOperationException("exact native file-name ownership changed");
+    return readback.ToString();
   }
 `;

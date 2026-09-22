@@ -150,7 +150,7 @@ pass-through physical keys and any active hold shortcut lease, waits for
 those ordered actions and page event propagation to finish, and then reports a
 monotonic loss revision. Hidden-page overlay work performs cleanup only; the
 native presentation receipt owns tab-hide continuity so background throttling
-cannot prevent its terminal event.
+cannot prevent its terminal event. On Windows, blur arriving after native hide remains admissible for the same running background Role owner; its independent revision restores the later reset. Loading or retired input documents cannot own held keys and do not enter continuity admission.
 
 The System Runtime serializes an admitted event through the role's native input
 lane and reasserts every still-Core-owned key with the existing guarded trusted

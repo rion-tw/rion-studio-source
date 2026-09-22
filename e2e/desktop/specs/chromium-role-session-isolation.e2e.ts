@@ -1,6 +1,6 @@
 // [state-combination:CHROMIUM-MACOS-APPKIT-ROLE-SESSION-CONTINUITY]
 // [state-combination:CHROMIUM-WINDOWS-ROLE-SESSION-CONTINUITY]
-import { focusWindowsRuntimeNativeWindow } from "../support/windows-runtime-foreground";
+import { focusWindowsLauncherForVisibleLaunch } from "../support/windows-launcher-foreground";
 import { clickWorkspaceSlot } from "../support/ui";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
@@ -311,22 +311,6 @@ async function waitForRunningRoles(
 }
 
 
-/** Establishes the native foreground precondition for a visible launcher action. */
-async function focusWindowsLauncherForVisibleLaunch(): Promise<void> {
-  if (process.platform !== "win32") return;
-  const launcherUrl = await browser.getUrl();
-  const nativeWindowHandle = await browser.electron.execute((electron, expectedUrl) => {
-    const windows = electron.BrowserWindow.getAllWindows().filter((window) =>
-      window.webContents.getURL() === expectedUrl
-    );
-    if (windows.length !== 1) throw new Error("Exact session launcher unavailable");
-    const handle = windows[0].getNativeWindowHandle();
-    return handle.length === 8 ? handle.readBigUInt64LE().toString()
-      : String(handle.readUInt32LE());
-  }, launcherUrl);
-  const { processId } = await electronDesktopE2eProbe();
-  await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
-}
 async function launchWorkspaceInGameWindow(
   workspace: LaunchWorkspace,
   gameWindow: GameWindow,

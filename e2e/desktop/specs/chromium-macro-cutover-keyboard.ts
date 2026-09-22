@@ -1,3 +1,4 @@
+import { focusWindowsRoleCanvas } from "../support/windows-role-canvas";
 import { exerciseModifierReconciliation } from "./chromium-macro-modifier-reconciliation";
 import { expect } from "@wdio/globals";
 import { Key } from "webdriverio";
@@ -175,7 +176,7 @@ async function exerciseRapidShiftShortcuts(input: Readonly<{
       });
     } else {
       const processId = (await electronDesktopE2eProbe()).processId;
-      await submitElectronRoleKeyPhases(input.launchUrl, input.mainWindowHandle, [], { windowId: WINDOW_ID });
+      await focusWindowsRoleCanvas({ ...input, windowId: WINDOW_ID, fixtureId: ROLE_A_FIXTURE });
       releaseNativeShift = () => pressVisibleWindowsApplicationShortcut({
         command: "shiftUp", processId, targetMode: "focused-runtime"
       });
@@ -331,6 +332,7 @@ async function createMiddleHeldMacro(roleId: string): Promise<Macro> {
 
 async function exerciseRepeatedShiftShortcut(input: Readonly<{
   launchUrl: string;
+  macroId: string;
   mainWindowHandle: string;
   platform: "macos" | "windows";
   roleId: string;
@@ -352,8 +354,27 @@ async function exerciseRepeatedShiftShortcut(input: Readonly<{
       runtimeWindowId: WINDOW_ID
     });
   } else {
-    await pressVisibleWindowsApplicationShortcut({ command: "shiftDigit3Twice",
-      processId: (await electronDesktopE2eProbe()).processId, targetMode: "focused-runtime" });
+    await focusWindowsRoleCanvas({ ...input, windowId: WINDOW_ID, fixtureId: ROLE_A_FIXTURE });
+    const processId = (await electronDesktopE2eProbe()).processId;
+    try {
+      for (let cycle = 0; cycle < 2; cycle++) {
+        const projection = await rendererEventCursor();
+        await pressVisibleWindowsApplicationShortcut({
+          command: cycle === 0 ? "shiftDigit3TapHoldShift" : "digit3Tap",
+          processId, targetMode: "focused-runtime"
+        });
+        // Press mode toggles a running invocation off. Re-entry begins only
+        // after the prior invocation's output and terminal Core projection;
+        // keep physical Shift held across both complete lifecycles.
+        await browser.waitUntil(async () => (await fixtureEvents({ afterSequence, roleId: ROLE_A_FIXTURE }))
+          .filter(event => event.code === "Digit1" && (event.kind === "keydown" || event.kind === "keyup"))
+          .length >= (cycle + 1) * 2,
+        { timeout: 20_000, timeoutMsg: "Shift+3 did not finish its shifted Digit1 output" });
+        await waitForMacroProjection({ absent: true, afterSequence: projection, macroId: input.macroId });
+      }
+    } finally {
+      await pressVisibleWindowsApplicationShortcut({ command: "shiftUp", processId, targetMode: "focused-runtime" });
+    }
   }
   let events: readonly FixtureEvent[] = [];
   await browser.waitUntil(async () => {
@@ -505,6 +526,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
 
   await exerciseRepeatedShiftShortcut({
     launchUrl: roleA.launchUrl!,
+    macroId: macros.reentry.id,
     mainWindowHandle: context.mainWindowHandle,
     platform: context.platform,
     roleId: roleA.id,
@@ -622,6 +644,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
       processId: (await electronDesktopE2eProbe()).processId,
       runtimeTabName: roleA.name, runtimeWindowId: WINDOW_ID });
   } else {
+    await focusWindowsRoleCanvas({ launchUrl: roleA.launchUrl!, mainWindowHandle: context.mainWindowHandle, windowId: WINDOW_ID, roleId: roleA.id, fixtureId: ROLE_A_FIXTURE });
     await pressVisibleWindowsApplicationShortcut({ command: "shiftDigit3",
       processId: (await electronDesktopE2eProbe()).processId, targetMode: "focused-runtime" });
   }
@@ -655,7 +678,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     await clickMacosVisibleRoleControl(WINDOW_ID, roleA.id,
       await readVisibleElectronCanvasPoint(roleA.launchUrl!, context.mainWindowHandle));
   } else {
-    await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [], { windowId: WINDOW_ID });
+    await focusWindowsRoleCanvas({ launchUrl: roleA.launchUrl!, mainWindowHandle: context.mainWindowHandle, windowId: WINDOW_ID, roleId: roleA.id, fixtureId: ROLE_A_FIXTURE });
   }
   try {
     await continuityKey(false);
@@ -702,7 +725,8 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
         runtimeWindowId: WINDOW_ID
       });
     } else {
-      await pressVisibleWindowsApplicationShortcut({ command: "shiftDigit4", processId, targetMode: "focused-runtime" });
+      await focusWindowsRoleCanvas({ launchUrl: roleA.launchUrl!, mainWindowHandle: context.mainWindowHandle, windowId: WINDOW_ID, roleId: roleA.id, fixtureId: ROLE_A_FIXTURE });
+    await pressVisibleWindowsApplicationShortcut({ command: "shiftDigit4", processId, targetMode: "focused-runtime" });
     }
     const shiftedFour = await waitExactKey({
       afterSequence: continuityFixture,

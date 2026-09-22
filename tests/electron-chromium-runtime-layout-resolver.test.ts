@@ -113,6 +113,19 @@ function core(outputRoles = [
 }
 
 describe("Electron Chromium runtime layout resolver", () => {
+  it("resolves against a supplied native viewport without re-reading a resized host", async () => {
+    const corePort = core();
+    const subject = new ChromiumRuntimeLayoutResolver(corePort);
+    const getContentBounds = vi.fn(() => ({ x: 0, y: 44, width: 800, height: 656 }));
+    const snapshot = { x: 0, y: 44, width: 1000, height: 656 };
+    const result = await subject.resolveWorkspaceLayout(tab(), host({ getContentBounds }), snapshot);
+    expect(result.contentBounds).toEqual(snapshot);
+    expect(getContentBounds).not.toHaveBeenCalled();
+    expect(corePort.invoke).toHaveBeenLastCalledWith({
+      type: "layoutResolve", input: expect.objectContaining({ contentBounds: snapshot })
+    });
+  });
+
   it("uses Rust divider and layout authority with live Electron content bounds", async () => {
     const corePort = core();
     const subject = new ChromiumRuntimeLayoutResolver(corePort);

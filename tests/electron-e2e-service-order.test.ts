@@ -12,12 +12,17 @@ const mocks = vi.hoisted(() => ({
   },
   probe: vi.fn(async () => ({ processId: 123 })),
   prepare: vi.fn(async () => vi.fn()),
+  focusLauncher: vi.fn(async () => undefined),
+  close: vi.fn(async () => undefined),
   register: vi.fn()
 }));
 vi.mock("@wdio/globals", () => ({ browser: mocks.browser }));
 vi.mock("node:fs/promises", () => ({ mkdir: vi.fn(async () => undefined) }));
 vi.mock("../e2e/desktop/support/electron-driver", () => ({
-  electronDesktopE2eProbe: mocks.probe, requestElectronDesktopE2eClose: vi.fn()
+  electronDesktopE2eProbe: mocks.probe, requestElectronDesktopE2eClose: mocks.close
+}));
+vi.mock("../e2e/desktop/support/windows-launcher-foreground", () => ({
+  focusWindowsLauncherForVisibleLaunch: mocks.focusLauncher
 }));
 vi.mock("../e2e/desktop/support/native-failure-sample", () => ({
   prepareNativeFailureSampler: mocks.prepare, registerNativeFailureSampler: mocks.register,
@@ -49,21 +54,31 @@ it.each(["darwin", "win32"])("defers Electron bridge consumers until all concurr
   const { config } = await vi.importActual<{ config: {
     before(capabilities: unknown, specs: string[], runner: WebdriverIO.Browser): Promise<void>;
     beforeSuite(): Promise<void>;
+    after(): Promise<void>;
   } }>("../e2e/desktop/wdio.electron.conf");
   // This config hook may finish before the asynchronous Electron service hook.
   await expect(config.before({}, [], mocks.browser as unknown as WebdriverIO.Browser))
     .resolves.toBeUndefined();
   expect(mocks.browser.getPuppeteer).not.toHaveBeenCalled();
   expect(mocks.probe).not.toHaveBeenCalled();
+  expect(mocks.focusLauncher).not.toHaveBeenCalled();
   mocks.browser.electron = { windowHandle: "old-service-target" };
   await config.beforeSuite();
   expect(mocks.browser.electron.windowHandle).toBe("launcher");
   expect(mocks.browser.switchToWindow).toHaveBeenCalledWith("launcher");
   expect(mocks.probe).toHaveBeenCalledTimes(platform === "darwin" ? 1 : 0);
   expect(mocks.register).toHaveBeenCalledTimes(platform === "darwin" ? 1 : 0);
+  expect(mocks.focusLauncher).toHaveBeenCalledTimes(platform === "win32" ? 1 : 0);
   // Nested suites must not steal the active target back from a user journey.
   mocks.browser.electron.windowHandle = "runtime-target";
   await config.beforeSuite();
   expect(mocks.browser.electron.windowHandle).toBe("runtime-target");
   expect(mocks.browser.switchToWindow).toHaveBeenCalledTimes(1);
+  expect(mocks.focusLauncher).toHaveBeenCalledTimes(platform === "win32" ? 1 : 0);
+  await config.after();
+  expect(mocks.browser.switchToWindow).toHaveBeenLastCalledWith("launcher");
+  expect(mocks.browser.getWindowHandles).toHaveBeenCalledTimes(1);
+  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.browser.switchToWindow.mock.invocationCallOrder.at(-1))
+    .toBeLessThan(mocks.close.mock.invocationCallOrder[0]);
 });

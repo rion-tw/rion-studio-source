@@ -10,7 +10,7 @@ describe("Windows native foreground evidence", () => {
     await focusWindowsRuntimeNativeWindow({ processId: 42, nativeWindowHandle: "1234" },
       { platform: "win32", run });
     expect(run).toHaveBeenCalledWith(expect.any(String),
-      { processId: 42, nativeWindowHandle: "1234", pointerTarget: "none" },
+      { processId: 42, nativeWindowHandle: "1234", pointerTarget: "none", contentPoint: null },
       { timeoutMilliseconds: 30_000 });
     const script = run.mock.calls[0]![0];
     expect(script).toContain("AttachThreadInput");
@@ -22,7 +22,16 @@ describe("Windows native foreground evidence", () => {
     await focusWindowsRuntimeNativeWindow({ processId: 42, nativeWindowHandle: "1234", pointerTarget },
       { platform: "win32", run });
     expect(run).toHaveBeenCalledWith(expect.any(String),
-      { processId: 42, nativeWindowHandle: "1234", pointerTarget }, { timeoutMilliseconds: 30_000 });
+      { processId: 42, nativeWindowHandle: "1234", pointerTarget, contentPoint: null }, { timeoutMilliseconds: 30_000 });
+  });
+  it("preserves an explicit Canvas point in the strict native payload", async () => {
+    const run = vi.fn(async () => "");
+    const contentPoint = { x: 14.5, y: 27.25 };
+    await focusWindowsRuntimeNativeWindow({ processId: 42, nativeWindowHandle: "1234",
+      pointerTarget: "content-click", contentPoint }, { platform: "win32", run });
+    expect(run).toHaveBeenCalledWith(expect.any(String),
+      { processId: 42, nativeWindowHandle: "1234", pointerTarget: "content-click", contentPoint },
+      { timeoutMilliseconds: 30_000 });
   });
   it.each([
     { platform: "darwin", processId: 42, nativeWindowHandle: "1234" },
@@ -39,6 +48,14 @@ describe("Windows native foreground evidence", () => {
     const run = vi.fn(async () => { throw new Error("foreground denied"); });
     await expect(focusWindowsRuntimeNativeWindow({ processId: 42, nativeWindowHandle: "1234" },
       { platform: "win32", run })).rejects.toThrow("foreground denied");
+  });
+  it.each([
+    { x: -1, y: 5 }, { x: 5, y: Number.NaN }, { x: Number.POSITIVE_INFINITY, y: 5 }
+  ])("rejects invalid exact content point %j before native input", async contentPoint => {
+    const run = vi.fn(async () => "");
+    await expect(focusWindowsRuntimeNativeWindow({ processId: 42, nativeWindowHandle: "1234",
+      pointerTarget: "content-click", contentPoint }, { platform: "win32", run })).rejects.toThrow("exact Windows");
+    expect(run).not.toHaveBeenCalled();
   });
 });
 

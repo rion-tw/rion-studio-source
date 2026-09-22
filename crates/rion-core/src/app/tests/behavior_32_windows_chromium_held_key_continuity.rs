@@ -155,3 +155,22 @@ fn ordinary_background_tab_continuity_does_not_require_explicit_tab_hiding() {
         core.shutdown();
     }
 }
+
+#[test]
+fn delayed_blur_continuity_keeps_the_exact_owner_after_sibling_selection() {
+    for (explicitly_hidden, held_tab_selected) in [(false, true), (false, false), (true, false)] {
+        let (_directory, core, owner_generation) =
+            windows_held_continuity_core(explicitly_hidden, held_tab_selected);
+        let mut input = windows_held_continuity_input(owner_generation);
+        input.loss_reason = "blur".to_owned();
+        let receipt = core.restore_windows_chromium_held_keys_internal(input.clone()).unwrap();
+        assert_eq!(receipt.status, "noHeldKeys");
+        assert_eq!(receipt.loss_reason, "blur");
+
+        input.expected_owner_generation += 1;
+        input.loss_revision += 1;
+        input.operation_id = "delayed-blur-stale-owner".to_owned();
+        assert_eq!(core.restore_windows_chromium_held_keys_internal(input).unwrap().status, "superseded");
+        core.shutdown();
+    }
+}

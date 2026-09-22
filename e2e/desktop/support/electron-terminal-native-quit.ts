@@ -41,7 +41,7 @@ export async function waitForElectronDesktopE2eTerminalNativeQuit(): Promise<voi
   } catch (error) {
     if ((error as Error).name !== "AbortError") throw error;
   }
-  throw new Error("The AppKit terminal event did not reach final flush");
+  throw new Error("The native application quit did not reach final flush");
 }
 
 export async function readElectronDesktopE2eTerminalJson(

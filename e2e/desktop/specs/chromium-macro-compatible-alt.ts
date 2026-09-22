@@ -1,6 +1,7 @@
+import { focusWindowsRoleCanvas } from "../support/windows-role-canvas";
 import { expect } from "@wdio/globals";
 import { electronDesktopE2eProbe } from "../support/electron-driver";
-import { readVisibleElectronCanvasPoint, submitElectronRoleKeyPhases } from "../support/electron-role-surface";
+import { readVisibleElectronCanvasPoint } from "../support/electron-role-surface";
 import { clickMacosVisibleRoleControl } from "../support/macos-appkit-ui";
 import { pressVisibleMacosRoleKey, pressVisibleWindowsApplicationShortcut } from "../support/native-application-actions";
 import { fixtureCursor, fixtureEvents, fixtureState, type FixtureEvent } from "../support/fixture";
@@ -23,7 +24,7 @@ export async function exerciseCompatibleAltShortcuts(input: Readonly<{
     await clickMacosVisibleRoleControl(input.windowId, input.roleId,
       await readVisibleElectronCanvasPoint(input.launchUrl, input.mainWindowHandle));
   } else {
-    await submitElectronRoleKeyPhases(input.launchUrl, input.mainWindowHandle, [], { windowId: input.windowId });
+    await focusWindowsRoleCanvas({ ...input, fixtureId: input.fixtureRoleId });
   }
   const key = async (action: "down" | "up" | "held-one" | "tap") => {
     if (input.platform === "macos") {

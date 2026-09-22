@@ -63,6 +63,28 @@ fn windows_held_key_continuity_replays_core_owned_keys_on_exact_surface_once() {
     assert_eq!(duplicate.status, "superseded");
     assert!(duplicate.request_ids.is_empty());
 
+    // Windows may deliver page blur after native hide has already reasserted.
+    // Its own revision must replay the same owner, even at the same number.
+    let blurred_runtime = runtime.clone();
+    let blurred = thread::spawn(move || {
+        blurred_runtime.reassert_held_keys_after_context_loss(HeldKeyContinuityDispatch {
+            operation_id: "continuity-delayed-blur",
+            role_id: "r1",
+            surface_generation: 3,
+            document_instance_id: "document-1",
+            loss_reason: "blur",
+            loss_revision: 1,
+        })
+    });
+    let blur_actions = next_browser_actions(&receiver);
+    assert_eq!(blur_actions.len(), 1);
+    assert_eq!(blur_actions[0].input_epoch, 7);
+    assert!(matches!(blur_actions[0].action, BrowserAction::ReassertHeldKeys));
+    runtime.dispatch_results(success_results(blur_actions)).unwrap();
+    let blur_receipt = blurred.join().unwrap().unwrap();
+    assert_eq!(blur_receipt.status, "reasserted");
+    assert_eq!(blur_receipt.reasserted_key_count, 1);
+
     let replacement_runtime = runtime.clone();
     let replacement = thread::spawn(move || {
         replacement_runtime.reassert_held_keys_after_context_loss(

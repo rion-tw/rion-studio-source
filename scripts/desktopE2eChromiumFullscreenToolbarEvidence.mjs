@@ -57,8 +57,11 @@ function validCommon(observation, platform) {
   ] : [
     "alwaysShowToolbarInFullScreen", "fullscreen", "nativeControlsVisible",
     "nativeWindowControlCount", "projectionRevision", "revealed",
-    "toolbarVisible", "topologyRevision", "windowGeneration", "windowId"
-  ]) && observation.hostKind === (platform === "macos" ? "appkit" : "windows") &&
+    "toolbarVisible", "topologyRevision", "windowGeneration", "windowId",
+    "workspaceBackground"
+  ]) && (platform === "macos" ||
+    ["material", "black"].includes(native.workspaceBackground)) &&
+    observation.hostKind === (platform === "macos" ? "appkit" : "windows") &&
     native.windowId === observation.windowId &&
     native.windowGeneration === observation.windowGeneration &&
     native.topologyRevision === observation.topologyRevision &&

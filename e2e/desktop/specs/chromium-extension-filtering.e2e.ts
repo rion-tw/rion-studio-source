@@ -8,6 +8,7 @@ import { electronDesktopE2eProbe } from '../support/electron-driver';
 import { clickMacosVisibleRoleControl, selectMacosVisibleRuntimeTabMenuAction } from '../support/macos-appkit-ui';
 import { readVisibleElectronPageElementPoint, withRolePageTarget } from '../support/electron-role-surface';
 import { closeVisibleRuntimeTab } from '../support/native-runtime-tabs';
+import { seedFilteringFixture } from '../support/extension-filtering-fixture';
 
 // [journey:CHROMIUM-MACOS-APPKIT-EXTENSION-FILTERING-001]
 // [journey:CHROMIUM-WINDOWS-EXTENSION-FILTERING-001]
@@ -80,19 +81,7 @@ describe('Native extension filtering in a managed Role', () => {
         if (!tab) throw new Error('Filtering Role tab missing');
         if (enabled) {
           // Deterministic package precondition; the action being tested is the visible page button.
-          await browser.electron.execute(async (electron, exactUrl, path) => {
-            const matches = electron.webContents.getAllWebContents().filter(w => w.getURL() === exactUrl);
-            if (matches.length !== 1) throw new Error('Exact filtering Role missing');
-            const session = matches[0].session;
-            const ready = new Promise<void>((resolve, reject) => {
-              const listener = (_event: unknown, details: { message: string; source: string; level: number }) => {
-                if (details.message === 'RION_FILTERING_FIXTURE_READY') { session.serviceWorkers.removeListener('console-message', listener); resolve(); }
-                else if (details.source === 'javascript' && details.level === 3) { session.serviceWorkers.removeListener('console-message', listener); reject(new Error(details.message)); }
-              };
-              session.serviceWorkers.on('console-message', listener);
-            });
-            await session.extensions.loadExtension(path); await ready;
-          }, url, directory);
+          await seedFilteringFixture(url, directory, String(received.length));
         }
         const before = received.length;
         if (platform === 'macos') await clickMacosVisibleRoleControl(tab.windowId, role.id,

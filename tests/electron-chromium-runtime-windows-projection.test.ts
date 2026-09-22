@@ -170,6 +170,63 @@ function harness(appKit = false) {
 }
 
 describe("Windows Chromium runtime topology projection", () => {
+  it("commits a scoped logical close while retaining exact resources for destruction", async () => {
+    const subject = harness();
+    const cancel = vi.fn();
+    subject.tabs.get("tab-1")!.pendingContentFocus = {
+      cancel, window: subject.windows.get("window-1")!, windowGeneration: 3,
+      topologyRevision: 7, lifecycleEpoch: 1, attemptGeneration: undefined,
+      role: subject.roles.get("role-1"), roleId: "role-1", ownerGeneration: 1
+    };
+    await applyChromiumRuntimeWindowsProjection({
+      ...subject.input, projections: [projection("window-1", [])]
+    });
+    expect(subject.windows.get("window-1")!.tabIds).toEqual([]);
+    expect(subject.tabs.has("tab-1")).toBe(true);
+    expect(subject.roles.has("role-1")).toBe(true);
+    expect(subject.setVisible).toHaveBeenCalledWith("role-1", 1, false);
+    expect(subject.setVisible).not.toHaveBeenCalledWith("role-2", expect.anything(), expect.anything());
+    expect(subject.windows.get("window-2")!.topologyRevision).toBe(7);
+    expect(subject.windows.get("window-2")!.tabIds).toEqual(["tab-2"]);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(subject.firstHost.close).not.toHaveBeenCalled();
+  });
+
+  it("retains admitted move targets outside a scoped projection", async () => {
+    const subject = harness();
+    subject.windows.get("window-2")!.hostTarget.persistedName = "Other window";
+    await applyChromiumRuntimeWindowsProjection({
+      ...subject.input, projections: [projection("window-1", ["tab-1"], "tab-1")]
+    });
+    expect(subject.firstHost.applyWindowsChromeProjection).toHaveBeenLastCalledWith(
+      expect.objectContaining({ moveTargets: [{ name: "Other window", windowGeneration: 3, windowId: "window-2" }] })
+    );
+    expect(subject.windows.get("window-2")!.host.applyWindowsChromeProjection).not.toHaveBeenCalled();
+  });
+
+  it.each(["unregistered", "destroyed"])("omits a %s move target", async state => {
+    const subject = harness();
+    if (state === "unregistered") subject.windows.get("window-2")!.windowGeneration = 0;
+    else subject.windows.get("window-2")!.host.isDestroyed = () => true;
+    await applyChromiumRuntimeWindowsProjection({
+      ...subject.input, projections: [projection("window-1", ["tab-1"], "tab-1")]
+    });
+    expect(subject.firstHost.applyWindowsChromeProjection).toHaveBeenLastCalledWith(
+      expect.objectContaining({ moveTargets: [] })
+    );
+  });
+
+  it("rejects removal without a new revision and moves without their source window", async () => {
+    const subject = harness();
+    await expect(applyChromiumRuntimeWindowsProjection({
+      ...subject.input, projections: [{ ...projection("window-1", []), topologyRevision: 7 }]
+    })).rejects.toMatchObject({ code: "ELECTRON_CHROMIUM_WINDOWS_PROJECTION_STALE" });
+    await expect(applyChromiumRuntimeWindowsProjection({
+      ...subject.input, projections: [projection("window-2", ["tab-2", "tab-1"], "tab-1")]
+    })).rejects.toMatchObject({ code: "ELECTRON_CHROMIUM_WINDOWS_PROJECTION_INCOMPLETE" });
+    expect(subject.setVisible).not.toHaveBeenCalled();
+  });
+
   it("accepts one authoritative Web-only slot and rejects an empty workspace", async () => {
     const subject = harness();
     subject.roles.clear();
@@ -345,10 +402,9 @@ describe("Windows Chromium runtime topology projection", () => {
     expect(subject.quarantineWindows).toHaveBeenCalledWith(["window-1", "window-2"]);
   });
 
-  it("projects divider geometry against the viewport it was resolved for", async () => {
+  it.each(["topology", "native-relayout"])("shares one viewport across active and inactive tabs during %s", async (mode) => {
     const subject = harness();
     subject.roles.clear();
-    subject.tabs.delete("tab-2");
     subject.windows.delete("window-2");
     const rect = { x: 0, y: 0, width: 1, height: 1 };
     const web = { lastUrl: "https://example.test/" };
@@ -360,13 +416,19 @@ describe("Windows Chromium runtime topology projection", () => {
       slots: [{ slotId: "slot-1", role: { id: "web-slot-1" }, web, rect }],
       roles: []
     } as unknown as EmbeddedTabEffectRecord;
+    subject.tabs.set("tab-2", { ...tab, specification: { ...tab.specification, tabId: "tab-2" } });
+    let relayout: (() => Promise<void>) | undefined;
+    subject.firstHost.bindRuntimeWindowLayout = observer => { relayout = observer; };
+    subject.firstHost.applyWindowsChromeLayoutProjection = vi.fn(async () => undefined);
 
-    // A live border drag shrinks the native viewport between the layout
-    // resolution and the toolbar projection.
+    // A native border event arrives while the first tab's Core layout awaits.
+    // The inactive tab must not sample that newer size into the same projection.
     let width = 900;
-    subject.firstHost.getContentBounds = () => ({ x: 0, y: 0, width: width -= 40, height: 600 });
-    subject.input.ports.layout.resolveWorkspaceLayout = async () => {
-      const contentBounds = subject.firstHost.getContentBounds();
+    subject.firstHost.getContentBounds = () => ({ x: 0, y: 0, width, height: 600 });
+    subject.input.ports.layout.resolveWorkspaceLayout = async (_tab, nativeHost, sampled) => {
+      const contentBounds = sampled ?? nativeHost.getContentBounds();
+      await Promise.resolve();
+      width += 80;
       return {
         contentBounds,
         dividers: [{
@@ -382,16 +444,24 @@ describe("Windows Chromium runtime topology projection", () => {
     await applyChromiumRuntimeWindowsProjection({
       ...subject.input,
       projections: [{
-        ...projection("window-1", ["tab-1"], "tab-1"),
-        workspaceTabs: [{
-          tabId: "tab-1",
+        ...projection("window-1", ["tab-1", "tab-2"], "tab-1"),
+        workspaceTabs: ["tab-1", "tab-2"].map(tabId => ({
+          tabId,
           workspaceSlots: [{ id: "slot-1", web, rect }],
           workspaceAppearance: { background: "material" as const, gap: 16 as const }
-        }]
+        }))
       }]
     });
 
-    const applied = vi.mocked(subject.firstHost.applyWindowsChromeProjection!).mock.calls.at(-1)![0];
+    if (mode === "native-relayout") {
+      width = 900;
+      await relayout!();
+    }
+    const applied = mode === "topology"
+      ? vi.mocked(subject.firstHost.applyWindowsChromeProjection!).mock.calls.at(-1)![0]
+      : vi.mocked(subject.firstHost.applyWindowsChromeLayoutProjection!).mock.calls.at(-1)![0];
+    expect(applied.contentBounds.width).toBe(900);
+    expect(applied.workspaceDividers).toHaveLength(2);
     for (const divider of applied.workspaceDividers) {
       expect(divider.bounds.x + divider.bounds.width)
         .toBeLessThanOrEqual(applied.contentBounds.x + applied.contentBounds.width);

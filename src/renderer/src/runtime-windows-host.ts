@@ -44,7 +44,6 @@ document.body.prepend(workspaceBackground);
 
 let current: WindowsRuntimeHostProjection | null = null;
 let resizeEventCount = 0;
-const suppressedClicks = new Set<string>();
 const dividerElements = new Map<string, HTMLButtonElement>();
 const activePointers = new Map<number, {
   readonly element: HTMLButtonElement;
@@ -183,7 +182,7 @@ function openTabMenu(event: MouseEvent, tabId: string): void {
 }
 
 const tabDrag = createRuntimeTabDrag({ toolbar, tabs, current: () => current,
-  submit: command => bridge!.submit(command), suppressClick: tabId => suppressedClicks.add(tabId), closeMenu: closeTabMenu });
+  submit: command => bridge!.submit(command), closeMenu: closeTabMenu });
 
 function dividerKey(
   divider: Pick<WindowsRuntimeWorkspaceDividerProjection, "tabId" | "dividerIndex">
@@ -430,13 +429,7 @@ function render(projection: WindowsRuntimeHostProjection): void {
       status.textContent = tab.phase === "failed" ? "Failed" : "Degraded";
       activate.append(status);
     }
-    activate.addEventListener("click", (event) => {
-      if (suppressedClicks.delete(tab.tabId)) {
-        event.preventDefault();
-        return;
-      }
-      submitTab(tab.tabId, "activateTab");
-    });
+    activate.addEventListener("click", () => submitTab(tab.tabId, "activateTab"));
     const close = document.createElement("button");
     close.type = "button";
     close.className = "runtime-tab-close";

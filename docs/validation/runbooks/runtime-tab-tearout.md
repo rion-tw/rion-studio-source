@@ -41,15 +41,17 @@ These results apply to the uncommitted v44 worktree based on `4b73a370`.
 | Full Windows build and native desktop execution | Pending Windows CI/native host; the macOS host lacks the Windows C SDK required by workspace native dependencies |
 | Mixed-DPI/multiple-monitor hardware matrix | Pending; negative-coordinate placement is unit-covered, not desktop hardware evidence |
 
-The passing native report is
-[the focused macOS report](../../../.desktop-e2e-artifacts/2026-09-20T01-56-16-785Z-darwin/report.json).
+The passing native report is the host-local focused macOS artifact
+`.desktop-e2e-artifacts/2026-09-20T01-56-16-785Z-darwin/report.json`.
 The full smoke attempt passed extension context-menu and filtering, then stopped
 in `chromium-extensions-seed` because the external Buster store heading did not
-appear. See [the smoke report](../../../.desktop-e2e-artifacts/2026-09-20T01-49-44-879Z-darwin/report.json).
+appear. Its host-local smoke report is
+`.desktop-e2e-artifacts/2026-09-20T01-49-44-879Z-darwin/report.json`.
 An earlier `chromium-tabs-visible-seed` attempt failed its existing loading-cover
 pixel assertion before entering tearout; the focused phase preserves that check
-and avoids using its unrelated setup as the only tearout gate. See
-[the seed report](../../../.desktop-e2e-artifacts/2026-09-20T01-25-14-915Z-darwin/report.json).
+and avoids using its unrelated setup as the only tearout gate. Its host-local
+seed report is `.desktop-e2e-artifacts/2026-09-20T01-25-14-915Z-darwin/report.json`.
+These ignored artifacts remain on the originating host, not in a fresh checkout.
 Smoke and full selectors currently resolve to the same platform smoke profile;
 the focused pass is not a claim that every profile phase passed.
 

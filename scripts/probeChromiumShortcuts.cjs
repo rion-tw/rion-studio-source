@@ -59,6 +59,9 @@ function inputDriver() {
     async send(host, keys, focus = false) {
       await ready;
       if (failure) throw failure;
+      // The activated Electron process owns foreground permission. Focus here
+      // before the background PowerShell driver checks the exact target.
+      if (focus) host.focus();
       const id = ++nextId;
       const handle = host.getNativeWindowHandle().readBigUInt64LE().toString();
       const result = new Promise((resolveResult, reject) => pending.set(id, { resolve: resolveResult, reject }));
@@ -122,6 +125,14 @@ async function probe() {
         }
       });
     }
+    // Expose the test-owned caption even when the runner starts behind an
+    // unrelated foreground app. Remove topmost before collecting any samples.
+    host.setAlwaysOnTop(true);
+    host.showInactive();
+    const { clickWindowsProbeCaption } = await import("./electronWindowsProbeInitialClick.mjs");
+    await clickWindowsProbeCaption({ processId: process.pid,
+      nativeWindowHandle: host.getNativeWindowHandle().readBigUInt64LE().toString() });
+    host.setAlwaysOnTop(false);
     for (mode of ["before-input", "menu"]) {
       for (const surface of surfaces) {
         Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: "Probe", submenu: [{

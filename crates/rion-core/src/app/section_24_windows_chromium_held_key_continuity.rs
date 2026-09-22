@@ -130,8 +130,12 @@ impl AppCore {
                         && window.selected_tab_id.as_deref() != Some(input.tab_id.as_str())
                 }
                 "blur" => {
-                    window.selected_tab_id.as_deref() == Some(input.tab_id.as_str())
-                        && !window.hidden_tab_ids.contains(&input.tab_id)
+                    // Page blur can arrive after native hide has restored keys.
+                    // The same background owner still needs that later reset
+                    // restored; selecting a sibling does not retire its keys.
+                    window.selected_tab_id.is_some()
+                        && (window.selected_tab_id.as_deref() != Some(input.tab_id.as_str())
+                            || !window.hidden_tab_ids.contains(&input.tab_id))
                 }
                 _ => false,
             }

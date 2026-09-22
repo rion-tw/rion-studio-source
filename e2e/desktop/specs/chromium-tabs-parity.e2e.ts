@@ -398,7 +398,7 @@ async function launchRoleIntoWindow(
           await activateWindowsRuntimeTabWhileLoading({ processId: processId!,
             loadingTabName: role.name, selectedTabName: role.name });
         }
-        await expectLoadingTabPresentation(gameWindow.id);
+        await expectLoadingTabPresentation(gameWindow.id, tabId!, loading.platform);
         if (loading.platform === "macos") {
           await pressVisibleMacosApplicationShortcut({ command: "nextTab", processId: processId!,
             runtimeTabName: role.name, targetMode: "focused-runtime" });
@@ -410,6 +410,14 @@ async function launchRoleIntoWindow(
           .find(window => window.id === gameWindow.id)?.activeTabId === loading.previousTab!.id, {
           timeout: 20_000, timeoutMsg: "The user tab selection did not commit before B completed"
         });
+        if (loading.platform === "windows") {
+          for (const [command, expected] of [["previousTab", tabId!], ["nextTab", loading.previousTab.id]] as const) {
+            await pressVisibleWindowsApplicationShortcut({ command, processId: processId!, targetMode: "focused-runtime" });
+            await browser.waitUntil(async () => (await currentRuntime(gameWindow.id)).windows
+              .find(window => window.id === gameWindow.id)?.activeTabId === expected,
+            { timeout: 20_000, timeoutMsg: `Native ${command} did not select the exact adjacent tab while B was loading` });
+          }
+        }
         // Exercise the reported mouse path as well as the keyboard selection above.
         if (loading.platform === "macos") {
           await clickVisibleRuntimeTab({ ...loading, tabId: tabId!, tabName: role.name });
@@ -1455,7 +1463,9 @@ async function restartPhase(input: Readonly<{
   const consolidatedIds = [gammaId, alphaId, betaId];
   const consolidatedRoles = [roles[2]!, roles[0]!, roles[1]!];
   await waitForExactWindowTopology({
-    activeTabId: gammaId,
+    // Core's Windows same-window Reorder preserves the selected Beta tab;
+    // dragging crosses the pointer activation threshold and is not a click.
+    activeTabId: input.platform === "windows" ? betaId : gammaId,
     orderedTabIds: consolidatedIds,
     windowId: gameWindow.id
   });

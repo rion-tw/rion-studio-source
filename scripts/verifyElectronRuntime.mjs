@@ -5,18 +5,20 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { ECS_PROTOTYPE } from "./ecsPrototypeRuntime.mjs";
 
 const PROBE_PREFIX = "RION_ELECTRON_RUNTIME_PROBE=";
 const MAX_PROBE_OUTPUT_CHARACTERS = 16 * 1024;
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
 export const EXPECTED_ELECTRON_RUNTIME = Object.freeze({
-  chrome: "152.0.7977.130",
-  electron: "44.4.3",
+  chrome: "152.0.7977.65",
+  electron: "44.1.0",
   modules: "149",
   napi: "10",
-  node: "24.21.0"
+  node: "24.19.0"
 });
+export const EXPECTED_PACKAGE_ELECTRON_SPEC = ECS_PROTOTYPE.dependency;
 export const EXPECTED_APPKIT_RUNTIME_ABI = 11;
 
 export function assertElectronRuntimeProbe(
@@ -29,11 +31,12 @@ export function assertElectronRuntimeProbe(
       throw new Error(`Electron runtime ${name} mismatch: expected ${expected}, received ${probe[name] ?? "missing"}.`);
     }
   }
-  if (packageElectronVersion !== EXPECTED_ELECTRON_RUNTIME.electron) {
+  if (packageElectronVersion !== EXPECTED_PACKAGE_ELECTRON_SPEC) {
     throw new Error(
-      `package.json Electron pin mismatch: expected ${EXPECTED_ELECTRON_RUNTIME.electron}, received ${packageElectronVersion ?? "missing"}.`
+      `package.json Electron pin mismatch: expected ${EXPECTED_PACKAGE_ELECTRON_SPEC}, received ${packageElectronVersion ?? "missing"}.`
     );
   }
+  if (probe.cdmComponentApi !== true) throw new Error("The ECS Widevine component API is unavailable.");
   if (probe.core !== expectedCoreVersion) {
     throw new Error(
       `Rust Core version mismatch: expected ${expectedCoreVersion}, received ${probe.core ?? "missing"}.`

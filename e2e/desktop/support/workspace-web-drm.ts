@@ -14,11 +14,18 @@ export async function diagnoseWorkspaceWebDrm(input: {
   const before = await electronDesktopE2eWorkspaceWebSecurityPolicy(input.windowId);
   const baselineErrors = await runtimeTabShellErrors();
   let capability: { trustedClick: boolean; secureContext: boolean; nextStage: string } | undefined;
+  let playback: { state: string; trustedClick: boolean; audioTrack: boolean; vmpUatStatus: string | null } | undefined;
   await withRolePageTarget(url, input.mainWindowHandle, async () => {
     await $("#run-drm-probe").click();
     await browser.waitUntil(async () => (await $("#drm-result").getAttribute("data-state")) === "complete",
       { timeout: 60_000, timeoutMsg: "DRM probe did not complete; elapsed time is not capability evidence" });
     capability = JSON.parse(await $("#drm-result").getText());
+    if (process.env.RION_STUDIO_E2E_DRM_PLAYBACK === "1" && await $("#run-drm-playback").isEnabled()) {
+      await $("#run-drm-playback").click();
+      await browser.waitUntil(async () => (await $("#drm-playback-result").getAttribute("data-state")) === "complete",
+        { timeout: 90_000, timeoutMsg: "No terminal encrypted playback evidence; elapsed time is not success" });
+      playback = JSON.parse(await $("#drm-playback-result").getText());
+    }
   });
   const runtime = await browser.electron.execute((electron, expectedUrl) => {
     const contents = electron.webContents.getAllWebContents().filter(wc => wc.getURL() === expectedUrl);
@@ -58,7 +65,7 @@ export async function diagnoseWorkspaceWebDrm(input: {
       policyVersion: policy.policyVersion },
     permission: { callbacks: decisions.map(entry => ({ allowed: entry.allowed, reason: entry.reason })),
       interpretation: decisions.length ? "callback-observed" : "no-callback-observed" },
-    capability, twoRolesRunning: rolesRunning, shellErrorsUnchanged,
+    capability, playback: playback ?? { state: "not-attempted" }, twoRolesRunning: rolesRunning, shellErrorsUnchanged,
     transport: "reserved-HTTPS-origin-over-E2E-local-transport; public-manifest-over-real-HTTPS",
     acceptance: { netflixTwoMinutes: "not-tested", audibleAudio: "not-tested", resolution: null,
       playerControls: "not-tested", productionPackage: "not-tested" } };
@@ -71,6 +78,13 @@ export async function diagnoseWorkspaceWebDrm(input: {
   for (const decision of decisions) expect(decision.allowed).toBe(true);
   expect(rolesRunning).toBe(true);
   expect(shellErrorsUnchanged).toBe(true);
+  if (process.env.RION_STUDIO_E2E_DRM_PLAYBACK === "1") {
+    expect(playback?.trustedClick).toBe(true);
+    expect(playback?.state).toBe("played");
+    expect(playback?.audioTrack).toBe(true);
+    expect(["PLATFORM_SOFTWARE_VERIFIED", "PLATFORM_SECURE_STORAGE_SOFTWARE_VERIFIED"])
+      .toContain(playback?.vmpUatStatus);
+  }
   // Always recover through the visible toolbar after capability failure.
   await withRolePageTarget(input.chromeShellUrl, input.mainWindowHandle, async () => { await $("#home").click(); });
   await withRolePageTarget("rion-start://home/", input.mainWindowHandle, async () => {

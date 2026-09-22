@@ -74,6 +74,10 @@ const profile = resolveDesktopE2eProfileName({
   profileName: profileArgument ?? process.env.RION_STUDIO_E2E_PROFILE ?? "full"
 });
 const coverageManifest = JSON.parse(await readFile(resolve(root, "docs/e2e-coverage.json"), "utf8"));
+if (profile === "chromium-macos-appkit-drm" || profile === "chromium-windows-drm") {
+  process.env.RION_STUDIO_E2E_DRM_DIAGNOSTIC = "1";
+  process.env.RION_STUDIO_E2E_DRM_PLAYBACK = "1";
+}
 let configuredPhases;
 try {
   configuredPhases = resolveDesktopE2eProfile(coverageManifest, profile).phases;

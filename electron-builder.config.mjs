@@ -3,6 +3,8 @@
  */
 
 import process from "node:process";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 import { MACOS_GAME_MODE_CATEGORY } from
   "./scripts/electronMacosGameModeBundle.mjs";
@@ -33,6 +35,7 @@ const electronBuilderConfiguration = {
   appId: "com.rionstudio.launcher",
   productName: "Rion Studio",
   electronVersion: EXPECTED_ELECTRON_RUNTIME.electron,
+  electronDist: join(dirname(createRequire(import.meta.url).resolve("electron/package.json")), "dist"),
   directories: {
     buildResources: "build",
     output: ELECTRON_PACKAGE_OUTPUT

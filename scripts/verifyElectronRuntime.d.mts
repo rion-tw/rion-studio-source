@@ -2,6 +2,7 @@ export interface ElectronRuntimeProbe {
   arch: string;
   appKitRuntimeAbi: number;
   chrome: string;
+  cdmComponentApi: boolean;
   core: string;
   electron: string;
   modules: string | undefined;
@@ -18,6 +19,7 @@ export const EXPECTED_ELECTRON_RUNTIME: Readonly<{
   node: string;
 }>;
 export const EXPECTED_APPKIT_RUNTIME_ABI: number;
+export const EXPECTED_PACKAGE_ELECTRON_SPEC: string;
 
 export function assertElectronRuntimeProbe(
   probe: ElectronRuntimeProbe,

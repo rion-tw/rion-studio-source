@@ -1,3 +1,6 @@
+import { playWorkspaceWebDrm } from "./workspaceWebDrmPlayback.mjs";
+import { widevinePlatformStatus } from "./widevinePlatformStatus.mjs";
+
 /** Browser-only capability probe. Returns fixed fields, never exception messages,
  * URLs, keys, license bodies, headers, device identifiers or credentials. */
 export async function collectWorkspaceWebDrm(api) {
@@ -59,12 +62,35 @@ export async function collectWorkspaceWebDrm(api) {
 export function workspaceWebDrmProbePage() {
   return `<!doctype html><html lang="en"><meta charset="utf-8"><title>Workspace DRM capability probe</title>
     <body><h1>Workspace DRM capability probe</h1><p>Capability advertisements are not playback evidence.</p>
-    <button id="run-drm-probe">Run capability probe</button><pre id="drm-result" data-state="idle"></pre>
+    <button id="run-drm-probe">Run capability probe</button>
+    <button id="run-drm-playback" disabled>Play encrypted public sample</button>
+    <button id="cancel-drm-playback" disabled>Stop sample</button>
+    <video id="drm-video" controls width="640" height="360"></video>
+    <pre id="drm-playback-result" data-state="idle"></pre><pre id="drm-result" data-state="idle"></pre>
+    <script src="/drm-player.js"></script>
     <script>const collect = ${collectWorkspaceWebDrm.toString()};
+    const playback = ${playWorkspaceWebDrm.toString()};
+    const readPlatformStatus = ${widevinePlatformStatus.toString()};
+    const cancel = new AbortController();
+    addEventListener('pagehide', () => cancel.abort(), {once: true});
     document.querySelector('#run-drm-probe').addEventListener('click', async event => {
       const output = document.querySelector('#drm-result');
       output.dataset.state = 'running'; event.currentTarget.disabled = true;
+      const runtime = await (await fetch('/drm-runtime', {credentials: 'omit'})).json();
       const result = await collect(globalThis); result.trustedClick = event.isTrusted;
+      result.runtime = runtime;
       output.textContent = JSON.stringify(result, null, 2); output.dataset.state = 'complete';
+      document.querySelector('#run-drm-playback').disabled = runtime.state !== 'ready' ||
+        result.nextStage !== 'public-encrypted-playback-required';
+    });
+    document.querySelector('#cancel-drm-playback').addEventListener('click', () => cancel.abort());
+    document.querySelector('#run-drm-playback').addEventListener('click', async event => {
+      event.currentTarget.disabled = true;
+      document.querySelector('#cancel-drm-playback').disabled = false;
+      const output = document.querySelector('#drm-playback-result'); output.dataset.state = 'running';
+      const result = await playback(globalThis, document.querySelector('#drm-video'), cancel.signal, readPlatformStatus);
+      result.trustedClick = event.isTrusted;
+      output.textContent = JSON.stringify(result, null, 2); output.dataset.state = 'complete';
+      document.querySelector('#cancel-drm-playback').disabled = true;
     });</script></body></html>`;
 }

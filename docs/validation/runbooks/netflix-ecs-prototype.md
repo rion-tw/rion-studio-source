@@ -28,6 +28,14 @@ cached archives. ECS is extracted under `.electron-cache/ecs-prototype/dist`;
 the prototype packaging config consumes it explicitly. The normal release
 configuration cannot select that directory.
 
+EVS accepts only the certified ECS Framework binary. The normal release's
+Electron fuse changes alter that binary's VMP digest, so the isolated ECS
+prototype packaging leaves the vendor fuse wire unchanged. The ordinary
+official Electron release retains all production fuse checks. The prototype
+package verifier compares its wire with the pinned ECS distribution; this
+variant must remain an isolated experiment and must not enter the normal
+updater or release channel.
+
 After `app.whenReady()`, Electron main requests the Widevine component through
 ECS `components.whenReady([WIDEVINE_CDM_ID])`. The vendor Promise is the
 authoritative EventBound completion; Electron main owns the one-shot snapshot.
@@ -85,7 +93,8 @@ python3 -m venv .electron-cache/evs
 # For a new account, use: python -m castlabs_evs.account signup
 ```
 
-For an unpacked application built with genuine release updater configuration:
+For an unpacked application built with the genuine release updater endpoint and
+public key embedded in its Rust addon:
 
 ```bash
 pnpm run package:drm-prototype:dir
@@ -94,6 +103,12 @@ RION_EVS_PYTHON="$PWD/.electron-cache/evs/bin/python" \
 node scripts/preparePackagedWorkspaceDrm.mjs \
   --app "$PWD/release/ecs-prototype/mac-arm64/Rion Studio.app"
 ```
+
+`package:drm-prototype:dir` alone does not provide that updater configuration.
+The manual packaged launcher fails at `packaged-updater-preflight` with
+`UPDATE_ENDPOINT_MISSING` when it is absent. Do not substitute test updater
+keys. A signed ECS development runtime with isolated user data can be used for
+a separate Netflix capability check, but it is not packaged acceptance.
 
 On Windows use `release/ecs-prototype/win-unpacked` and the virtual environment's
 `Scripts/python.exe`. The signing script uses streaming VMP, then re-applies and
@@ -154,9 +169,24 @@ Rust tests, lint, hygiene, typecheck, and the Electron build passed; the first
 parallel Rust run had one timing-sensitive failure and passed when rerun alone.
 The explicit unpacked package build used the isolated ECS distribution under
 `release/ecs-prototype/mac-arm64`, and macOS ad-hoc code-sign verification
-passed. EVS production VMP signing was not available, so this is not a
-Netflix-ready package.
+passed. EVS production VMP signing was not yet available in that run, so it
+did not establish a Netflix-ready package.
 Windows native tests and desktop E2E remain pending on a Windows host.
+
+## EVS signing check, 2026-09-23
+
+After account registration, EVS successfully issued a production streaming
+signature for an unchanged copy of the pinned ECS distribution. The first
+unpacked app signing request was denied with `Binary signature denied`; its
+packager had flipped Electron Framework fuses, changing the certified VMP
+digest. After leaving the vendor fuse wire intact only in the isolated
+prototype config, the unpacked `Rion Studio.app` had the same VMP digest as
+the pinned ECS Framework. EVS accepted its streaming signature, `verify-pkg`
+passed, and macOS ad-hoc code-sign verification passed. No account details,
+tokens, license bodies, or keys were recorded. Netflix full-title playback
+and Windows execution remain untested. Manual launch of the signed unpacked
+package was blocked at updater preflight because the development build did
+not embed the genuine updater endpoint or public key.
 
 ## Sources
 

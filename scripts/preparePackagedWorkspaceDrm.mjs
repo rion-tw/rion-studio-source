@@ -22,7 +22,7 @@ async function main() {
   const argument = process.argv.indexOf("--app");
   if (argument < 0 || !process.argv[argument + 1]) throw new Error("Usage: node scripts/preparePackagedWorkspaceDrm.mjs --app <bundle>");
   const application = resolve(process.argv[argument + 1]);
-  await verifyPackagedElectron(application);
+  await verifyPackagedElectron(application, { fusePolicy: "ecs-prototype" });
   const manifest = await capturePackagedElectronPackageManifest(application);
   artifactDirectory = resolve(import.meta.dirname, "../.desktop-e2e-artifacts",
     `packaged-drm-${new Date().toISOString().replaceAll(/[:.]/g, "-")}`);

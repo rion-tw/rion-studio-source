@@ -19,6 +19,10 @@ export interface ElectronArchiveVerification {
 export function assertProductionElectronFuses(
   fuseWire: Record<number, number>
 ): void;
+export function assertEcsPrototypeFuses(
+  fuseWire: Record<number, number> & { version: string },
+  distributionWire: Record<number, number> & { version: string }
+): void;
 export function assertProductionElectronArchiveSources(
   sources: readonly ElectronArchiveSource[]
 ): void;
@@ -43,5 +47,6 @@ export function assertMacosElectronFrameworkArchitectures(
   output: string
 ): void;
 export function verifyPackagedElectron(
-  applicationPath: string
+  applicationPath: string,
+  options?: { fusePolicy?: "production" | "ecs-prototype" }
 ): Promise<ElectronPackageLayout>;

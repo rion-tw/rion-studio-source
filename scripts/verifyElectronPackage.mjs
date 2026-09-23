@@ -25,6 +25,7 @@ import {
 } from "./verifyElectronRendererBundle.mjs";
 import { sanitizeUpdaterRuntimeEnvironment } from
   "./runtimeEnvironmentPolicy.mjs";
+import { ecsPrototypeExecutable } from "./ecsPrototypeRuntime.mjs";
 
 const PRODUCT_NAME = "Rion Studio";
 const PRODUCT_IDENTIFIER = "com.rionstudio.launcher";
@@ -110,6 +111,14 @@ export function assertProductionElectronFuses(fuseWire) {
   }
   if (failures.length > 0) {
     throw new Error(`Packaged Electron fuse verification failed:\n- ${failures.join("\n- ")}`);
+  }
+}
+
+export function assertEcsPrototypeFuses(fuseWire, distributionWire) {
+  if (fuseWire.version !== distributionWire.version ||
+      Array.from({ length: 9 }, (_, index) => index)
+        .some(index => fuseWire[index] !== distributionWire[index])) {
+    throw new Error("Packaged ECS fuse wire differs from its pinned, VMP-certified distribution.");
   }
 }
 
@@ -344,7 +353,7 @@ export function assertWindowsAuthenticodeStatus(output) {
   }
 }
 
-export async function verifyPackagedElectron(applicationPath) {
+export async function verifyPackagedElectron(applicationPath, { fusePolicy = "production" } = {}) {
   const absoluteApplicationPath = resolve(applicationPath);
   const applicationMetadata = await lstat(absoluteApplicationPath);
   if (!applicationMetadata.isDirectory() || applicationMetadata.isSymbolicLink()) {
@@ -385,7 +394,11 @@ export async function verifyPackagedElectron(applicationPath) {
   } else {
     await verifyWindowsUnsignedExecutable(executablePath);
   }
-  assertProductionElectronFuses(await getCurrentFuseWire(executablePath));
+  const fuseWire = await getCurrentFuseWire(executablePath);
+  if (fusePolicy === "production") assertProductionElectronFuses(fuseWire);
+  else if (fusePolicy === "ecs-prototype") {
+    assertEcsPrototypeFuses(fuseWire, await getCurrentFuseWire(ecsPrototypeExecutable()));
+  } else throw new Error(`Unknown packaged Electron fuse policy: ${fusePolicy}`);
   return { executablePath, resourcesPath };
 }
 

@@ -8,6 +8,7 @@ import type { Configuration } from "electron-builder";
 import { describe, expect, it } from "vitest";
 
 import {
+  assertEcsPrototypeFuses,
   assertElectronNativeAddonInventory,
   assertMacosElectronBundleInfo,
   assertMacosElectronFrameworkArchitectures,
@@ -327,6 +328,18 @@ describe("Electron packaging contract", () => {
     expect(() => assertProductionElectronFuses({
       [FuseV1Options.RunAsNode]: FuseState.ENABLE
     })).toThrow("RunAsNode");
+  });
+
+  it("keeps the separate ECS package on the certified vendor fuse wire", async () => {
+    const ecsConfigurationPath: string = "../electron-builder.ecs-prototype.config.mjs";
+    const ecsConfiguration = (await import(ecsConfigurationPath)).default as Configuration;
+    expect(ecsConfiguration.electronFuses).toBeUndefined();
+    expect(electronBuilderConfiguration.electronFuses).toBe(PRODUCTION_ELECTRON_FUSES);
+    const distributionWire = { version: "1", 0: 49, 1: 48, 2: 49, 3: 49,
+      4: 48, 5: 48, 6: 48, 7: 49, 8: 49 };
+    expect(() => assertEcsPrototypeFuses({ ...distributionWire }, distributionWire)).not.toThrow();
+    expect(() => assertEcsPrototypeFuses({ ...distributionWire, 1: 49 }, distributionWire))
+      .toThrow("VMP-certified distribution");
   });
 
   it("resolves macOS and Windows unpacked layouts without host-platform inference", () => {

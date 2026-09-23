@@ -9,6 +9,10 @@ import type { RawAppKitDesktopE2ETabAnchor } from
 
 export interface RawAppKitFullscreenToolbarState {
   readonly accessoryVisibleHeight: number;
+  readonly menuBarReveal?: number;
+  readonly toolbarReveal?: number;
+  readonly revealSequence?: number;
+  readonly onActiveSpace?: boolean;
   readonly addButtonOnScreen: boolean;
   readonly alwaysHideTabCloseButton: boolean;
   readonly alwaysShowInFullScreen: boolean;
@@ -59,7 +63,14 @@ export function readMacosAppKitFullscreenToolbar(input: Readonly<{
     state.accessoryVisibleHeight < 0 ||
     !Number.isSafeInteger(state.tabCloseButtonEnabledCount) ||
     !Number.isSafeInteger(state.visibleTrafficLightCount) ||
-    state.visibleTrafficLightCount < 0 || state.visibleTrafficLightCount > 3
+    state.visibleTrafficLightCount < 0 || state.visibleTrafficLightCount > 3 ||
+    ([state.menuBarReveal, state.toolbarReveal, state.revealSequence, state.onActiveSpace]
+      .some((value) => value !== undefined) && (
+      ![state.menuBarReveal, state.toolbarReveal].every((value) =>
+        typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1) ||
+      !Number.isSafeInteger(state.revealSequence) || state.revealSequence! < 0 ||
+      typeof state.onActiveSpace !== "boolean"
+    ))
   ) {
     throw observationError(
       "ELECTRON_MACOS_APPKIT_FULLSCREEN_OBSERVATION_INVALID",
@@ -127,6 +138,14 @@ export function readMacosAppKitFullscreenToolbar(input: Readonly<{
     windowGeneration: input.windowGeneration,
     windowId: input.identity.logicalWindowId,
     appKit: Object.freeze({
+      ...(state.revealSequence !== undefined ? {
+        nativeLifecycle: Object.freeze({
+          menuBarReveal: state.menuBarReveal!,
+          toolbarReveal: state.toolbarReveal!,
+          sequence: state.revealSequence,
+          onActiveSpace: state.onActiveSpace!
+        })
+      } : {}),
       addButtonOnScreen: state.addButtonOnScreen,
       accessoryOnScreen: state.accessoryOnScreen,
       accessoryVisibleHeight: state.accessoryVisibleHeight,

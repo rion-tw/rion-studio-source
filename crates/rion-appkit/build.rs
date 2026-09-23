@@ -43,6 +43,7 @@ fn main() {
     println!("cargo:rerun-if-changed=native/macos/RionRuntimeTabsController.mm");
     for source in [
         "native/macos/RionRuntimeTabsController/01_geometry.mm",
+        "native/macos/RionRuntimeTabsController/01_fullscreen_reveal.mm",
         "native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm",
         "native/macos/RionRuntimeTabsController/03_shortcut_model.mm",
         "native/macos/RionRuntimeTabsController/03_support_views.mm",

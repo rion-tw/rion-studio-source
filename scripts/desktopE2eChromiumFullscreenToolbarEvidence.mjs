@@ -98,6 +98,7 @@ function isHidden(observation, platform) {
   }
   const appKit = native.appKit;
   const geometryKeys = [
+    ...(appKit && "nativeLifecycle" in appKit ? ["nativeLifecycle"] : []),
     ...(appKit && "tabScreenBounds" in appKit ? ["tabScreenBounds"] : []),
     ...(appKit && "fullscreenControlScreenBounds" in appKit
       ? ["fullscreenControlScreenBounds"]
@@ -124,7 +125,7 @@ function isRevealed(observation, platform) {
     ? observation.surfaces.some((surface) =>
       surface.kind === "role" && surface.visible && surface.bounds.y === 40
     )
-    : native.appKit?.presentationAutoHideToolbar === false &&
+    : native.appKit?.presentationAutoHideToolbar === true &&
       native.appKit.accessoryOnScreen === true &&
       native.appKit.tabStripOnScreen === true &&
       native.appKit.visibleTrafficLightCount === 3;
@@ -153,6 +154,47 @@ function normalBaseline(observation) {
   return observation.presentation === "normal" && !observation.native.fullscreen &&
     observation.native.alwaysShowToolbarInFullScreen === false &&
     observation.native.toolbarVisible;
+}
+
+function validateMacosLifecycle(observations, hidden, pinned, hiddenAfterPinned, phase) {
+  for (const observation of observations.slice(hidden, hiddenAfterPinned + 1)) {
+    const native = observation.native;
+    const lifecycle = native.appKit?.nativeLifecycle;
+    requireRuntime(exactKeys(lifecycle,
+      ["menuBarReveal", "toolbarReveal", "sequence", "onActiveSpace"]) &&
+      [lifecycle.menuBarReveal, lifecycle.toolbarReveal].every(value =>
+        Number.isFinite(value) && value >= 0 && value <= 1) &&
+      Number.isSafeInteger(lifecycle.sequence) && lifecycle.sequence > 0 &&
+      typeof lifecycle.onActiveSpace === "boolean",
+    `${phase}: missing native reveal lifecycle`);
+    if (!native.alwaysShowToolbarInFullScreen) {
+      requireRuntime(native.appKit.presentationAutoHideToolbar &&
+        Math.abs(lifecycle.menuBarReveal - lifecycle.toolbarReveal) < 0.001 &&
+        (lifecycle.menuBarReveal > 0 || !native.toolbarVisible),
+      `${phase}: controls appeared outside the native menu-bar reveal`);
+    }
+  }
+  let cursor = pinned;
+  for (let cycle = 0; cycle < 2; cycle++) {
+    const shown = findAfter(observations, cursor, observation =>
+      isPinned(observation, "macos") &&
+      observation.native.appKit.nativeLifecycle.menuBarReveal >= 0.999);
+    const retracted = findAfter(observations, shown, observation =>
+      isPinned(observation, "macos") &&
+      observation.native.appKit.nativeLifecycle.menuBarReveal <= 0.001 &&
+      observation.native.appKit.nativeLifecycle.toolbarReveal === 1);
+    requireRuntime(shown > cursor && retracted > shown && retracted < hiddenAfterPinned,
+      `${phase}: pinned controls did not survive two native menu-bar cycles`);
+    cursor = retracted;
+  }
+  for (const [start, end] of [[hidden, pinned], [pinned, hiddenAfterPinned]]) {
+    const departed = findAfter(observations, start, observation =>
+      observation.native.appKit?.nativeLifecycle?.onActiveSpace === false);
+    const returned = findAfter(observations, departed, observation =>
+      observation.native.appKit?.nativeLifecycle?.onActiveSpace === true);
+    requireRuntime(departed > start && returned > departed && returned < end,
+      `${phase}: native Space departure/return was not observed in both policies`);
+  }
 }
 
 export async function validateChromiumFullscreenToolbarRuntimeEvidence({
@@ -225,8 +267,9 @@ export async function validateChromiumFullscreenToolbarRuntimeEvidence({
     } else {
       const baseline = observations[hidden].surfaces.filter(surface =>
         surface.kind === "role" && surface.visible);
-      for (const index of [revealed, hiddenAfterReveal, hiddenAfterPinned]) {
-        const current = observations[index];
+      validateMacosLifecycle(observations, hidden, pinned, hiddenAfterPinned, phase);
+      for (const current of observations.slice(hidden, hiddenAfterPinned + 1)
+        .filter(observation => !observation.native.alwaysShowToolbarInFullScreen)) {
         for (const surface of baseline) {
           const peer = current.surfaces.find(candidate =>
             candidate.id === surface.id && candidate.tabId === surface.tabId &&

@@ -210,7 +210,6 @@ NS_ASSUME_NONNULL_BEGIN
       } else if ([notification.name
                      isEqualToString:NSWindowDidChangeOcclusionStateNotification]) {
         if (strongSelf->_fullscreenHostReady &&
-            strongSelf.alwaysShowInFullScreen &&
             (strongSelf->_window.occlusionState &
              NSWindowOcclusionStateVisible) != 0) {
           [strongSelf scheduleFullscreenHostRefresh];
@@ -219,15 +218,9 @@ NS_ASSUME_NONNULL_BEGIN
                  [notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
         if ([notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
           [strongSelf neutralizePhysicalModifiersForFocusLoss];
-          if (strongSelf->_fullscreenToolbarPointerRevealed) {
-            strongSelf->_fullscreenToolbarPointerRevealed = NO;
-            [strongSelf updateFullscreenToolbarPresentationPolicy];
-            RionDismissFullscreenToolbarReveal(strongSelf->_window);
-          }
         } else {
           [strongSelf reassertPhysicalModifiersAfterFocusGain];
-          if (strongSelf.alwaysShowInFullScreen &&
-              strongSelf->_fullscreenHostReady) {
+          if (strongSelf->_fullscreenHostReady) {
             [strongSelf scheduleFullscreenHostRefresh];
           }
         }
@@ -262,7 +255,8 @@ NS_ASSUME_NONNULL_BEGIN
                      isEqualToString:NSWindowWillExitFullScreenNotification]) {
         strongSelf->_fullscreenHostReady = NO;
         [strongSelf detachTitlebarWidgetInsetOverrides];
-        [strongSelf updateTrafficLightObservation];
+        RionBindFullscreenReveal(strongSelf->_window, NO, NO, nil);
+        [strongSelf removeTrafficLightObservationRestoringState:NO];
         strongSelf->_toolbar.visible = NO;
         [strongSelf detachAccessoryController];
       } else if ([notification.name
@@ -296,6 +290,18 @@ NS_ASSUME_NONNULL_BEGIN
     }];
     [_windowObservers addObject:observer];
   }
+
+  _fullscreenSpaceObserver = [NSWorkspace.sharedWorkspace.notificationCenter
+      addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification
+                  object:nil queue:NSOperationQueue.mainQueue
+              usingBlock:^(NSNotification *notification) {
+    (void)notification;
+    RionRuntimeTabsController *controller = weakSelf;
+    if (controller && controller->_fullscreenHostReady &&
+        controller->_window.isOnActiveSpace) {
+      [controller scheduleFullscreenHostRefresh];
+    }
+  }];
 
   id accessibilityObserver = [center
       addObserverForName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
@@ -577,14 +583,16 @@ NS_ASSUME_NONNULL_BEGIN
   NSWindow *titlebarHost = _accessoryController.view.window;
   BOOL fullScreen = _fullscreenTransitionActive ||
       (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
-  if (fullScreen && _toolbar.visible && titlebarHost &&
+  if (fullScreen && RionShouldPinFullscreenToolbar(
+          self.alwaysShowInFullScreen, self.revealLocked) && _toolbar.visible && titlebarHost &&
       titlebarHost != _window && !titlebarHost.isVisible) {
     // Auto-hide orders AppKit's auxiliary toolbar host out. A later live
     // switch to pinned must explicitly restore that same host; redrawing its
     // views alone does not make the window visible again.
     [titlebarHost orderFront:nil];
   }
-  if (fullScreen && _toolbar.visible) {
+  if (fullScreen && RionShouldPinFullscreenToolbar(
+          self.alwaysShowInFullScreen, self.revealLocked) && _toolbar.visible) {
     // AppKit retains the accessory controller while its auto-hide host is
     // offscreen, but may leave one of the private clip/container ancestors
     // hidden after the preference changes to pinned. Reveal the existing
@@ -601,7 +609,8 @@ NS_ASSUME_NONNULL_BEGIN
   [toolbarView displayIfNeeded];
   [_accessoryController.view displayIfNeeded];
   [_window displayIfNeeded];
-  if (fullScreen && _toolbar.visible) {
+  if (fullScreen && RionShouldPinFullscreenToolbar(
+          self.alwaysShowInFullScreen, self.revealLocked) && _toolbar.visible) {
     // Force-visible policy alone leaves AppKit's companion reveal fraction at
     // zero after returning from another Space. Pin the existing native host;
     // auto-hide continues to own future top-edge reveal when the companion

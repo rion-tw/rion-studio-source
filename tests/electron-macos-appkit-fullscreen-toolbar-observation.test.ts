@@ -75,6 +75,33 @@ describe("retained AppKit fullscreen-toolbar observation", () => {
     }));
   });
 
+  it.each([
+    { menuBarReveal: 1 },
+    { menuBarReveal: NaN, toolbarReveal: 1, revealSequence: 2, onActiveSpace: true },
+    { menuBarReveal: 0, toolbarReveal: 1.1, revealSequence: 2, onActiveSpace: true },
+    { menuBarReveal: 0, toolbarReveal: 0, revealSequence: -1, onActiveSpace: true },
+    { menuBarReveal: 0, toolbarReveal: 0, revealSequence: 2 }
+  ])("rejects incomplete or malformed native reveal evidence %j", (lifecycle) => {
+    expect(() => readMacosAppKitFullscreenToolbar({
+      identity, nativeFullscreen: true, nativeProjectionRevision: 8,
+      read: () => ({ ...state(), ...lifecycle }),
+      topologyRevision: 7, windowGeneration: 2
+    })).toThrow("malformed native evidence");
+  });
+
+  it("preserves independent menu and toolbar fractions after native retraction", () => {
+    const observed = readMacosAppKitFullscreenToolbar({
+      identity, nativeFullscreen: true, nativeProjectionRevision: 8,
+      read: () => ({ ...state(), alwaysShowInFullScreen: true,
+        menuBarReveal: 0, toolbarReveal: 1, revealSequence: 8, onActiveSpace: true }),
+      topologyRevision: 7, windowGeneration: 2
+    });
+    expect(observed.appKit?.nativeLifecycle).toEqual({
+      menuBarReveal: 0, toolbarReveal: 1, sequence: 8, onActiveSpace: true
+    });
+    expect(Object.isFrozen(observed.appKit?.nativeLifecycle)).toBe(true);
+  });
+
   it("projects valid native titlebar screen geometry into immutable tab bounds", () => {
     const observation = readMacosAppKitFullscreenToolbar({
       identity,

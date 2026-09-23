@@ -7,6 +7,12 @@ export interface ElectronDesktopE2eFullscreenToolbarInspection {
       addButtonOnScreen: boolean;
       accessoryOnScreen: boolean;
       accessoryVisibleHeight: number;
+      nativeLifecycle?: Readonly<{
+        menuBarReveal: number;
+        toolbarReveal: number;
+        sequence: number;
+        onActiveSpace: boolean;
+      }>;
       fullscreenHostReady: boolean;
       presentationAutoHideToolbar: boolean;
       revealLocked: boolean;
@@ -145,7 +151,17 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
     const hasFullscreenControlBounds = record(appKit) &&
       "fullscreenControlScreenBounds" in appKit;
     const hasTabAnchors = record(appKit) && "tabAnchors" in appKit;
+    const lifecycle = record(appKit) ? appKit.nativeLifecycle : undefined;
+    if (lifecycle !== undefined && (!record(lifecycle) ||
+      !exact(lifecycle, ["menuBarReveal", "toolbarReveal", "sequence", "onActiveSpace"]) ||
+      ![lifecycle.menuBarReveal, lifecycle.toolbarReveal].every(
+        (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1) ||
+      !Number.isSafeInteger(lifecycle.sequence) || Number(lifecycle.sequence) < 0 ||
+      typeof lifecycle.onActiveSpace !== "boolean")) {
+      throw new Error("Invalid AppKit native reveal lifecycle evidence.");
+    }
     const geometryKeys = [
+      ...(lifecycle !== undefined ? ["nativeLifecycle"] : []),
       ...(hasTabScreenBounds ? ["tabScreenBounds"] : []),
       ...(hasFullscreenControlBounds ? ["fullscreenControlScreenBounds"] : []),
       ...(hasTabAnchors ? ["tabAnchors"] : [])

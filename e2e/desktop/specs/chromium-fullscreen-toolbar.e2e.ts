@@ -1,4 +1,9 @@
 import { $, browser, expect } from "@wdio/globals";
+import {
+  expectMacosRevealSynchronized,
+  proveMacosPinnedHoverCycles,
+  proveMacosFullscreenSpaceReturn
+} from "./chromium-fullscreen-toolbar-macos";
 
 import {
   inspectMacosGameModeExecutable,
@@ -118,6 +123,7 @@ async function waitForToolbar(
 ): Promise<ElectronDesktopE2eFullscreenToolbarRuntimeInspection> {
   let inspection: ElectronDesktopE2eFullscreenToolbarRuntimeInspection | undefined;
   let stableSamples = 0;
+  let failure: unknown;
   await browser.waitUntil(async () => {
     try {
       inspection = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
@@ -125,10 +131,16 @@ async function waitForToolbar(
       stableSamples = 0;
       return false;
     }
-    inspect?.(inspection);
+    try {
+      inspect?.(inspection);
+    } catch (error) {
+      failure = error;
+      return true;
+    }
     stableSamples = predicate(inspection) ? stableSamples + 1 : 0;
     return stableSamples >= 3;
   }, { interval: 100, timeout: 20_000, timeoutMsg: message });
+  if (failure) throw failure;
   return inspection!;
 }
 
@@ -167,6 +179,7 @@ function expectUnmovedMacosContent(
   expect(observations.length).toBeGreaterThan(0);
   for (const observation of observations) {
     expect(roleSurface(observation, roleId).bounds).toEqual(baseline);
+    expectMacosRevealSynchronized(observation);
   }
 }
 
@@ -383,7 +396,7 @@ async function seedPhase(input: Readonly<{
     inspection.native.toolbarVisible && inspection.native.nativeControlsVisible &&
     inspection.native.nativeWindowControlCount === 3 &&
     (input.platform === "windows" || (
-      inspection.native.appKit?.presentationAutoHideToolbar === false &&
+      inspection.native.appKit?.presentationAutoHideToolbar === true &&
       inspection.native.appKit?.accessoryOnScreen === true &&
       inspection.native.appKit.tabStripOnScreen &&
       inspection.native.appKit.visibleTrafficLightCount === 3
@@ -425,6 +438,9 @@ async function seedPhase(input: Readonly<{
       : undefined
   );
   expect(roleSurface(hidden, input.role.id).bounds).toEqual(hiddenRole.bounds);
+  if (input.platform === "macos") {
+    await proveMacosFullscreenSpaceReturn(input.windowId, false);
+  }
 
   await setPreference(input.platform, true);
   const pinned = await waitForToolbar(input.windowId, (inspection) =>
@@ -446,6 +462,8 @@ async function seedPhase(input: Readonly<{
       inspection.native.nativeWindowControlCount === 3 &&
       inspection.native.appKit?.visibleTrafficLightCount === 3,
     "Pinned AppKit traffic lights disappeared after pointer leave");
+    await proveMacosPinnedHoverCycles(input.windowId);
+    await proveMacosFullscreenSpaceReturn(input.windowId, true);
   }
 
   await setPreference(input.platform, false);
@@ -485,8 +503,24 @@ describe("Chromium fullscreen Game Window toolbar parity", () => {
     else if (phase === "chromium-fullscreen-toolbar-restart") {
       expect((await rendererCall("getRuntimeWindowPreferences"))
         .alwaysShowToolbarInFullScreen).toBe(false);
-      await setPreference(probe.platform, false);
-      await proveHiddenAndExit(input);
+      if (probe.platform === "macos") {
+        await setPreference(probe.platform, true);
+        await enterFullscreen(input);
+        await waitForToolbar(windowId, (inspection) =>
+          inspection.presentation === "fullscreen" &&
+          inspection.native.appKit?.fullscreenHostReady === true &&
+          inspection.native.appKit.toolbarPinned &&
+          inspection.native.nativeWindowControlCount === 3,
+        "Always-show fullscreen entry did not retain native traffic lights");
+        await proveMacosPinnedHoverCycles(windowId);
+        await setPreference(probe.platform, false);
+        await waitForToolbar(windowId, (inspection) => hiddenToolbar(inspection, "macos"),
+          "Always-show entry did not return to native auto-hide");
+        await exitFullscreen(input);
+      } else {
+        await setPreference(probe.platform, false);
+        await proveHiddenAndExit(input);
+      }
     } else {
       throw new Error(`Unexpected Chromium fullscreen-toolbar phase ${phase}`);
     }

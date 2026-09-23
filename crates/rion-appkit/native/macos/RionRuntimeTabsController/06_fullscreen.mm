@@ -520,6 +520,12 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
   *state = {};
   if (_destroyed || !_window || !_toolbar) return NO;
 
+  RionRuntimeFullscreenRevealObservation *reveal =
+      objc_getAssociatedObject(_window, &RionFullscreenRevealObservationKey);
+  state->menuBarReveal = reveal.menuBarReveal;
+  state->toolbarReveal = reveal.toolbarReveal;
+  state->revealSequence = reveal.sequence;
+  state->onActiveSpace = _window.isOnActiveSpace;
   NSView *accessory = _accessoryController.view;
   state->accessoryVisibleHeight =
       RionVisibleScreenHeightForView(accessory);

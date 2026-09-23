@@ -275,7 +275,7 @@ NS_ASSUME_NONNULL_BEGIN
   BOOL _dragSurfaceVisible;
   CGFloat _dragScrollRootX;
   NSTimer *_dragScrollTimer;
-  NSMutableArray<NSButton *> *_observedTrafficLightButtons;
+  NSMutableArray<NSView *> *_observedTrafficLightViews;
   NSMutableDictionary<NSValue *, NSDictionary<NSString *, NSNumber *> *> *
       _originalTrafficLightStates;
   NSMutableDictionary<NSNumber *, NSValue *> *_windowedTrafficLightFrames;
@@ -324,6 +324,7 @@ NS_ASSUME_NONNULL_BEGIN
   NSUInteger _modifierFocusGeneration;
   NSUInteger _neutralizedModifierGeneration;
   NSMutableArray<id> *_windowObservers;
+  id _fullscreenSpaceObserver;
   id _tabShortcutMonitor;
   id _fullscreenToolbarPointerMonitor;
   BOOL _alwaysHideTabCloseButton;
@@ -334,8 +335,6 @@ NS_ASSUME_NONNULL_BEGIN
   BOOL _hasFullscreenAutoHideContentLayout;
   BOOL _fullscreenTransitionActive;
   BOOL _fullscreenHostReady;
-  BOOL _fullscreenToolbarPointerRevealed;
-  BOOL _fullscreenPinnedPointerInChrome;
   BOOL _placementZoomed;
   RionRuntimeContentLayout _lastNotifiedContentLayout;
   RionRuntimeContentLayout _fullscreenAutoHideContentLayout;
@@ -377,7 +376,7 @@ NS_ASSUME_NONNULL_BEGIN
   [self ensureTitlebarHeightOverride];
   _actionHandler = [actionHandler copy];
   _contentLayoutHandler = [contentLayoutHandler copy];
-  _observedTrafficLightButtons = [NSMutableArray array];
+  _observedTrafficLightViews = [NSMutableArray array];
   _originalTrafficLightStates = [NSMutableDictionary dictionary];
   _windowedTrafficLightFrames = [NSMutableDictionary dictionary];
   _tabItems = [NSMutableArray array];
@@ -672,7 +671,6 @@ NS_ASSUME_NONNULL_BEGIN
       RionRuntimeRecordPhysicalInput(
           RionRuntimePhysicalInputTarget(hitView), projected);
     }
-    [strongSelf handleFullscreenToolbarPointerEvent:event];
     return event;
   }];
   // A controller can be created for a window that is already fullscreen

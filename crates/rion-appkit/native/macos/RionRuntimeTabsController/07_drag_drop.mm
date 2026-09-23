@@ -549,12 +549,16 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   BOOL fullScreen = _fullscreenTransitionActive ||
       (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
   BOOL active = fullScreen;
-  // AppKit can leave the companion toolbar host offscreen even after the
-  // physical top-edge event. Temporarily request a visible host for that
-  // event, then restore auto-hide when the pointer leaves or focus changes.
+  // AppKit owns top-edge tracking and the menu-bar/toolbar reveal lifecycle.
   BOOL autoHide = !RionShouldPinFullscreenToolbar(
-      self.alwaysShowInFullScreen, self.revealLocked) &&
-      !_fullscreenToolbarPointerRevealed;
+      self.alwaysShowInFullScreen, self.revealLocked);
+  __weak RionRuntimeTabsController *weakSelf = self;
+  RionBindFullscreenReveal(_window, active && _fullscreenHostReady, !autoHide, ^{
+    RionRuntimeTabsController *controller = weakSelf;
+    if (!controller || controller->_destroyed) return;
+    [controller refreshFullscreenTrafficLightVisibility];
+    [controller scheduleContentLayoutNotification];
+  });
   // Keep the marker armed in windowed mode as well:
   // AppKit can ask the delegate for fullscreen presentation options before it
   // emits NSWindowWillEnterFullScreenNotification. Explicitly add or remove
@@ -567,18 +571,11 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
 }
 
 - (void)setAlwaysShowInFullScreen:(BOOL)alwaysShow {
-  BOOL wasPinned = RionShouldPinFullscreenToolbar(
-      _alwaysShowInFullScreen, _revealLocked);
   _alwaysShowInFullScreen = alwaysShow;
-  _fullscreenToolbarPointerRevealed = NO;
-  _fullscreenPinnedPointerInChrome = alwaysShow;
   [self updateFullscreenToolbarPresentationPolicy];
   [self applyFullScreenPolicy];
   BOOL pinned = RionShouldPinFullscreenToolbar(
       _alwaysShowInFullScreen, _revealLocked);
-  if (wasPinned && !pinned && _window && _fullscreenHostReady) {
-    RionDismissFullscreenToolbarReveal(_window);
-  }
   if (pinned && _window && _fullscreenHostReady) {
     [self displayTitlebarHostIfNeeded];
     [self scheduleFullscreenHostRefresh];
@@ -588,7 +585,6 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
 - (void)prepareForFullscreenTransition:(BOOL)fullScreen {
   if (_destroyed || !_window) return;
   [self ensureTitlebarHeightOverride];
-  _fullscreenToolbarPointerRevealed = NO;
   if (fullScreen) _hasFullscreenAutoHideContentLayout = NO;
 
   if (fullScreen) {
@@ -642,74 +638,11 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
 }
 
 - (void)setRevealLocked:(BOOL)locked {
-  BOOL wasPinned = RionShouldPinFullscreenToolbar(
-      _alwaysShowInFullScreen, _revealLocked);
   _revealLocked = locked;
-  _fullscreenToolbarPointerRevealed = NO;
   [self updateFullscreenToolbarPresentationPolicy];
   [self applyFullScreenPolicy];
-  BOOL pinned = RionShouldPinFullscreenToolbar(
-      _alwaysShowInFullScreen, _revealLocked);
-  if (wasPinned && !pinned && _window && _fullscreenHostReady) {
-    RionDismissFullscreenToolbarReveal(_window);
-  }
   if (_window && _fullscreenHostReady) {
     [self scheduleFullscreenHostRefresh];
-  }
-}
-
-- (void)handleFullscreenToolbarPointerEvent:(NSEvent *)event {
-  if (_destroyed || !_window || !_window.isKeyWindow ||
-      !_fullscreenHostReady ||
-      (_window.styleMask & NSWindowStyleMaskFullScreen) == 0) {
-    if (_fullscreenToolbarPointerRevealed) {
-      _fullscreenToolbarPointerRevealed = NO;
-      [self updateFullscreenToolbarPresentationPolicy];
-      RionDismissFullscreenToolbarReveal(_window);
-    }
-    return;
-  }
-  NSScreen *screen = _window.screen;
-  if (!screen) return;
-  NSPoint pointer = NSEvent.mouseLocation;
-  NSRect frame = screen.frame;
-  BOOL horizontallyInside = pointer.x >= NSMinX(frame) &&
-      pointer.x < NSMaxX(frame);
-  CGFloat distanceFromTop = NSMaxY(frame) - pointer.y;
-  if (RionShouldPinFullscreenToolbar(self.alwaysShowInFullScreen,
-                                     self.revealLocked)) {
-    BOOL inChrome = horizontallyInside && distanceFromTop >= 0 &&
-        distanceFromTop <= kRionTitlebarHeight;
-    if (_fullscreenPinnedPointerInChrome && !inChrome) {
-      // AppKit can reset its fullscreen button cluster when pointer hover
-      // ends even though the toolbar remains pinned. Reassert the current
-      // host after that exact physical transition.
-      [self scheduleFullscreenHostRefresh];
-    }
-    _fullscreenPinnedPointerInChrome = inChrome;
-    return;
-  }
-  _fullscreenPinnedPointerInChrome = NO;
-  BOOL atRevealEdge = horizontallyInside && distanceFromTop >= 0 &&
-      distanceFromTop <= 4.0;
-  if (atRevealEdge) {
-    if (_fullscreenToolbarPointerRevealed) return;
-    _fullscreenToolbarPointerRevealed = YES;
-    [self updateFullscreenToolbarPresentationPolicy];
-    _toolbar.visible = YES;
-    [self displayTitlebarHostIfNeeded];
-    [self scheduleContentLayoutNotification];
-    return;
-  }
-  CGFloat menuBarHeight = MAX(
-      0.0, NSMaxY(frame) - NSMaxY(screen.visibleFrame));
-  CGFloat revealedChromeHeight = menuBarHeight + kRionTitlebarHeight;
-  if (_fullscreenToolbarPointerRevealed &&
-      (!horizontallyInside || distanceFromTop > revealedChromeHeight)) {
-    _fullscreenToolbarPointerRevealed = NO;
-    [self updateFullscreenToolbarPresentationPolicy];
-    RionDismissFullscreenToolbarReveal(_window);
-    [self scheduleContentLayoutNotification];
   }
 }
 
@@ -737,10 +670,9 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
     return layout;
   }
 
-  // For auto-hide, the native toolbar is an overlay. Temporarily clearing
-  // AutoHideToolbar to reveal AppKit's companion window also changes
-  // contentLayoutRect. That transient safe area must not resize Chromium.
-  if (_fullscreenHostReady && !_fullscreenToolbarPointerRevealed &&
+  // AppKit owns the reveal animation. Its transient safe area must never
+  // replace the hidden contentLayoutRect used by Chromium in overlay mode.
+  if (_fullscreenHostReady &&
       [self fullscreenToolbarVisibleHeight] <= 0.5 &&
       layout.yOffset < kRionTitlebarHeight - 0.5) {
     _fullscreenAutoHideContentLayout = layout;
@@ -839,7 +771,6 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
           [strongSelf revealToolbarAndOrderBelowAccessory];
           [strongSelf displayTitlebarHostIfNeeded];
           if (strongSelf.alwaysShowInFullScreen) {
-            [strongSelf removeTrafficLightObservationRestoringState:NO];
             [strongSelf refreshFullscreenTrafficLightVisibility];
           }
         } else {

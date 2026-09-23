@@ -58,7 +58,6 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)finishTabShortcutModifierHandoffWithAction:(NSString *)actionType;
 - (void)flushTabShortcutModifierHandoffWithAction:(NSString *)actionType;
 - (void)handleTabShortcutModifierEvent:(NSEvent *)event;
-- (void)handleFullscreenToolbarPointerEvent:(NSEvent *)event;
 - (CGFloat)fullscreenToolbarVisibleHeight;
 - (void)trackPhysicalModifierEvent:(NSEvent *)event;
 - (NSUInteger)neutralizePhysicalModifiersSavingFocusHandoff:(BOOL)saveHandoff;

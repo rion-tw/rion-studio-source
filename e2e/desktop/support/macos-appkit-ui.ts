@@ -245,19 +245,25 @@ guard let source = CGEventSource(stateID: .hidSystemState) else {
 }
 let start = CGPoint(x: ${x}, y: ${startY})
 let edge = CGPoint(x: ${x}, y: ${edgeY})
-CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-  mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
+var previous = CGEvent(source: nil)!.location
+func move(_ point: CGPoint) {
+  let event = CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
+    mouseCursorPosition: point, mouseButton: .left)!
+  event.flags = []
+  event.setIntegerValueField(.mouseEventDeltaX, value: Int64(point.x - previous.x))
+  event.setIntegerValueField(.mouseEventDeltaY, value: Int64(point.y - previous.y))
+  event.post(tap: .cghidEventTap)
+  previous = point
+}
+move(start)
 usleep(100_000)
 for step in 1...12 {
   let progress = CGFloat(step) / 12.0
-  let point = CGPoint(x: edge.x, y: start.y + (edge.y - start.y) * progress)
-  CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-    mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+  move(CGPoint(x: edge.x, y: start.y + (edge.y - start.y) * progress))
   usleep(40_000)
 }
 for _ in 1...3 {
-  CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-    mouseCursorPosition: edge, mouseButton: .left)?.post(tap: .cghidEventTap)
+  move(CGPoint(x: edge.x, y: edge.y - 1))
   usleep(200_000)
 }
 guard let settled = CGEvent(source: nil)?.location else {

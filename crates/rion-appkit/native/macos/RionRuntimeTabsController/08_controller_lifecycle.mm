@@ -21,7 +21,7 @@ NS_ASSUME_NONNULL_BEGIN
     return;
   }
 
-  NSMutableArray<NSButton *> *currentButtons = [NSMutableArray array];
+  NSMutableArray<NSView *> *currentViews = [NSMutableArray array];
   for (NSNumber *buttonType in @[
          @(NSWindowCloseButton),
          @(NSWindowMiniaturizeButton),
@@ -29,51 +29,42 @@ NS_ASSUME_NONNULL_BEGIN
        ]) {
     NSButton *button = [self currentTrafficLightButton:
         (NSWindowButton)buttonType.integerValue];
-    if (button) [currentButtons addObject:button];
+    for (NSView *view = button; view && view.window == button.window;
+         view = view.superview) {
+      if (![currentViews containsObject:view]) [currentViews addObject:view];
+    }
   }
-  BOOL sameButtons = currentButtons.count == _observedTrafficLightButtons.count;
-  if (sameButtons) {
-    for (NSUInteger index = 0; index < currentButtons.count; index++) {
-      if (currentButtons[index] != _observedTrafficLightButtons[index]) {
-        sameButtons = NO;
+  BOOL sameViews = currentViews.count == _observedTrafficLightViews.count;
+  if (sameViews) {
+    for (NSUInteger index = 0; index < currentViews.count; index++) {
+      if (currentViews[index] != _observedTrafficLightViews[index]) {
+        sameViews = NO;
         break;
       }
     }
   }
-  if (!sameButtons) [self removeTrafficLightObservationRestoringState:NO];
+  if (!sameViews) [self removeTrafficLightObservationRestoringState:NO];
 
-  if (_observedTrafficLightButtons.count == 0) {
-    for (NSNumber *buttonType in @[
-           @(NSWindowCloseButton),
-           @(NSWindowMiniaturizeButton),
-           @(NSWindowZoomButton)
-         ]) {
-      NSButton *button = [self currentTrafficLightButton:
-          (NSWindowButton)buttonType.integerValue];
-      if (!button) continue;
-
+  if (_observedTrafficLightViews.count == 0) {
+    for (NSView *button in currentViews) {
       NSValue *key = [NSValue valueWithPointer:(__bridge const void *)button];
       _originalTrafficLightStates[key] = @{
         @"alpha" : @(button.alphaValue),
         @"hidden" : @(button.hidden)
       };
-      BOOL observingAlpha = NO;
+      NSMutableArray<NSString *> *observedKeys = [NSMutableArray array];
       @try {
-        [button addObserver:self
-                 forKeyPath:@"alphaValue"
-                    options:NSKeyValueObservingOptionNew
-                    context:RionRuntimeTrafficLightObservationContext];
-        observingAlpha = YES;
-        [button addObserver:self
-                 forKeyPath:@"hidden"
-                    options:NSKeyValueObservingOptionNew
-                    context:RionRuntimeTrafficLightObservationContext];
-        [_observedTrafficLightButtons addObject:button];
+        for (NSString *keyPath in @[@"alphaValue", @"hidden", @"frame", @"bounds"]) {
+          [button addObserver:self forKeyPath:keyPath
+                      options:NSKeyValueObservingOptionNew
+                      context:RionRuntimeTrafficLightObservationContext];
+          [observedKeys addObject:keyPath];
+        }
+        [_observedTrafficLightViews addObject:button];
       } @catch (NSException *exception) {
-        if (observingAlpha) {
-          [button removeObserver:self
-                     forKeyPath:@"alphaValue"
-                        context:RionRuntimeTrafficLightObservationContext];
+        for (NSString *keyPath in observedKeys) {
+          [button removeObserver:self forKeyPath:keyPath
+                          context:RionRuntimeTrafficLightObservationContext];
         }
         [_originalTrafficLightStates removeObjectForKey:key];
         NSLog(@"Rion Studio could not observe a fullscreen traffic light: %@",
@@ -98,7 +89,7 @@ NS_ASSUME_NONNULL_BEGIN
   }
 
   _enforcingTrafficLightVisibility = YES;
-  for (NSButton *button in _observedTrafficLightButtons) {
+  for (NSView *button in _observedTrafficLightViews) {
     button.hidden = NO;
     button.alphaValue = 1.0;
     RionRevealViewHierarchyInHost(button, button.window);
@@ -142,15 +133,19 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (void)removeTrafficLightObservationRestoringState:(BOOL)restoreState {
-  if (_observedTrafficLightButtons.count == 0) return;
+  if (_observedTrafficLightViews.count == 0) return;
   _enforcingTrafficLightVisibility = YES;
-  for (NSButton *button in _observedTrafficLightButtons) {
+  for (NSView *button in _observedTrafficLightViews) {
     @try {
       [button removeObserver:self
                   forKeyPath:@"alphaValue"
                      context:RionRuntimeTrafficLightObservationContext];
       [button removeObserver:self
                   forKeyPath:@"hidden"
+                     context:RionRuntimeTrafficLightObservationContext];
+      [button removeObserver:self forKeyPath:@"frame"
+                     context:RionRuntimeTrafficLightObservationContext];
+      [button removeObserver:self forKeyPath:@"bounds"
                      context:RionRuntimeTrafficLightObservationContext];
     } @catch (NSException *exception) {
       NSLog(@"Rion Studio could not remove a traffic-light observer: %@",
@@ -166,7 +161,7 @@ NS_ASSUME_NONNULL_BEGIN
       }
     }
   }
-  [_observedTrafficLightButtons removeAllObjects];
+  [_observedTrafficLightViews removeAllObjects];
   [_originalTrafficLightStates removeAllObjects];
   _enforcingTrafficLightVisibility = NO;
 }
@@ -481,6 +476,11 @@ NS_ASSUME_NONNULL_BEGIN
   [self flushTabShortcutModifierHandoffWithAction:
             @"modifierHandoffAbandoned"];
   [self discardPhysicalModifierFocusHandoff];
+  if (_fullscreenSpaceObserver) {
+    [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:_fullscreenSpaceObserver];
+    _fullscreenSpaceObserver = nil;
+  }
+  RionBindFullscreenReveal(_window, NO, NO, nil);
   _destroyed = YES;
   [self stopTabDragEdgeScroll];
   if (_tabShortcutMonitor) {

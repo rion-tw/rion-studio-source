@@ -145,6 +145,10 @@ pub struct AppKitDesktopE2ETabAnchor {
 #[napi(object)]
 pub struct AppKitDesktopE2EFullscreenToolbarState {
     pub accessory_visible_height: f64,
+    pub menu_bar_reveal: f64,
+    pub toolbar_reveal: f64,
+    pub reveal_sequence: u32,
+    pub on_active_space: bool,
     pub add_button_on_screen: bool,
     pub always_hide_tab_close_button: bool,
     pub always_show_in_full_screen: bool,
@@ -1018,9 +1022,8 @@ impl NativeAppKitRuntimeHost {
     }
 }
 
-// Keep test-only native controls in a separately generated N-API surface. The
-// napi macro expands every method in an impl as a unit, so method-level cfg
-// attributes alone can leave callback references in production builds.
+// Separate E2E impl: napi expands a whole impl; method-level cfg can leave
+// test callback references in production.
 #[cfg(feature = "desktop-e2e")]
 #[napi]
 impl NativeAppKitRuntimeHost {

@@ -30,7 +30,9 @@ function history() {
     .map((mode, index) => observation(mode, index + 1));
 }
 function macosHistory() {
-  return (["normal", "hidden", "revealed", "hidden", "pinned", "hidden", "normal"] as const)
+  return (["normal", "hidden", "revealed", "hidden", "hidden", "hidden",
+    "pinned", "pinned", "pinned", "pinned", "pinned", "pinned", "pinned",
+    "hidden", "normal"] as const)
     .map((mode, index) => {
       const original = observation(mode, index + 1);
       const { workspaceBackground: _background, ...native } = original.native;
@@ -42,11 +44,17 @@ function macosHistory() {
         native: {
           ...native,
           appKit: {
+            nativeLifecycle: {
+              menuBarReveal: mode === "revealed" || index === 7 || index === 9 ? 1 : 0,
+              toolbarReveal: mode === "revealed" || mode === "pinned" ? 1 : 0,
+              sequence: index + 1,
+              onActiveSpace: index !== 4 && index !== 11
+            },
             accessoryOnScreen: shown,
             accessoryVisibleHeight: shown ? 40 : 0,
             addButtonOnScreen: shown,
             fullscreenHostReady: mode !== "normal",
-            presentationAutoHideToolbar: mode === "hidden",
+            presentationAutoHideToolbar: mode === "hidden" || mode === "revealed",
             revealLocked: false,
             tabCloseButtonEnabledCount: 1,
             tabStripOnScreen: shown,
@@ -120,6 +128,25 @@ describe("AppKit fullscreen toolbar aggregate evidence", () => {
   it("keeps Chromium content fixed while native auto-hide reveals", async () => {
     await expect(validate(macosHistory(), "macos"))
       .resolves.toMatchObject({ pinnedAndRevealed: true });
+  });
+
+  it("rejects controls revealed ahead of the native menu bar", async () => {
+    const observations = macosHistory();
+    observations[2]!.native.appKit.nativeLifecycle.menuBarReveal = 0;
+    await expect(validate(observations, "macos")).rejects.toThrow("outside the native");
+  });
+
+  it("rejects missing post-retraction pinned controls", async () => {
+    const observations = macosHistory().filter((_, index) => index !== 10);
+    observations[10]!.native.appKit.nativeLifecycle.menuBarReveal = 1;
+    observations[11]!.native.appKit.nativeLifecycle.menuBarReveal = 1;
+    await expect(validate(observations, "macos")).rejects.toThrow("two native menu-bar cycles");
+  });
+
+  it("rejects focus changes without a native Space departure", async () => {
+    const observations = macosHistory();
+    for (const value of observations) value.native.appKit.nativeLifecycle.onActiveSpace = true;
+    await expect(validate(observations, "macos")).rejects.toThrow("Space departure/return");
   });
 
   it("rejects content shifted by the revealed native toolbar", async () => {

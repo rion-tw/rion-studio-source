@@ -605,14 +605,15 @@ static BOOL RionWindowServerReportsOnScreen(NSWindow *window) {
 }
 
 static CGFloat RionVisibleScreenHeightForView(NSView *view) {
-  if (!view || [view isHiddenOrHasHiddenAncestor] || view.alphaValue <= 0) {
-    return 0;
+  if (!view) return 0;
+  for (NSView *ancestor = view; ancestor; ancestor = ancestor.superview) {
+    if (ancestor.hidden || ancestor.alphaValue <= 0.01) return 0;
   }
   NSWindow *host = view.window;
   NSScreen *screen = host.screen;
   if (!host || !screen) return 0;
 
-  NSRect windowRect = [view convertRect:view.bounds toView:nil];
+  NSRect windowRect = [view convertRect:view.visibleRect toView:nil];
   NSRect screenRect = [host convertRectToScreen:windowRect];
   return RionResolveVisibleScreenHeight(
       screenRect, screen.frame,
@@ -700,6 +701,8 @@ static id RionFullscreenToolbarCompanionController(NSWindow *window) {
   }
 }
 
+#include "01_fullscreen_reveal.mm"
+
 static void RionApplyWindowFullscreenToolbarHostPolicy(
     NSWindow *window, BOOL autoHide) {
   id companion = RionFullscreenToolbarCompanionController(window);
@@ -735,7 +738,7 @@ static void RionApplyWindowFullscreenToolbarHostPolicy(
       reinterpret_cast<ToolbarPolicyFunction>(objc_msgSend)(
           companion, selector, toolbar);
     }
-    if (!autoHide) {
+    {
       for (NSString *selectorName in @[
              @"establishAutohideBehavior",
              @"_forceUpdateSpaceAndMenubarCompanionWindowAutohideHeight"
@@ -774,22 +777,8 @@ static void RionSetFullscreenToolbarReveal(NSWindow *window,
           companion, revealSelector, reveal);
     }
 
-    SEL updateSelector =
-        NSSelectorFromString(@"_updateMenuBarReveal:toolbarReveal:");
-    NSMethodSignature *updateSignature =
-        [companion methodSignatureForSelector:updateSelector];
-    if ([companion respondsToSelector:updateSelector] && updateSignature &&
-        updateSignature.numberOfArguments == 4 &&
-        updateSignature.methodReturnLength == 0 &&
-        strcmp([updateSignature getArgumentTypeAtIndex:2], @encode(double)) ==
-            0 &&
-        strcmp([updateSignature getArgumentTypeAtIndex:3], @encode(double)) ==
-            0) {
-      using RevealUpdateFunction = void (*)(id, SEL, double, double);
-      reinterpret_cast<RevealUpdateFunction>(objc_msgSend)(
-          companion, updateSelector, 0.0, reveal);
-    }
-
+    // The menu bar has its own native animation. A policy update changes only
+    // the toolbar fraction; never synthesize a menu-bar reveal of zero.
     for (NSString *selectorName in @[
            @"updateContentViewForReveal", @"reshapeToolbarWindowFrame"
          ]) {
@@ -805,10 +794,6 @@ static void RionSetFullscreenToolbarReveal(NSWindow *window,
     }
   } @catch (__unused NSException *exception) {
   }
-}
-
-static void RionDismissFullscreenToolbarReveal(NSWindow *window) {
-  RionSetFullscreenToolbarReveal(window, 0.0);
 }
 
 static void RionPresentFullscreenToolbarReveal(NSWindow *window) {

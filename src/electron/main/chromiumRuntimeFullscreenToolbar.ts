@@ -79,6 +79,12 @@ export interface ChromiumRuntimeFullscreenToolbarObservation {
     addButtonOnScreen: boolean;
     accessoryOnScreen: boolean;
     accessoryVisibleHeight: number;
+    nativeLifecycle?: Readonly<{
+      menuBarReveal: number;
+      toolbarReveal: number;
+      sequence: number;
+      onActiveSpace: boolean;
+    }>;
     fullscreenHostReady: boolean;
     presentationAutoHideToolbar: boolean;
     revealLocked: boolean;

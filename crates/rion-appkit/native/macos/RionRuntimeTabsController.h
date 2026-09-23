@@ -132,6 +132,10 @@ typedef struct {
 
 typedef struct {
   double accessoryVisibleHeight;
+  double menuBarReveal;
+  double toolbarReveal;
+  uint32_t revealSequence;
+  bool onActiveSpace;
   bool addButtonOnScreen;
   bool alwaysHideTabCloseButton;
   bool alwaysShowInFullScreen;

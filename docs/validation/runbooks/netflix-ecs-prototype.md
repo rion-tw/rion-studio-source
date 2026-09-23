@@ -193,6 +193,20 @@ and Windows execution remain untested. Manual launch of the signed unpacked
 package was blocked at updater preflight because the development build did
 not embed the genuine updater endpoint or public key.
 
+## Owner Netflix playback check, 2026-09-23
+
+The owner manually tested Netflix in the production-VMP-signed ECS development
+window launched by `pnpm run dev:drm-prototype:signed` and confirmed that video
+playback started successfully. The launcher verified the production streaming
+VMP signature before and after creating the private macOS Game Mode bundle,
+and the Electron process started successfully. This establishes basic Netflix
+playback capability for the isolated development runtime on this Mac. The owner
+has not yet tested two-minute playback, audible sound, pause/resume, seeking,
+fullscreen, or playback after restart. Title, resolution, and simultaneous Role
+behavior were not recorded. The separately signed unpacked app still
+cannot pass its updater preflight without genuine release configuration; Windows
+validation and the ECS Extension regression remain open before production use.
+
 ## Sources
 
 - [Pinned ECS release](https://github.com/castlabs/electron-releases/releases/tag/v44.1.0%2Bwvcus)

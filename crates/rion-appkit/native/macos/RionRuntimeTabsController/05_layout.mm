@@ -159,6 +159,7 @@ NS_ASSUME_NONNULL_BEGIN
     NSWindowDidEndLiveResizeNotification,
     NSWindowDidMiniaturizeNotification,
     NSWindowDidDeminiaturizeNotification,
+    NSWindowDidChangeOcclusionStateNotification,
     NSWindowDidChangeBackingPropertiesNotification,
     NSWindowDidChangeScreenNotification,
     NSWindowDidBecomeKeyNotification,
@@ -206,6 +207,14 @@ NS_ASSUME_NONNULL_BEGIN
         if (!strongSelf->_fullscreenTransitionActive) {
           [strongSelf emitWindowPlacementObservation];
         }
+      } else if ([notification.name
+                     isEqualToString:NSWindowDidChangeOcclusionStateNotification]) {
+        if (strongSelf->_fullscreenHostReady &&
+            strongSelf.alwaysShowInFullScreen &&
+            (strongSelf->_window.occlusionState &
+             NSWindowOcclusionStateVisible) != 0) {
+          [strongSelf scheduleFullscreenHostRefresh];
+        }
       } else if ([notification.name isEqualToString:NSWindowDidBecomeKeyNotification] ||
                  [notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
         if ([notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
@@ -217,6 +226,10 @@ NS_ASSUME_NONNULL_BEGIN
           }
         } else {
           [strongSelf reassertPhysicalModifiersAfterFocusGain];
+          if (strongSelf.alwaysShowInFullScreen &&
+              strongSelf->_fullscreenHostReady) {
+            [strongSelf scheduleFullscreenHostRefresh];
+          }
         }
         if ([notification.name isEqualToString:NSWindowDidBecomeKeyNotification] &&
             !strongSelf->_fullscreenTransitionActive &&

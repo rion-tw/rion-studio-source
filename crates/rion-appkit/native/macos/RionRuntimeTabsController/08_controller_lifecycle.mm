@@ -1,5 +1,13 @@
 NS_ASSUME_NONNULL_BEGIN
 
+- (nullable NSButton *)currentTrafficLightButton:(NSWindowButton)buttonType {
+  NSWindow *host = _accessoryController.view.window;
+  NSButton *button = host && host != _window
+      ? [host standardWindowButton:buttonType] : nil;
+  if (button && button.window == host) return button;
+  return [_window standardWindowButton:buttonType];
+}
+
 - (void)updateTrafficLightObservation {
   BOOL fullScreen = _fullscreenTransitionActive ||
       (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
@@ -13,14 +21,35 @@ NS_ASSUME_NONNULL_BEGIN
     return;
   }
 
+  NSMutableArray<NSButton *> *currentButtons = [NSMutableArray array];
+  for (NSNumber *buttonType in @[
+         @(NSWindowCloseButton),
+         @(NSWindowMiniaturizeButton),
+         @(NSWindowZoomButton)
+       ]) {
+    NSButton *button = [self currentTrafficLightButton:
+        (NSWindowButton)buttonType.integerValue];
+    if (button) [currentButtons addObject:button];
+  }
+  BOOL sameButtons = currentButtons.count == _observedTrafficLightButtons.count;
+  if (sameButtons) {
+    for (NSUInteger index = 0; index < currentButtons.count; index++) {
+      if (currentButtons[index] != _observedTrafficLightButtons[index]) {
+        sameButtons = NO;
+        break;
+      }
+    }
+  }
+  if (!sameButtons) [self removeTrafficLightObservationRestoringState:NO];
+
   if (_observedTrafficLightButtons.count == 0) {
     for (NSNumber *buttonType in @[
            @(NSWindowCloseButton),
            @(NSWindowMiniaturizeButton),
            @(NSWindowZoomButton)
          ]) {
-      NSButton *button =
-          [_window standardWindowButton:(NSWindowButton)buttonType.integerValue];
+      NSButton *button = [self currentTrafficLightButton:
+          (NSWindowButton)buttonType.integerValue];
       if (!button) continue;
 
       NSValue *key = [NSValue valueWithPointer:(__bridge const void *)button];
@@ -96,8 +125,8 @@ NS_ASSUME_NONNULL_BEGIN
          @(NSWindowMiniaturizeButton),
          @(NSWindowZoomButton)
        ]) {
-    NSButton *button =
-        [_window standardWindowButton:(NSWindowButton)buttonType.integerValue];
+    NSButton *button = [self currentTrafficLightButton:
+        (NSWindowButton)buttonType.integerValue];
     if (!button) continue;
     button.hidden = NO;
     button.alphaValue = 1.0;
@@ -107,7 +136,7 @@ NS_ASSUME_NONNULL_BEGIN
     button.superview.needsDisplay = YES;
   }
   [self enforceTrafficLightVisibility];
-  NSButton *closeButton = [_window standardWindowButton:NSWindowCloseButton];
+  NSButton *closeButton = [self currentTrafficLightButton:NSWindowCloseButton];
   [closeButton.superview layoutSubtreeIfNeeded];
   [closeButton.superview displayIfNeeded];
 }

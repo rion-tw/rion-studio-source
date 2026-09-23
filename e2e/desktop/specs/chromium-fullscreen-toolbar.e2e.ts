@@ -113,19 +113,21 @@ async function launchRole(role: Role): Promise<Readonly<{
 async function waitForToolbar(
   windowId: string,
   predicate: (inspection: ElectronDesktopE2eFullscreenToolbarRuntimeInspection) => boolean,
-  message: string
+  message: string,
+  inspect?: (inspection: ElectronDesktopE2eFullscreenToolbarRuntimeInspection) => void
 ): Promise<ElectronDesktopE2eFullscreenToolbarRuntimeInspection> {
   let inspection: ElectronDesktopE2eFullscreenToolbarRuntimeInspection | undefined;
   let stableSamples = 0;
   await browser.waitUntil(async () => {
     try {
       inspection = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
-      stableSamples = predicate(inspection) ? stableSamples + 1 : 0;
-      return stableSamples >= 3;
     } catch {
       stableSamples = 0;
       return false;
     }
+    inspect?.(inspection);
+    stableSamples = predicate(inspection) ? stableSamples + 1 : 0;
+    return stableSamples >= 3;
   }, { interval: 100, timeout: 20_000, timeoutMsg: message });
   return inspection!;
 }
@@ -139,6 +141,33 @@ function roleSurface(
   );
   expect(surface).toEqual(expect.objectContaining({ visible: true }));
   return surface!;
+}
+
+async function observeMacosPointerMotion(
+  windowId: string,
+  move: () => Promise<void>
+): Promise<readonly ElectronDesktopE2eFullscreenToolbarRuntimeInspection[]> {
+  let completed = false;
+  const motion = move().finally(() => { completed = true; });
+  const observations: ElectronDesktopE2eFullscreenToolbarRuntimeInspection[] = [];
+  while (!completed && observations.length < 60) {
+    observations.push(await electronDesktopE2eFullscreenToolbarRuntime(windowId));
+    await browser.pause(20);
+  }
+  await motion;
+  observations.push(await electronDesktopE2eFullscreenToolbarRuntime(windowId));
+  return observations;
+}
+
+function expectUnmovedMacosContent(
+  observations: readonly ElectronDesktopE2eFullscreenToolbarRuntimeInspection[],
+  roleId: string,
+  baseline: Readonly<{ x: number; y: number; width: number; height: number }>
+): void {
+  expect(observations.length).toBeGreaterThan(0);
+  for (const observation of observations) {
+    expect(roleSurface(observation, roleId).bounds).toEqual(baseline);
+  }
 }
 
 async function setWindowsPreference(alwaysShow: boolean): Promise<void> {
@@ -341,7 +370,11 @@ async function seedPhase(input: Readonly<{
   }
 
   if (input.platform === "macos") {
-    await movePointerToMacosFullscreenRevealEdge(input.windowId);
+    const motion = await observeMacosPointerMotion(
+      input.windowId,
+      () => movePointerToMacosFullscreenRevealEdge(input.windowId)
+    );
+    expectUnmovedMacosContent(motion, input.role.id, hiddenRole.bounds);
   } else {
     await movePointerToWindowsRuntimeHostRevealEdge(input.windowId);
   }
@@ -354,7 +387,11 @@ async function seedPhase(input: Readonly<{
       inspection.native.appKit?.accessoryOnScreen === true &&
       inspection.native.appKit.tabStripOnScreen &&
       inspection.native.appKit.visibleTrafficLightCount === 3
-    )), "Real screen-edge pointer motion did not reveal native controls");
+    )), "Real screen-edge pointer motion did not reveal native controls",
+  input.platform === "macos"
+    ? (inspection) => expectUnmovedMacosContent(
+      [inspection], input.role.id, hiddenRole.bounds)
+    : undefined);
   if (input.platform === "windows") {
     const surface = roleSurface(revealed, input.role.id);
     expect(surface.bounds.y).toBe(40);
@@ -365,7 +402,12 @@ async function seedPhase(input: Readonly<{
     );
     await movePointerToWindowsRuntimeContent(input.windowId);
   } else {
-    await movePointerToMacosRuntimeContent(input.windowId);
+    expect(roleSurface(revealed, input.role.id).bounds).toEqual(hiddenRole.bounds);
+    const motion = await observeMacosPointerMotion(
+      input.windowId,
+      () => movePointerToMacosRuntimeContent(input.windowId)
+    );
+    expectUnmovedMacosContent(motion, input.role.id, hiddenRole.bounds);
   }
 
   if (input.platform !== "windows") {
@@ -376,9 +418,13 @@ async function seedPhase(input: Readonly<{
   hidden = await waitForToolbar(
     input.windowId,
     (inspection) => hiddenToolbar(inspection, input.platform),
-    "Pointer leave did not return the fullscreen toolbar off screen"
+    "Pointer leave did not return the fullscreen toolbar off screen",
+    input.platform === "macos"
+      ? (inspection) => expectUnmovedMacosContent(
+        [inspection], input.role.id, hiddenRole.bounds)
+      : undefined
   );
-  roleSurface(hidden, input.role.id);
+  expect(roleSurface(hidden, input.role.id).bounds).toEqual(hiddenRole.bounds);
 
   await setPreference(input.platform, true);
   const pinned = await waitForToolbar(input.windowId, (inspection) =>
@@ -391,6 +437,15 @@ async function seedPhase(input: Readonly<{
   "Always-show did not pin the live native toolbar");
   if (input.platform === "windows") {
     expect(roleSurface(pinned, input.role.id).bounds.y).toBe(40);
+  } else {
+    await movePointerToMacosRuntimeContent(input.windowId);
+    await waitForToolbar(input.windowId, (inspection) =>
+      inspection.presentation === "fullscreen" &&
+      inspection.native.alwaysShowToolbarInFullScreen &&
+      inspection.native.toolbarVisible &&
+      inspection.native.nativeWindowControlCount === 3 &&
+      inspection.native.appKit?.visibleTrafficLightCount === 3,
+    "Pinned AppKit traffic lights disappeared after pointer leave");
   }
 
   await setPreference(input.platform, false);

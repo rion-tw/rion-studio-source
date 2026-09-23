@@ -222,6 +222,22 @@ export async function validateChromiumFullscreenToolbarRuntimeEvidence({
           `${phase}: fullscreen toolbar geometry changed outside its exact inset`);
         }
       }
+    } else {
+      const baseline = observations[hidden].surfaces.filter(surface =>
+        surface.kind === "role" && surface.visible);
+      for (const index of [revealed, hiddenAfterReveal, hiddenAfterPinned]) {
+        const current = observations[index];
+        for (const surface of baseline) {
+          const peer = current.surfaces.find(candidate =>
+            candidate.id === surface.id && candidate.tabId === surface.tabId &&
+            candidate.kind === "role" && candidate.visible);
+          const a = surface.bounds;
+          const b = peer?.bounds;
+          requireRuntime(b && b.x === a.x && b.y === a.y &&
+            b.width === a.width && b.height === a.height,
+          `${phase}: AppKit auto-hide moved Chromium content`);
+        }
+      }
     }
   }
   const terminal = observations.at(-1);

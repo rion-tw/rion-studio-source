@@ -11,6 +11,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)ensureTitlebarHeightOverride;
 - (void)ensureFullScreenTitlebarWidgetInsetOverrides;
 - (void)enforceTrafficLightVisibility;
+- (nullable NSButton *)currentTrafficLightButton:(NSWindowButton)buttonType;
 - (void)handleDropWithTabIdentifier:(NSString *)tabIdentifier
                      sourceWindowID:(NSString *)sourceWindowID
                        sessionID:(NSString *)sessionID
@@ -58,6 +59,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)flushTabShortcutModifierHandoffWithAction:(NSString *)actionType;
 - (void)handleTabShortcutModifierEvent:(NSEvent *)event;
 - (void)handleFullscreenToolbarPointerEvent:(NSEvent *)event;
+- (CGFloat)fullscreenToolbarVisibleHeight;
 - (void)trackPhysicalModifierEvent:(NSEvent *)event;
 - (NSUInteger)neutralizePhysicalModifiersSavingFocusHandoff:(BOOL)saveHandoff;
 - (void)neutralizePhysicalModifiersForFocusLoss;

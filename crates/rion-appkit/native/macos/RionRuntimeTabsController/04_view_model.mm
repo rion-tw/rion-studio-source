@@ -331,11 +331,15 @@ NS_ASSUME_NONNULL_BEGIN
   BOOL _contentLayoutObserved;
   BOOL _enforcingTrafficLightVisibility;
   BOOL _hasLastNotifiedContentLayout;
+  BOOL _hasFullscreenAutoHideContentLayout;
   BOOL _fullscreenTransitionActive;
   BOOL _fullscreenHostReady;
   BOOL _fullscreenToolbarPointerRevealed;
+  BOOL _fullscreenPinnedPointerInChrome;
   BOOL _placementZoomed;
   RionRuntimeContentLayout _lastNotifiedContentLayout;
+  RionRuntimeContentLayout _fullscreenAutoHideContentLayout;
+  CGFloat _fullscreenAutoHideContentHeight;
   CGFloat _stableTrafficLightReserveWidth;
 }
 

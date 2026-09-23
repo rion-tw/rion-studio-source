@@ -571,6 +571,7 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
       _alwaysShowInFullScreen, _revealLocked);
   _alwaysShowInFullScreen = alwaysShow;
   _fullscreenToolbarPointerRevealed = NO;
+  _fullscreenPinnedPointerInChrome = alwaysShow;
   [self updateFullscreenToolbarPresentationPolicy];
   [self applyFullScreenPolicy];
   BOOL pinned = RionShouldPinFullscreenToolbar(
@@ -588,6 +589,7 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   if (_destroyed || !_window) return;
   [self ensureTitlebarHeightOverride];
   _fullscreenToolbarPointerRevealed = NO;
+  if (fullScreen) _hasFullscreenAutoHideContentLayout = NO;
 
   if (fullScreen) {
     // AppKit snapshots the toolbar and titlebar accessory geometry while the
@@ -659,9 +661,7 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
 - (void)handleFullscreenToolbarPointerEvent:(NSEvent *)event {
   if (_destroyed || !_window || !_window.isKeyWindow ||
       !_fullscreenHostReady ||
-      (_window.styleMask & NSWindowStyleMaskFullScreen) == 0 ||
-      RionShouldPinFullscreenToolbar(self.alwaysShowInFullScreen,
-                                     self.revealLocked)) {
+      (_window.styleMask & NSWindowStyleMaskFullScreen) == 0) {
     if (_fullscreenToolbarPointerRevealed) {
       _fullscreenToolbarPointerRevealed = NO;
       [self updateFullscreenToolbarPresentationPolicy];
@@ -676,6 +676,20 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   BOOL horizontallyInside = pointer.x >= NSMinX(frame) &&
       pointer.x < NSMaxX(frame);
   CGFloat distanceFromTop = NSMaxY(frame) - pointer.y;
+  if (RionShouldPinFullscreenToolbar(self.alwaysShowInFullScreen,
+                                     self.revealLocked)) {
+    BOOL inChrome = horizontallyInside && distanceFromTop >= 0 &&
+        distanceFromTop <= kRionTitlebarHeight;
+    if (_fullscreenPinnedPointerInChrome && !inChrome) {
+      // AppKit can reset its fullscreen button cluster when pointer hover
+      // ends even though the toolbar remains pinned. Reassert the current
+      // host after that exact physical transition.
+      [self scheduleFullscreenHostRefresh];
+    }
+    _fullscreenPinnedPointerInChrome = inChrome;
+    return;
+  }
+  _fullscreenPinnedPointerInChrome = NO;
   BOOL atRevealEdge = horizontallyInside && distanceFromTop >= 0 &&
       distanceFromTop <= 4.0;
   if (atRevealEdge) {
@@ -713,9 +727,50 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   // BrowserManager can lay out child Views without reproducing titlebar math.
   NSRect contentLayoutRect =
       [contentView convertRect:_window.contentLayoutRect fromView:nil];
-  return RionRuntimeContentLayoutForRects(contentView.bounds,
-                                          contentLayoutRect,
-                                          contentView.isFlipped);
+  RionRuntimeContentLayout layout = RionRuntimeContentLayoutForRects(
+      contentView.bounds, contentLayoutRect, contentView.isFlipped);
+  BOOL fullScreen = _fullscreenTransitionActive ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  if (!layout.valid || !fullScreen ||
+      RionShouldPinFullscreenToolbar(self.alwaysShowInFullScreen,
+                                     self.revealLocked)) {
+    return layout;
+  }
+
+  // For auto-hide, the native toolbar is an overlay. Temporarily clearing
+  // AutoHideToolbar to reveal AppKit's companion window also changes
+  // contentLayoutRect. That transient safe area must not resize Chromium.
+  if (_fullscreenHostReady && !_fullscreenToolbarPointerRevealed &&
+      [self fullscreenToolbarVisibleHeight] <= 0.5 &&
+      layout.yOffset < kRionTitlebarHeight - 0.5) {
+    _fullscreenAutoHideContentLayout = layout;
+    _fullscreenAutoHideContentHeight = NSHeight(contentView.bounds);
+    _hasFullscreenAutoHideContentLayout = YES;
+  }
+  if (_hasFullscreenAutoHideContentLayout &&
+      _fullscreenAutoHideContentHeight == NSHeight(contentView.bounds)) {
+    return _fullscreenAutoHideContentLayout;
+  }
+  // Entry or a live preference change can expose the toolbar before AppKit
+  // publishes a hidden contentLayoutRect. Remove only the transient native
+  // titlebar inset until the per-window hidden layout is available.
+  CGFloat titlebarInset = MIN(layout.yOffset, kRionTitlebarHeight);
+  layout.heightInset = MAX(0.0, layout.heightInset - titlebarInset);
+  layout.yOffset -= titlebarInset;
+  return layout;
+}
+
+- (CGFloat)fullscreenToolbarVisibleHeight {
+  NSView *view = _accessoryController.view;
+  NSWindow *host = view.window;
+  NSScreen *screen = host.screen;
+  if (!view || !host || !screen || !host.isVisible ||
+      view.isHiddenOrHasHiddenAncestor) {
+    return 0;
+  }
+  NSRect inWindow = [view convertRect:view.bounds toView:nil];
+  NSRect onScreen = [host convertRectToScreen:inWindow];
+  return MAX(0.0, NSHeight(NSIntersectionRect(onScreen, screen.frame)));
 }
 
 - (void)scheduleContentLayoutNotification {

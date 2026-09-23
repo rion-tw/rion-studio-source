@@ -29,6 +29,43 @@ function history() {
   return (["normal", "hidden", "revealed", "hidden", "pinned", "hidden", "normal"] as const)
     .map((mode, index) => observation(mode, index + 1));
 }
+function macosHistory() {
+  return (["normal", "hidden", "revealed", "hidden", "pinned", "hidden", "normal"] as const)
+    .map((mode, index) => {
+      const original = observation(mode, index + 1);
+      const { workspaceBackground: _background, ...native } = original.native;
+      const { nativeWindowHandle: _handle, ...rest } = original;
+      const shown = mode !== "hidden";
+      return {
+        ...rest,
+        hostKind: "appkit",
+        native: {
+          ...native,
+          appKit: {
+            accessoryOnScreen: shown,
+            accessoryVisibleHeight: shown ? 40 : 0,
+            addButtonOnScreen: shown,
+            fullscreenHostReady: mode !== "normal",
+            presentationAutoHideToolbar: mode === "hidden",
+            revealLocked: false,
+            tabCloseButtonEnabledCount: 1,
+            tabStripOnScreen: shown,
+            toolbarPinned: mode === "pinned",
+            visibleTrafficLightCount: shown ? 3 : 0,
+            windowNameOnScreen: false
+          }
+        },
+        surfaces: [{
+          ...original.surfaces[0]!,
+          bounds: {
+            x: 0, y: mode === "pinned" ? 40 : 0,
+            width: mode === "normal" ? 960 : 1024,
+            height: mode === "pinned" ? 728 : mode === "normal" ? 600 : 768
+          }
+        }]
+      };
+    });
+}
 async function validate(observations: unknown[], platform: "macos" | "windows" = "windows") {
   const phaseDirectory = await mkdtemp(join(tmpdir(), "rion-toolbar-evidence-"));
   try {
@@ -76,5 +113,19 @@ describe("Windows fullscreen toolbar aggregate evidence", () => {
     const observations = history();
     observations[4]!.surfaces[0]!.bounds.width += 1;
     await expect(validate(observations, "windows")).rejects.toThrow("exact inset");
+  });
+});
+
+describe("AppKit fullscreen toolbar aggregate evidence", () => {
+  it("keeps Chromium content fixed while native auto-hide reveals", async () => {
+    await expect(validate(macosHistory(), "macos"))
+      .resolves.toMatchObject({ pinnedAndRevealed: true });
+  });
+
+  it("rejects content shifted by the revealed native toolbar", async () => {
+    const observations = macosHistory();
+    observations[2]!.surfaces[0]!.bounds.y = 40;
+    await expect(validate(observations, "macos"))
+      .rejects.toThrow("AppKit auto-hide moved Chromium content");
   });
 });

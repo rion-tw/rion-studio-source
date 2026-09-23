@@ -550,8 +550,8 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
          @(NSWindowMiniaturizeButton),
          @(NSWindowZoomButton)
        ]) {
-    NSButton *button =
-        [_window standardWindowButton:(NSWindowButton)buttonType.integerValue];
+    NSButton *button = [self currentTrafficLightButton:
+        (NSWindowButton)buttonType.integerValue];
     if (RionVisibleScreenHeightForView(button) > 0.5) {
       state->visibleTrafficLightCount += 1;
     }
@@ -620,8 +620,8 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
          @(NSWindowMiniaturizeButton),
          @(NSWindowZoomButton)
        ]) {
-    NSButton *button =
-        [_window standardWindowButton:(NSWindowButton)buttonType.integerValue];
+    NSButton *button = [self currentTrafficLightButton:
+        (NSWindowButton)buttonType.integerValue];
     if (!button || !button.superview || button.hidden) continue;
     NSRect frame = [button.superview convertRect:button.frame toView:nil];
     NSRect screenFrame = [button.window convertRectToScreen:frame];

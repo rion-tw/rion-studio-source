@@ -46,17 +46,25 @@ async function probe() {
     targetVisible: target.getVisible(), targetFocused: target.webContents.isFocused(),
     siblingVisible: sibling.getVisible(), siblingFocused: sibling.webContents.isFocused(),
     targetAttached: host.contentView.children.includes(target), siblingAttached: host.contentView.children.includes(sibling) });
+  const activateHost = async () => {
+    const focused = host.isFocused() ? Promise.resolve() : new Promise(ready => host.once("focus", ready));
+    host.show();
+    if (process.platform === "darwin") app.focus({ steal: true });
+    host.focus();
+    await focused;
+  };
   try {
     host.contentView.addChildView(target);
     target.setBounds({ x: 20, y: 30, width: 600, height: 400 });
     await target.webContents.loadURL("data:text/html,<body>isolated target viewport</body>");
-    await new Promise(ready => { host.once("focus", ready); host.show(); host.focus(); });
+    await activateHost();
     target.webContents.focus();
     host.contentView.addChildView(sibling);
     sibling.setBounds({ x: 20, y: 30, width: 600, height: 400 });
     sibling.setVisible(false);
     await sibling.webContents.loadURL("data:text/html,<body>isolated sibling viewport</body>");
     for (const [mode, factor] of [["hidden", 1.25], ["occluded", 1.5]]) {
+      await activateHost();
       sibling.setVisible(false); target.setVisible(true); target.webContents.focus();
       const base = { width: 600, height: 400 };
       await armViewport(target, base); target.webContents.setZoomFactor(1);

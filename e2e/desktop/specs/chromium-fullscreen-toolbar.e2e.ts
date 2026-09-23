@@ -350,6 +350,7 @@ async function seedPhase(input: Readonly<{
     inspection.native.toolbarVisible && inspection.native.nativeControlsVisible &&
     inspection.native.nativeWindowControlCount === 3 &&
     (input.platform === "windows" || (
+      inspection.native.appKit?.presentationAutoHideToolbar === false &&
       inspection.native.appKit?.accessoryOnScreen === true &&
       inspection.native.appKit.tabStripOnScreen &&
       inspection.native.appKit.visibleTrafficLightCount === 3

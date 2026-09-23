@@ -2,7 +2,7 @@ import { $, browser } from '@wdio/globals';
 import { verifyGenericExtensionContextMenu } from '../support/extensions-context-menu';
 import { rendererCall } from '../support/renderer-bridge';
 import { acceptLegalAndSkipFirstRun, ensureEnglishUi, waitForRoute } from '../support/ui';
-import { electronDesktopE2eProbe } from '../support/electron-driver';
+import { electronDesktopE2eFocusMainWindow, electronDesktopE2eProbe } from '../support/electron-driver';
 import { selectMacosVisibleRuntimeTabMenuAction } from '../support/macos-appkit-ui';
 import { closeVisibleRuntimeTab } from '../support/native-runtime-tabs';
 
@@ -16,6 +16,9 @@ describe('Generic extension native context menu', () => {
     const games = await rendererCall('listGames');
     // Role creation is setup; opening and the feature actions use visible UI.
     const role = await rendererCall('createRole', { gameId: games[0].id, name: 'Context menu Role', launchUrl: url });
+    // WebDriver can address the renderer while the native launcher is not
+    // foreground. Establish that precondition before the visible Open action.
+    await electronDesktopE2eFocusMainWindow();
     await $('.app-main-sidebar').$('button*=Roles').click(); await waitForRoute('/roles');
     await $(`[data-selection-id='${role.id}']`).moveTo();
     await $(`[data-selection-id='${role.id}']`).$("button[aria-label='Open']").click();

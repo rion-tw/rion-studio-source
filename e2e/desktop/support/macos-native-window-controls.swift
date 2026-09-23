@@ -50,7 +50,7 @@ if command == "minimize" {
   print("pressed")
   exit(0)
 }
-guard ["drag", "geometry", "resize"].contains(command),
+guard ["drag", "geometry", "fullscreenGeometry", "resize"].contains(command),
       let position = attribute(window, "AXPosition"), CFGetTypeID(position) == AXValueGetTypeID(),
       let size = attribute(window, "AXSize"), CFGetTypeID(size) == AXValueGetTypeID() else {
   fail("exact native window geometry unavailable")
@@ -63,7 +63,11 @@ guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
       extent.width > 0, extent.height > 0 else {
   fail("exact native window geometry invalid")
 }
-if command == "geometry" {
+if command == "fullscreenGeometry",
+   (attribute(window, "AXFullScreen") as? NSNumber)?.boolValue != true {
+  fail("exact AppKit window is not fullscreen")
+}
+if command == "geometry" || command == "fullscreenGeometry" {
   let data = try JSONSerialization.data(withJSONObject: [
     "x": point.x, "y": point.y, "width": extent.width, "height": extent.height
   ], options: [.sortedKeys])

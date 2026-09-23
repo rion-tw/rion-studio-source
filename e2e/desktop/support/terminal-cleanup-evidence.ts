@@ -61,6 +61,21 @@ export async function runtimeEffectCursor(): Promise<number> {
   return entries.at(-1)?.sequence ?? 0;
 }
 
+/** Observe Core's durable restore receipt before deliberately terminating Electron. */
+export async function waitForRestoreSessionTerminal(windowId: string, afterSequence: number): Promise<void> {
+  const terminal = await waitForArtifact("electron-core-flow-observations.json", value =>
+    (value as Array<{ sequence: number; type: string; status: string; error?: string;
+      details?: { restoreInProgressWindowIds?: string[]; cleanExit?: boolean } }>).find(entry =>
+      entry.sequence > afterSequence && entry.type === "restoreSessionMutate" &&
+      entry.status !== "started" &&
+      (entry.status === "rejected" ||
+        (entry.details?.cleanExit === false &&
+          entry.details.restoreInProgressWindowIds?.includes(windowId) === false))));
+  if (terminal.status !== "completed") {
+    throw new Error(`Saved window restore did not terminalize: ${terminal.error ?? terminal.status}`);
+  }
+}
+
 export async function waitForCreatedWorkspaceTab(sourceId: string, afterSequence: number): Promise<string> {
   return waitForArtifact("electron-core-flow-observations.json", value =>
     (value as Array<{ sequence: number; boundary: string; type: string; status: string;

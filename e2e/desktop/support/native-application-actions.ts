@@ -10,6 +10,27 @@ import { focusWindowsLauncherForVisibleLaunch } from "./windows-launcher-foregro
 
 const executeFile = promisify(execFile);
 const nativeFocusScript = fileURLToPath(new URL("./macos-native-focus.swift", import.meta.url));
+const macosInputSourceScript = fileURLToPath(new URL("./macos-input-source.swift", import.meta.url));
+
+/** Keep physical key assertions independent of the user's active IME. */
+export async function withMacosAnsiInputSource<T>(task: () => Promise<T>): Promise<T> {
+  if (process.platform !== "darwin") throw new Error("The ANSI input source precondition is macOS-only");
+  const current = (await executeFile("/usr/bin/xcrun", ["swift", macosInputSourceScript, "current"], {
+    encoding: "utf8", timeout: 15_000
+  })).stdout.trim();
+  const ansi = "com.apple.keylayout.ABC";
+  if (current === ansi) return task();
+  await executeFile("/usr/bin/xcrun", ["swift", macosInputSourceScript, "select", ansi], {
+    encoding: "utf8", timeout: 15_000
+  });
+  try {
+    return await task();
+  } finally {
+    await executeFile("/usr/bin/xcrun", ["swift", macosInputSourceScript, "select", current], {
+      encoding: "utf8", timeout: 15_000
+    });
+  }
+}
 
 function validProcessId(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;

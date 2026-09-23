@@ -53,8 +53,21 @@ event.flags = []
 event.setIntegerValueField(.mouseEventClickState, value: 1)
 event.post(tap: .cghidEventTap)
 usleep(100_000)
-if let currentSize = attribute(window, "AXSize"), let currentPosition = attribute(window, "AXPosition") {
+let expected = input["expected"] as? [String: NSNumber]
+let deadline = Date().addingTimeInterval(10)
+while true {
+  guard let currentSize = attribute(window, "AXSize"),
+        let currentPosition = attribute(window, "AXPosition") else {
+    fatalError("resize acknowledgement frame unavailable")
+  }
   AXValueGetValue(currentSize as! AXValue, .cgSize, &extent)
   AXValueGetValue(currentPosition as! AXValue, .cgPoint, &origin)
+  guard let expected else { break }
+  if abs(extent.width - expected["x"]!.doubleValue) <= 1 &&
+      abs(extent.height - expected["y"]!.doubleValue) <= 1 { break }
+  if Date() >= deadline {
+    fatalError("native resize did not reach requested frame: \(expected), actual \(extent)")
+  }
+  usleep(10_000)
 }
 print(String(decoding: try JSONSerialization.data(withJSONObject: ["x": point.x, "y": point.y, "width": extent.width, "height": extent.height, "windowX":origin.x, "windowY":origin.y]), as: UTF8.self))

@@ -11,7 +11,8 @@ type NativeFrame = Point & { width:number; height:number; windowX:number; window
 /** Real native border input, held across read-only geometry/pixel evidence. */
 export async function resizeWorkspaceWindow(input: {
   inspection: Inspection; edge: "right" | "bottom" | "bottomRight" | "left" | "top";
-  moves: Point[]; rapid?: boolean; whileHeld: (step: number, frame: NativeFrame, initialFrame: NativeFrame) => Promise<void>;
+  moves: Point[]; rapid?: boolean; requireRequestedFrame?: boolean;
+  whileHeld: (step: number, frame: NativeFrame, initialFrame: NativeFrame) => Promise<void>;
 }): Promise<void> {
   const { processId, platform } = await electronDesktopE2eProbe();
   const windowId = input.inspection.windowId;
@@ -110,10 +111,12 @@ if ($payload.expected) {
   try {
     for (const [step, move] of input.moves.entries()) {
       point = { x: start.x + move.x, y: start.y + move.y };
-      const expected = platform === "windows" ? {
-        x: Math.max(initialFrame.minimumWidth!, initialFrame.width +
+      // macOS may clamp a reversal at the screen edge. The opt-in exact frame
+      // acknowledgement applies to the first inward drag only.
+      const expected = platform === "windows" || (input.requireRequestedFrame && step === 0) ? {
+        x: Math.max(initialFrame.minimumWidth ?? 0, initialFrame.width +
           (input.edge === "left" ? -move.x : input.edge === "top" || input.edge === "bottom" ? 0 : move.x)),
-        y: Math.max(initialFrame.minimumHeight!, initialFrame.height +
+        y: Math.max(initialFrame.minimumHeight ?? 0, initialFrame.height +
           (input.edge === "top" ? -move.y : input.edge === "left" || input.edge === "right" ? 0 : move.y))
       } : undefined;
       const frame = await action("move", point, expected);

@@ -187,14 +187,11 @@ export async function setInputValue(selector: string, value: string): Promise<vo
   await input.waitForExist({ timeout: 10_000 });
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    await input.clearValue();
-    if (await input.getValue() !== "") {
-      // Chromium can leave a controlled input unchanged after WebDriver's
-      // clear command. Keep the fallback user-visible and cross-platform.
-      await input.click();
-      await browser.keys([Key.Ctrl, "a"]);
-      await browser.keys(Key.Backspace);
-    }
+    // WebDriver's clear can empty the DOM without updating React state; the
+    // old value then returns on the next render. Use visible keyboard input.
+    await input.click();
+    await browser.keys([process.platform === "darwin" ? Key.Command : Key.Control, "a"]);
+    await browser.keys(Key.Backspace);
     await browser.waitUntil(async () => await input.getValue() === "", {
       timeout: 2_000,
       timeoutMsg: `Visible input ${selector} did not clear`

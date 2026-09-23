@@ -145,6 +145,11 @@ function validWebOnlyObservation(
         observation.visible === true &&
         web.visible === true &&
         web.chromeVisible === true && web.contentVisible === true ||
+      // A reopened native tab can become visible before its new WebContents
+      // surfaces attach. Admit only an exact later ready receipt for them.
+      observation.phase === "activating" && allowVisibleAuxiliaryActivation &&
+        observation.visible === true && web.visible === false &&
+        web.chromeVisible === false && web.contentVisible === false ||
       ["activating", "ready"].includes(observation.phase) &&
         observation.focused === false &&
         observation.visible === false && web.visible === false &&

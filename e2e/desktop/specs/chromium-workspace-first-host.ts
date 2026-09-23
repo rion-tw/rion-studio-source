@@ -113,6 +113,7 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
         const move = { x: edge === "top" || edge === "bottom" ? 0 : edge === "left" ? 64 : -64,
           y: edge === "left" || edge === "right" ? 0 : edge === "top" ? 48 : -48 };
         await resizeWorkspaceWindow({inspection:await inspect(input.windowId),edge,moves:[move,{x:0,y:0}],
+          requireRequestedFrame:true,
           whileHeld: async (step, frame, initialFrame) => {
             // The layout plateaus on an intermediate size before catching up, so
             // waiting for it to merely change, or merely hold still, samples a

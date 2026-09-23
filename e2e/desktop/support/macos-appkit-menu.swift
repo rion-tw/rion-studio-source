@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import Foundation
 
@@ -145,16 +146,26 @@ let actionItem = waitForMenuItem(
   ]
 )
 if input.cancel == true {
-  guard let source = CGEventSource(stateID: .hidSystemState) else { fail("native keyboard source unavailable") }
-  CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: true)?.post(tap: .cghidEventTap)
-  CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: false)?.post(tap: .cghidEventTap)
+  guard NSWorkspace.shared.frontmostApplication?.processIdentifier == input.processId else {
+    fail("exact native menu process is not foreground")
+  }
+  guard let source = CGEventSource(stateID: .hidSystemState),
+        let down = CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: true),
+        let up = CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: false)
+  else { fail("native keyboard source unavailable") }
+  down.flags = []
+  up.flags = []
+  down.post(tap: .cghidEventTap)
+  usleep(20_000) // Preserve the physical key press across the AppKit menu event loop.
+  up.post(tap: .cghidEventTap)
   for _ in 0..<100 {
     if findMenuItem(application: application, acceptedLabels: Set(input.actionLabels), requiredSiblingLabels: []) == nil {
       exit(0)
     }
     usleep(50_000)
   }
-  fail("native context menu did not dismiss after Escape")
+  fail("native context menu did not dismiss after Escape; foreground=" +
+    String(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1))
 }
 
 guard AXUIElementPerformAction(

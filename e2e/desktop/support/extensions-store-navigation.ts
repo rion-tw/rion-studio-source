@@ -4,6 +4,7 @@ import { $, browser, expect } from "@wdio/globals";
 import type {} from "@wdio/electron-service";
 import { electronDesktopE2eProbe } from "./electron-driver";
 import { observeStore, recordStoreEvidence, storeState } from "./extensions-store-evidence";
+import { setInputValue } from "./ui";
 
 const BUSTER = "Buster: Captcha Solver for Humans";
 const ID = "mpbjkejclgfgadiemmefgebjfooflfhl";
@@ -31,15 +32,14 @@ export async function verifyBusterStoreNavigation(processId: number, mainHandle:
 
 async function verifyNavigation(processId: number, mainHandle: string, storeId: number): Promise<void> {
   const storeHandle = await browser.getWindowHandle();
+  const category = await storeState(storeId);
   for (const mode of ["result", "suggestion", "keyboard"] as const) {
     let source: Awaited<ReturnType<typeof storeState>>;
     const search = await $(SEARCH);
     await search.waitForClickable({ timeout: 30_000 });
-    await search.click();
-    if ((await search.getValue()) !== BUSTER) {
-      await expect(search).toHaveValue("");
-      await search.addValue(BUSTER);
-    }
+    // History Back restores the query text without opening suggestions.
+    // Re-enter it through the visible field for each navigation path.
+    await setInputValue(SEARCH, BUSTER);
     if (mode === "result") {
       await browser.keys("Enter");
       await browser.waitUntil(async () => new URL(await browser.getUrl()).pathname.startsWith("/search/"), {
@@ -50,11 +50,23 @@ async function verifyNavigation(processId: number, mainHandle: string, storeId: 
       source = await storeState(storeId);
       await result.click();
     } else {
-      const suggestion = await $(`//*[@role="listbox"]//*[@role="option" and contains(., "${BUSTER}")]`);
+      const suggestionSelector = `//*[@role="listbox"]//*[@role="option" and contains(., "${BUSTER}")]`;
+      const suggestion = await $(suggestionSelector);
       await suggestion.waitForDisplayed({ timeout: 30_000 });
       source = await storeState(storeId);
       if (mode === "keyboard") await browser.keys(["ArrowDown", "Enter"]);
-      else await suggestion.click();
+      else await browser.waitUntil(async () => {
+        // Live store suggestions replace their option node while results
+        // arrive. A stale WebDriver element has not established a click.
+        if (new URL(await browser.getUrl()).pathname.endsWith(`/${ID}`)) return true;
+        try {
+          await $(suggestionSelector).click();
+          return true;
+        } catch (error) {
+          if (String(error).includes("stale element reference")) return false;
+          throw error;
+        }
+      }, { timeout: 30_000, timeoutMsg: "Visible Buster suggestion did not accept a click" });
     }
     await browser.waitUntil(async () => new URL(await browser.getUrl()).pathname.endsWith(`/${ID}`), {
       timeout: 30_000, timeoutMsg: `Buster ${mode} did not load the real detail URL`
@@ -101,8 +113,20 @@ async function verifyNavigation(processId: number, mainHandle: string, storeId: 
       await waitForStoreDocument(storeId, source);
       await $(storeDetailLinkSelector(ID)).waitForDisplayed({ timeout: 30_000 });
     }
-    await $(storeDetailLinkSelector(ID)).waitForDisplayed({ timeout: 30_000 });
+    if (mode === "result") {
+      await $(storeDetailLinkSelector(ID)).waitForDisplayed({ timeout: 30_000 });
+    } else {
+      expect(new URL(await browser.getUrl()).pathname).toBe("/category/extensions");
+    }
     await recordStoreEvidence(storeId, `${mode}-back`);
+    if (mode === "result") {
+      // Suggestions belong to the category search field. A restored results
+      // document can retain query text without reopening its suggestion menu.
+      await browser.switchToWindow(mainHandle);
+      await clickStoreToolbar("Back", storeId);
+      await browser.switchToWindow(storeHandle);
+      await waitForStoreDocument(storeId, category);
+    }
   }
 }
 

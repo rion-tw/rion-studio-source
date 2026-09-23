@@ -4,6 +4,7 @@ import { rendererCall } from "../support/renderer-bridge";
 import { clickEntityMenuAction, setEditorName, submitEditor, waitForRoute } from "../support/ui";
 import { closeVisibleRuntimeWindow } from "../support/native-runtime-tabs";
 import { exerciseMacosTabContentFocus } from "./chromium-tab-content-focus";
+import { withMacosAnsiInputSource } from "../support/native-application-actions";
 
 /** Independent visible-UI setup keeps tab focus coverage separate from launch admission coverage. */
 export async function runMacosTabFocusRegression(input: {
@@ -41,7 +42,8 @@ export async function runMacosTabFocusRegression(input: {
   const tabIds: string[] = [];
   for (const role of roles) tabIds.push(await input.launchRole(role, window));
   try {
-    await exerciseMacosTabContentFocus({ ...input, roles, tabIds, windowId: window.id });
+    await withMacosAnsiInputSource(() =>
+      exerciseMacosTabContentFocus({ ...input, roles, tabIds, windowId: window.id }));
   } finally {
     await closeVisibleRuntimeWindow({ platform: "macos", mainWindowHandle: input.mainWindowHandle,
       windowId: window.id, tabId: tabIds.at(-1)!, tabName: roles.at(-1)!.name });

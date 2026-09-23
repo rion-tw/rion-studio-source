@@ -124,7 +124,8 @@ function isRevealed(observation, platform) {
     ? observation.surfaces.some((surface) =>
       surface.kind === "role" && surface.visible && surface.bounds.y === 40
     )
-    : native.appKit?.accessoryOnScreen === true &&
+    : native.appKit?.presentationAutoHideToolbar === false &&
+      native.appKit.accessoryOnScreen === true &&
       native.appKit.tabStripOnScreen === true &&
       native.appKit.visibleTrafficLightCount === 3;
 }

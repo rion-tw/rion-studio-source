@@ -210,6 +210,11 @@ NS_ASSUME_NONNULL_BEGIN
                  [notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
         if ([notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
           [strongSelf neutralizePhysicalModifiersForFocusLoss];
+          if (strongSelf->_fullscreenToolbarPointerRevealed) {
+            strongSelf->_fullscreenToolbarPointerRevealed = NO;
+            [strongSelf updateFullscreenToolbarPresentationPolicy];
+            RionDismissFullscreenToolbarReveal(strongSelf->_window);
+          }
         } else {
           [strongSelf reassertPhysicalModifiersAfterFocusGain];
         }

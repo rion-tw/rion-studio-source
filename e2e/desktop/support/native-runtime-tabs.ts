@@ -141,7 +141,8 @@ async function readAppKitAction(
 async function clickMacosScreenPoint(
   x: number,
   y: number,
-  shift = false
+  shift = false,
+  revealCloseSlot = false
 ): Promise<void> {
   if (!Number.isFinite(x) || !Number.isFinite(y)) {
     throw new Error("The exact AppKit click point is invalid");
@@ -158,9 +159,12 @@ func post(_ event: CGEvent?) {
   event?.flags = flags
   event?.post(tap: .cghidEventTap)
 }
+${revealCloseSlot ? `post(CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
+  mouseCursorPosition: CGPoint(x: ${x} - 40, y: ${y}), mouseButton: .left))
+usleep(50_000)` : ""}
 post(CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
   mouseCursorPosition: point, mouseButton: .left))
-usleep(50_000)
+usleep(${revealCloseSlot ? "250_000" : "50_000"})
 post(CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
   mouseCursorPosition: point, mouseButton: .left))
 post(CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
@@ -329,7 +333,9 @@ end run`, expectedWindowIdentifier, processId)), {
     timeout: 10_000,
     timeoutMsg: `The exact AppKit close window ${windowId} did not become Accessibility-ready`
   });
-  await clickMacosScreenPoint(evidence.x, evidence.y);
+  // The native close slot appears on pointer entry with a 120 ms AppKit
+  // animation. Enter it from the tab body and click after that transition.
+  await clickMacosScreenPoint(evidence.x, evidence.y, false, true);
   if (deferRendererVerification) return;
   await switchTrackedWindow(mainWindowHandle);
   await browser.waitUntil(async () => {

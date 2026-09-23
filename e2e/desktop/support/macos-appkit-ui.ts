@@ -24,19 +24,24 @@ async function runSystemEvents(script: string, ...arguments_: string[]): Promise
   });
 }
 
-async function readSystemEvents(script: string, ...arguments_: string[]): Promise<string> {
-  if (process.platform !== "darwin") {
-    throw new Error("The retained AppKit visible control is macOS-only");
+async function focusedNativeWindowGeometry(
+  processId: number,
+  windowId: string,
+  fullscreen = false
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  await focusVisibleMacosAppKitRuntime({ processId, windowId });
+  const result = await executeFile("/usr/bin/xcrun", [
+    "swift", resolve(import.meta.dirname, "macos-native-window-controls.swift"),
+    String(processId), windowId, fullscreen ? "fullscreenGeometry" : "geometry"
+  ], { encoding: "utf8", timeout: 15_000 });
+  const bounds = JSON.parse(result.stdout) as {
+    x: number; y: number; width: number; height: number;
+  };
+  if (![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) ||
+      bounds.width <= 0 || bounds.height <= 0) {
+    throw new Error("The exact AppKit window geometry is invalid");
   }
-  const result = await executeFile(
-    "/usr/bin/osascript",
-    ["-e", script, "--", ...arguments_],
-    {
-    encoding: "utf8",
-    timeout: 10_000
-    }
-  );
-  return result.stdout.trim();
+  return bounds;
 }
 
 /** Clicks one exact visible Role or Website point through the retained AppKit host. */
@@ -185,42 +190,9 @@ export async function movePointerToMacosRuntimeContent(
   windowId: string
 ): Promise<void> {
   const probe = await electronDesktopE2eProbe();
-  const processId = String(probe.processId);
-  const expectedIdentifier = `com.rionstudio.runtime.appkit-window.v1:${windowId}`;
-  const geometry = exactGeometry(await readSystemEvents(`
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  set expectedIdentifier to item 2 of argv
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set targetWindow to missing value
-    set targetCount to 0
-    repeat with appWindow in windows of targetProcess
-      try
-        if value of attribute "AXIdentifier" of appWindow is expectedIdentifier then
-          set targetWindow to appWindow
-          set targetCount to targetCount + 1
-        end if
-      end try
-    end repeat
-    if targetCount is not 1 then error "exact AppKit runtime window unavailable"
-    set frontmost of targetProcess to true
-    perform action "AXRaise" of targetWindow
-    set windowPosition to position of targetWindow
-    set windowSize to size of targetWindow
-    return (item 1 of windowPosition as text) & "," & ¬
-      (item 2 of windowPosition as text) & "," & ¬
-      (item 1 of windowSize as text) & "," & ¬
-      (item 2 of windowSize as text)
-  end tell
-end run`, processId, expectedIdentifier), "runtime-window-content");
-  if (geometry.length !== 4 || geometry[2]! <= 0 || geometry[3]! <= 0) {
-    throw new Error("The exact AppKit runtime content geometry is invalid");
-  }
-  const pointX = geometry[0]! + Math.round(geometry[2]! * 0.5);
-  const pointY = geometry[1]! + Math.round(geometry[3]! * 0.65);
+  const geometry = await focusedNativeWindowGeometry(probe.processId, windowId);
+  const pointX = geometry.x + Math.round(geometry.width * 0.5);
+  const pointY = geometry.y + Math.round(geometry.height * 0.65);
   const script = `
 import CoreGraphics
 import Foundation
@@ -254,48 +226,7 @@ export async function movePointerToMacosFullscreenRevealEdge(
   ) {
     throw new Error("The exact fullscreen AppKit display edge is unavailable");
   }
-  const processId = String(probe.processId);
-  const expectedIdentifier = `com.rionstudio.runtime.appkit-window.v1:${windowId}`;
-  const geometry = exactGeometry(await readSystemEvents(`
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  set expectedIdentifier to item 2 of argv
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set targetWindow to missing value
-    set targetCount to 0
-    repeat with appWindow in windows of targetProcess
-      try
-        if value of attribute "AXIdentifier" of appWindow is expectedIdentifier then
-          set targetWindow to appWindow
-          set targetCount to targetCount + 1
-        end if
-      end try
-    end repeat
-    if targetCount is not 1 then error "exact AppKit fullscreen window unavailable"
-    if value of attribute "AXFullScreen" of targetWindow is not true then ¬
-      error "exact AppKit window is not fullscreen"
-    set frontmost of targetProcess to true
-    perform action "AXRaise" of targetWindow
-    set windowPosition to position of targetWindow
-    set windowSize to size of targetWindow
-    return (item 1 of windowPosition as text) & "," & ¬
-      (item 2 of windowPosition as text) & "," & ¬
-      (item 1 of windowSize as text) & "," & ¬
-      (item 2 of windowSize as text)
-  end tell
-end run`, processId, expectedIdentifier), "fullscreen-window");
-  if (geometry.length !== 4) {
-    throw new Error("The exact fullscreen AppKit window geometry is invalid");
-  }
-  const bounds = {
-    x: geometry[0]!,
-    y: geometry[1]!,
-    width: geometry[2]!,
-    height: geometry[3]!
-  };
+  const bounds = await focusedNativeWindowGeometry(probe.processId, windowId, true);
   if (
     !Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) ||
     !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) ||
@@ -575,16 +506,6 @@ CGEvent(mouseEventSource: CGEventSource(stateID: .hidSystemState), mouseType: .l
       `(${result.stdout.trim()})`
     );
   }
-}
-
-function exactGeometry(raw: string, field: string): readonly number[] {
-  const values = raw.split(",").map((value) => Number(value.trim()));
-  if (
-    values.length === 0 || values.some((value) => !Number.isFinite(value))
-  ) {
-    throw new Error(`The AppKit ${field} accessibility geometry is invalid`);
-  }
-  return values;
 }
 
 function sameOrderedStrings(

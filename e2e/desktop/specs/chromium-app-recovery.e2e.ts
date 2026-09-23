@@ -16,6 +16,8 @@ import { clickVisibleElectronRolePageButton } from
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import { forceTerminateProcessTree } from "../support/process";
 import { rendererCall } from "../support/renderer-bridge";
+import { runtimeEffectCursor, waitForRestoreSessionTerminal } from
+  "../support/terminal-cleanup-evidence";
 import {
   acceptLegalAndSkipFirstRun,
   clickWorkspaceCreateAction,
@@ -424,6 +426,7 @@ async function forcePhase(
   expect(dormant.windows).toEqual([]);
 
   const cursor = await fixtureCursor();
+  const restoreCursor = await runtimeEffectCursor();
   await openSection("Windows", "/game-windows");
   const card = await $(`[data-selection-id='${gameWindow.id}']`);
   await card.waitForDisplayed({ timeout: 10_000 });
@@ -445,6 +448,7 @@ async function forcePhase(
   expect(native.b.latestSessionEnsure.chromiumPathSha256)
     .toBe(lifecycle.roles.b.chromiumPathSha256);
   await writeRuntimeObservation(lifecycle, native);
+  await waitForRestoreSessionTerminal(lifecycle.windowId, restoreCursor);
   await writeFile(
     resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"), "forced-termination.json"),
     `${JSON.stringify({ pid: processId, requestedAt: new Date().toISOString() }, null, 2)}\n`

@@ -141,6 +141,14 @@ const focusedPhaseDependencies = new Map([
   ["chromium-game-crud-restart", ["chromium-game-crud-seed"]],
   ["chromium-game-window-ui-restart", ["chromium-game-window-ui-seed"]],
   [
+    "chromium-fullscreen-toolbar-seed",
+    ["chromium-entity-persistence-seed", "chromium-entity-persistence-restart"]
+  ],
+  [
+    "chromium-fullscreen-toolbar-restart",
+    ["chromium-entity-persistence-seed", "chromium-entity-persistence-restart", "chromium-fullscreen-toolbar-seed"]
+  ],
+  [
     "chromium-workspace-gap-dividers-seed",
     ["chromium-entity-persistence-seed", "chromium-entity-persistence-restart"]
   ],

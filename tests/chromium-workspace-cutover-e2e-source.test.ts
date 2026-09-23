@@ -214,6 +214,11 @@ describe("Chromium Workspace cutover paired replacements", () => {
       degraded,
       { ...activating, focused: true, visible: true },
       recovered
+    ])).resolves.toMatchObject({ navigationFailureRecovered: true });
+    await expect(validateWebOnlyHistory([
+      ready,
+      degraded,
+      { ...activating, focused: true, visible: true }
     ])).rejects.toThrow("malformed Core/native Web-only history");
     await expect(validateWebOnlyHistory([
       initialActivating, initialActivating, initialReady, ready, degraded,

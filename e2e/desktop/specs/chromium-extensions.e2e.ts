@@ -193,6 +193,39 @@ describe("Extensions store and per-role configuration", () => {
       });
       expect(await runtimeTabShellErrors()).toEqual([]);
       await expectExtensionPassedClassification(future.id, previousTerminals);
+      const reopenedTab = (await rendererCall("getEmbeddedRuntimeState"))
+        .tabs.find((tab) => tab.sourceId === future.id);
+      if (!reopenedTab) throw new Error("The reopened extension Role lost its runtime tab");
+      if (probe.platform === "macos") {
+        await selectMacosVisibleRuntimeTabMenuAction({
+          action: "stop",
+          tabId: reopenedTab.id,
+          tabName: future.name,
+          windowId: reopenedTab.windowId
+        });
+      } else {
+        await closeVisibleRuntimeTab({
+          mainWindowHandle: main,
+          platform: "windows",
+          tabId: reopenedTab.id,
+          tabName: future.name,
+          windowId: reopenedTab.windowId
+        });
+      }
+      await browser.waitUntil(async () => {
+        const [runtimeState, statuses, native] = await Promise.all([
+          rendererCall("getEmbeddedRuntimeState"),
+          rendererCall("listRoleStatuses"),
+          electronDesktopE2eGameWindowRuntime(reopenedTab.windowId)
+        ]);
+        return !runtimeState.tabs.some((tab) => tab.id === reopenedTab.id) &&
+          !statuses.some((status) => status.roleId === future.id) &&
+          native.currentRuntime === null;
+      }, {
+        timeout: 45_000,
+        timeoutMsg: "The reopened extension Role did not release before restart"
+      });
+      expect(await runtimeTabShellErrors()).toEqual([]);
     } else if (phase === "chromium-extensions-restart") {
       await expect(sidebar.$("button*=Extensions")).toHaveText(/^Extensions\s*1$/);
       const snapshot = (await rendererCall("extensions", { type: "snapshot" })).snapshot;

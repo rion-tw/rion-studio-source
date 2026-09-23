@@ -549,8 +549,12 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   BOOL fullScreen = _fullscreenTransitionActive ||
       (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
   BOOL active = fullScreen;
+  // AppKit can leave the companion toolbar host offscreen even after the
+  // physical top-edge event. Temporarily request a visible host for that
+  // event, then restore auto-hide when the pointer leaves or focus changes.
   BOOL autoHide = !RionShouldPinFullscreenToolbar(
-      self.alwaysShowInFullScreen, self.revealLocked);
+      self.alwaysShowInFullScreen, self.revealLocked) &&
+      !_fullscreenToolbarPointerRevealed;
   // Keep the marker armed in windowed mode as well:
   // AppKit can ask the delegate for fullscreen presentation options before it
   // emits NSWindowWillEnterFullScreenNotification. Explicitly add or remove
@@ -583,6 +587,7 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
 - (void)prepareForFullscreenTransition:(BOOL)fullScreen {
   if (_destroyed || !_window) return;
   [self ensureTitlebarHeightOverride];
+  _fullscreenToolbarPointerRevealed = NO;
 
   if (fullScreen) {
     // AppKit snapshots the toolbar and titlebar accessory geometry while the
@@ -620,7 +625,10 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   // A normal fullscreen exit keeps the fullscreen toolbar installed until
   // DidExitFullScreen. If entry failed before AppKit changed the style mask,
   // restore the settled windowed host immediately.
-  if ((_window.styleMask & NSWindowStyleMaskFullScreen) != 0) return;
+  if ((_window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
+    [self updateFullscreenToolbarPresentationPolicy];
+    return;
+  }
   _fullscreenTransitionActive = NO;
   _fullscreenHostReady = NO;
   [self updateFullscreenToolbarPresentationPolicy];
@@ -654,7 +662,11 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
       (_window.styleMask & NSWindowStyleMaskFullScreen) == 0 ||
       RionShouldPinFullscreenToolbar(self.alwaysShowInFullScreen,
                                      self.revealLocked)) {
-    _fullscreenToolbarPointerRevealed = NO;
+    if (_fullscreenToolbarPointerRevealed) {
+      _fullscreenToolbarPointerRevealed = NO;
+      [self updateFullscreenToolbarPresentationPolicy];
+      RionDismissFullscreenToolbarReveal(_window);
+    }
     return;
   }
   NSScreen *screen = _window.screen;
@@ -669,6 +681,7 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   if (atRevealEdge) {
     if (_fullscreenToolbarPointerRevealed) return;
     _fullscreenToolbarPointerRevealed = YES;
+    [self updateFullscreenToolbarPresentationPolicy];
     _toolbar.visible = YES;
     [self displayTitlebarHostIfNeeded];
     [self scheduleContentLayoutNotification];
@@ -680,6 +693,7 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   if (_fullscreenToolbarPointerRevealed &&
       (!horizontallyInside || distanceFromTop > revealedChromeHeight)) {
     _fullscreenToolbarPointerRevealed = NO;
+    [self updateFullscreenToolbarPresentationPolicy];
     RionDismissFullscreenToolbarReveal(_window);
     [self scheduleContentLayoutNotification];
   }

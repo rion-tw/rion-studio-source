@@ -88,6 +88,7 @@
     "test:drm-prototype": "pnpm run setup:drm-prototype && node scripts/probeWorkspaceWebDrm.mjs --playback",
     "sign:drm-prototype": "node scripts/signEcsPrototype.mjs",
     "dev:drm-prototype": "pnpm run setup:drm-prototype && pnpm run build:electron && node scripts/runDrmPrototype.mjs",
+    "dev:drm-prototype:signed": "pnpm run build:electron && node scripts/runSignedDrmPrototype.mjs",
     "package:drm-prototype:dir": "pnpm run setup:drm-prototype && pnpm run typecheck && pnpm run build:electron:rust:release && pnpm run verify:electron-runtime:drm-prototype && electron-vite build --config electron.vite.config.ts && pnpm run verify:electron-renderer && pnpm run verify:electron-extension-compat && electron-builder --config electron-builder.ecs-prototype.config.mjs --dir --publish never"
   },
   "keywords": [

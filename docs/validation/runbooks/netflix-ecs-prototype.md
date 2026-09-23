@@ -76,10 +76,15 @@ page result is not used as a pass or as proof of a runtime failure.
 
 ## Production VMP and Netflix gate
 
-For manual development checks use `pnpm run dev:drm-prototype`. This launcher
-uses `.electron-cache/drm-manual-user-data` and the copied Game Mode bundle,
-without touching the normal Rion profile. Do not use the ordinary `pnpm dev`
-command for this older-runtime prototype.
+For public DRM samples use `pnpm run dev:drm-prototype`. For a Netflix capability
+check on this registered Mac, use `pnpm run dev:drm-prototype:signed`. The latter
+verifies the production streaming VMP signature of the signed ECS copy at
+`.electron-cache/evs-control/Electron.app`, makes a private Game Mode bundle,
+re-applies macOS ad-hoc signing, verifies VMP again, and launches the built app.
+Set `RION_STUDIO_SIGNED_ECS_APP` to another signed `Electron.app` if needed. Both
+launchers use `.electron-cache/drm-manual-user-data` without touching the normal
+Rion profile. Close any running Rion Studio window first. Ordinary `pnpm dev`
+still uses official Electron and cannot validate Widevine or Netflix.
 
 The bundled development certificate is insufficient for production services.
 EVS 1.3.2 `verify-pkg` reports `Certificate is valid for development only` on the

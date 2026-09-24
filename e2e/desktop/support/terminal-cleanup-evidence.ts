@@ -73,6 +73,21 @@ export async function waitForSavedWindowRestoreCompletion(afterSequence: number)
   }
 }
 
+/** Observe the exact Show-initiated saved Window presentation before journal inspection. */
+export async function waitForRestoreSavedGameWindowCompletion(
+  windowId: string, afterSequence: number
+): Promise<void> {
+  const terminal = await waitForArtifact("electron-core-flow-observations.json", value =>
+    (value as Array<{ sequence: number; boundary: string; identity: string;
+      type: string; status: string; error?: string }>).find(entry =>
+      entry.sequence > afterSequence && entry.boundary === "launch" &&
+      entry.identity.startsWith(`restore:${windowId}:`) &&
+      entry.type === "restoreSavedGameWindow" && entry.status !== "started"));
+  if (terminal.status !== "completed") {
+    throw new Error(`Saved Game Window presentation did not complete: ${terminal.error ?? terminal.status}`);
+  }
+}
+
 /** Observe Core's durable restore receipt before deliberately terminating Electron. */
 export async function waitForRestoreSessionTerminal(windowId: string, afterSequence: number): Promise<void> {
   const terminal = await waitForArtifact("electron-core-flow-observations.json", value =>

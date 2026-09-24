@@ -2719,7 +2719,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create and launch two same-origin Roles through visible macOS Chromium UI, write distinct late LocalStorage markers by clicking their actual AppKit-attached Chromium page buttons, and prove distinct Rust-resolved Session paths, Core generations and journals, exact AppKit native ownership, close/reopen and process-restart continuity, plus a terminal visible clear receipt that resets only Role A while Role B remains intact."
+      "description": "Create and launch two same-origin Roles through visible macOS Chromium UI, write distinct late LocalStorage markers by clicking their actual AppKit-attached Chromium page buttons, and prove distinct Rust-resolved Session paths, Core generations and journals, exact AppKit native ownership, close/reopen and process-restart continuity, plus a terminal visible clear receipt that resets only Role A while Role B remains intact. Each visible Show waits for its exact saved-window presentation receipt before inspecting the migration journal."
     },
     {
       "id": "CHROMIUM-WINDOWS-ROLE-SESSION-ISOLATION-003",
@@ -2746,7 +2746,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create and launch two same-origin Roles through visible Windows Chromium UI, write distinct late LocalStorage markers by clicking their actual Chromium page buttons, and prove distinct Rust-resolved Session paths, Core generations and journals, exact native host ownership, close/reopen and process-restart continuity, plus a terminal visible clear receipt that resets only Role A while Role B remains intact. Windows physical evidence remains owned by the Windows CI profile."
+      "description": "Create and launch two same-origin Roles through visible Windows Chromium UI, write distinct late LocalStorage markers by clicking their actual Chromium page buttons, and prove distinct Rust-resolved Session paths, Core generations and journals, exact native host ownership, close/reopen and process-restart continuity, plus a terminal visible clear receipt that resets only Role A while Role B remains intact. Each visible Show waits for its exact saved-window presentation receipt before inspecting the migration journal. Windows physical evidence remains owned by the Windows CI profile."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-ROLE-EXPLICIT-RESET-007",

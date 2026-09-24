@@ -26,6 +26,8 @@ import { clickVisibleElectronRolePageButton } from
   "../support/electron-role-surface";
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import { rendererCall } from "../support/renderer-bridge";
+import { runtimeEffectCursor, waitForRestoreSavedGameWindowCompletion } from
+  "../support/terminal-cleanup-evidence";
 import {
   acceptLegalAndSkipFirstRun,
   clickWorkspaceCreateAction,
@@ -371,7 +373,9 @@ async function restoreGameWindowThroughVisibleUi(
   await row.waitForDisplayed({ timeout: 10_000 });
   const show = await row.$("button[aria-label='Show']");
   await show.waitForClickable({ timeout: 10_000 });
+  const restoreCursor = await runtimeEffectCursor();
   await show.click();
+  await waitForRestoreSavedGameWindowCompletion(gameWindow.id, restoreCursor);
   await waitForWorkspaceSessions(afterSequence, "observe", storedA, storedB);
   await waitForRunningRoles(roleA, roleB, platform);
 }

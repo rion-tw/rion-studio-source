@@ -32,11 +32,12 @@ describe.each(["darwin", "win32"])("worker bootstrap (%s)", () => {
     const { bootstrap, status, error, workers } = fixture();
     bootstrap.nativeLoaded();
     expect(bootstrap.inspect()).toEqual({ nativeLoaded: true, workerVersionId: null,
-      workerRunning: false, compatibilityReady: false });
+      workerRunning: false, compatibilityReady: false, events: ["native-loaded"] });
     status("starting");
     bootstrap.compatibilityReady(receipt, 1);
     expect(bootstrap.inspect()).toEqual({ nativeLoaded: true, workerVersionId: 1,
-      workerRunning: false, compatibilityReady: true });
+      workerRunning: false, compatibilityReady: true,
+      events: ["native-loaded", "starting", "compatibility-ready"] });
     expect(bootstrap.outcome).toBeUndefined();
     error();
     const first = await bootstrap.result;

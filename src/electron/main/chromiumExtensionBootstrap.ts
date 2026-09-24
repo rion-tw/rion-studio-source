@@ -16,6 +16,7 @@ export class ChromiumExtensionBootstrap {
   #running = false;
   #loaded = false;
   #receipt: CompatibilityReadyRecord | undefined;
+  #events: string[] = [];
   readonly #origin: string;
 
   constructor(private readonly workers: ServiceWorkers, extensionId: string) {
@@ -29,20 +30,23 @@ export class ChromiumExtensionBootstrap {
 
   inspect(): Readonly<{
     workerVersionId: number | null; nativeLoaded: boolean;
-    workerRunning: boolean; compatibilityReady: boolean;
+    workerRunning: boolean; compatibilityReady: boolean; events: readonly string[];
   }> {
     return { workerVersionId: this.#versionId ?? null, nativeLoaded: this.#loaded,
-      workerRunning: this.#running, compatibilityReady: this.#receipt !== undefined };
+      workerRunning: this.#running, compatibilityReady: this.#receipt !== undefined,
+      events: [...this.#events] };
   }
 
   nativeLoaded(): void {
     this.#loaded = true;
+    this.#record("native-loaded");
     this.#maybeReady();
   }
 
   compatibilityReady(receipt: CompatibilityReadyRecord, versionId: number): void {
     if (this.#outcome || versionId !== this.#versionId) return;
     this.#receipt = receipt;
+    this.#record("compatibility-ready");
     this.#maybeReady();
   }
 
@@ -61,8 +65,13 @@ export class ChromiumExtensionBootstrap {
     }
     if (versionId !== this.#versionId) return;
     this.#running = runningStatus === "running";
+    this.#record(runningStatus);
     this.#maybeReady();
   };
+
+  #record(event: string): void {
+    if (this.#events.length < 16) this.#events.push(event);
+  }
 
   #onConsole = (_event: Electron.Event, details: Electron.MessageDetails): void => {
     if (this.#outcome || details.versionId !== this.#versionId ||

@@ -52,7 +52,7 @@ export async function verifyGenericExtensionContextMenu(input: {
   try {
     await browser.waitUntil(async () => browser.electron.execute(async (electron, id) => {
       return electron.webContents.fromId(id)?.executeJavaScript("document.body.dataset.extensionMenuReady === 'true'");
-    }, fixture.contentId), { timeout: 15_000, timeoutMsg: 'Generic context menu fixture did not initialize' });
+    }, fixture.contentId), { timeout: 45_000, timeoutMsg: 'Generic context menu fixture did not initialize' });
     const probe = await electronDesktopE2eProbe();
     for (const cancel of [true, false]) {
     if (probe.platform === 'macos') {

@@ -13,7 +13,13 @@ export async function captureWorkspacePixels(input: {
   observeOnly?: boolean;
   windowEdges?: boolean;
   expectedLabels?: readonly string[];
-}): Promise<{ samples: number[][]; labels: string[]; path: string }> {
+}): Promise<{ samples: number[][]; labels: string[]; path: string; native?: {
+  frame: { left: number; top: number; right: number; bottom: number };
+  origin: { x: number; y: number };
+  pointer: { x: number; y: number };
+  scale: number;
+  leftButton: number;
+} }> {
   const { processId, platform } = await electronDesktopE2eProbe();
   const path = resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, `${input.name}.png`);
   const payload = { ...input, path, processId, windowId: input.inspection.windowId };
@@ -27,8 +33,16 @@ export async function captureWorkspacePixels(input: {
     return evidence;
   }
   const nativeWindowHandle = input.inspection.nativeWindowHandle!;
-  if (!input.observeOnly) await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
-  const result = await runEncodedPowerShellJson(String.raw`
+  if (!input.observeOnly) {
+    try {
+      await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
+    } catch (error) {
+      throw new Error(`Workspace pixel focus failed for ${input.name}: ${String(error)}`, { cause: error });
+    }
+  }
+  let result: string;
+  try {
+    result = await runEncodedPowerShellJson(String.raw`
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -52,12 +66,11 @@ public static class WorkspaceScreen {
 # DPI-unaware by default and would otherwise virtualize both.
 [WorkspaceScreen]::SetThreadDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
 $h = [IntPtr][int64]$payload.nativeWindowHandle
-$origin = New-Object WorkspaceScreen+Point
-if (-not [WorkspaceScreen]::ClientToScreen($h, [ref]$origin)) { throw 'client origin unavailable' }
 $scale = [WorkspaceScreen]::GetDpiForWindow($h) / 96.0
-$condition = New-Object System.Windows.Automation.PropertyCondition ([System.Windows.Automation.AutomationElement]::ProcessIdProperty), ([int]$payload.processId)
+$root = [System.Windows.Automation.AutomationElement]::FromHandle($h)
+if ($null -eq $root) { throw 'exact workspace accessibility root unavailable' }
 function Read-WorkspaceLabels {
- $nodes = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+ $nodes = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
  @($nodes | ForEach-Object { if ($_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text -and $_.Current.Name -match '^\d+(\.\d)?% × \d+(\.\d)?%$' -and -not $_.Current.IsOffscreen) { $_.Current.Name } })
 }
 $labels = @(Read-WorkspaceLabels)
@@ -73,10 +86,12 @@ if ($null -ne $payload.expectedLabels) {
 $r = $payload.region
 $frame = New-Object WorkspaceScreen+Rect
 $client = New-Object WorkspaceScreen+Rect
+$origin = New-Object WorkspaceScreen+Point
 $pointer = New-Object WorkspaceScreen+Point
-[WorkspaceScreen]::GetCursorPos([ref]$pointer) | Out-Null
 if (-not [WorkspaceScreen]::GetWindowRect($h, [ref]$frame) -or
-    -not [WorkspaceScreen]::GetClientRect($h, [ref]$client)) { throw 'capture native bounds unavailable' }
+    -not [WorkspaceScreen]::GetClientRect($h, [ref]$client) -or
+    -not [WorkspaceScreen]::ClientToScreen($h, [ref]$origin) -or
+    -not [WorkspaceScreen]::GetCursorPos([ref]$pointer)) { throw 'capture native bounds unavailable' }
 $image = New-Object Drawing.Bitmap ([int]($r.width*$scale)), ([int]($r.height*$scale))
 $graphics = [Drawing.Graphics]::FromImage($image)
 try {
@@ -88,7 +103,11 @@ try {
  })
  @{samples=$samples; labels=$labels; native=@{frame=$frame;client=$client;origin=$origin;scale=$scale;pointer=$pointer;leftButton=[WorkspaceScreen]::GetAsyncKeyState(1);foreground=[WorkspaceScreen]::GetForegroundWindow().ToInt64()};region=$r;points=$payload.points} | ConvertTo-Json -Depth 10 -Compress
 } finally { $graphics.Dispose(); $image.Dispose() }
-`, { ...payload, nativeWindowHandle, expectedLabels: input.expectedLabels ?? null }, { timeoutMilliseconds: 30_000 });
+`, { ...payload, nativeWindowHandle, expectedLabels: input.expectedLabels ?? null }, { timeoutMilliseconds: 60_000 });
+  } catch (error) {
+    const detail = error as { code?: string; signal?: string; killed?: boolean };
+    throw new Error(`Workspace pixel sampling failed for ${input.name}: ${String(error)} (code=${detail.code ?? "none"}, signal=${detail.signal ?? "none"}, killed=${detail.killed ?? false})`, { cause: error });
+  }
   const evidence = { ...JSON.parse(result), path };
   await writeFile(path.replace(/\.png$/u, ".pixels.json"), JSON.stringify(evidence, null, 2));
   return evidence;

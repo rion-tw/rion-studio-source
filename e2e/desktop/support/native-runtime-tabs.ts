@@ -811,7 +811,9 @@ if ($matches.Count -ne 1) { throw "exact minimized runtime window unavailable" }
 Write-Output "true"
 `;
   return await runEncodedPowerShellJson(script, { processId }, {
-    timeoutMilliseconds: 10_000
+    // PowerShell may cold-start and compile the native readback while other
+    // desktop phases are still releasing Chromium processes.
+    timeoutMilliseconds: 30_000
   }) === "true";
 }
 

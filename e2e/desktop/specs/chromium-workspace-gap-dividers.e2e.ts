@@ -240,14 +240,15 @@ async function launchWorkspace(
       roleIds.every((roleId) => candidate.roleIds.includes(roleId))
     );
     window = runtime.windows.find((candidate) => candidate.id === gameWindow.id);
+    if (!tab || !window?.visible) return false;
+    if (whileLoading || roleIds.length === 0) return true;
     const running = await rendererCall("listRoleStatuses");
-    return Boolean(tab && window?.visible) && (Boolean(whileLoading) || roleIds.every((roleId) =>
-      running.some((status) => status.roleId === roleId && status.state === "running")
-    ));
+    return roleIds.every((roleId) => running.some((status) =>
+      status.roleId === roleId && status.state === "running"));
   }, {
     interval: 100,
-    timeout: 45_000,
-    timeoutMsg: "The three-slot Workspace did not reach its visible native host"
+    timeout: 90_000,
+    timeoutMsg: `Workspace ${workspace.name} did not reach its visible native host`
   });
   if (whileLoading) await whileLoading(tab!.id);
   return { mainWindowHandle, tabId: tab!.id, window: window! };

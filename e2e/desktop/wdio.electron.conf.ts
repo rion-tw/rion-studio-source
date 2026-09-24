@@ -89,9 +89,9 @@ export const config = {
   waitforTimeout: 10_000,
   mochaOpts: {
     // Both initial-loading matrices plus the ready-content pixel matrix can
-    // exceed 20 minutes on Windows ARM64. Per-action deadlines remain bounded;
-    // this outer budget only allows all required native captures to complete.
-    timeout: (phase === "chromium-workspace-gap-dividers-seed" ? 35 : 8) * 60_000
+    // exceed 35 minutes when Windows ARM64 emulates x64 Electron. Per-action
+    // deadlines remain bounded; this outer budget allows the native captures.
+    timeout: (phase === "chromium-workspace-gap-dividers-seed" ? 60 : 8) * 60_000
   },
   beforeSession: (): void => {
     if (packaged) return;

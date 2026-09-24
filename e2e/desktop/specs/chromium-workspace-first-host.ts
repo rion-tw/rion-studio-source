@@ -11,6 +11,7 @@ import { clickVisibleRuntimeWindowControl } from "../support/native-runtime-tabs
 import { focusVisibleMacosAppKitRuntime, pressVisibleMacosApplicationShortcut, pressVisibleWindowsApplicationShortcut } from "../support/native-application-actions";
 
 type Bounds = { x: number; y: number; width: number; height: number };
+type HeldFrame = { x: number; y: number; windowX: number; windowY: number; width: number; height: number };
 type Input = { windowId: string; tabId: string; mainWindowHandle: string; platform: "macos" | "windows"; setAppearance: (gap:1|16, background:"black"|"material") => Promise<void> };
 export async function armFirstWorkspaceHost(windowId: string): Promise<void> {
   for (const phase of ["before", "mounted"]) await fixtureRequest("/api/gate", { roleId: `first-host-${windowId}-${phase}` });
@@ -24,7 +25,7 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
   const { processId } = await electronDesktopE2eProbe();
   let expectedGap = 1;
   let expectedBackground: "material" | "black" = "material";
-  const capture = async (name: string) => {
+  const capture = async (name: string, heldFrame?: HeldFrame) => {
     let current: Awaited<ReturnType<typeof inspect>> | undefined;
     // Native frame acknowledgement can precede the corresponding Core/chrome
     // projection. Observe the exact existing fence before sampling any pixels.
@@ -58,6 +59,20 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
       points: Array.from({length:19}, (_,i) => ({x:left.x+left.width+gap/2,y:left.y+left.height*(i+1)/20})).concat(boxes.flatMap(b => [
         {x:b.x+12,y:b.y+12},{x:b.x+b.width-12,y:b.y+12},
         {x:b.x+12,y:b.y+b.height-12},{x:b.x+b.width-12,y:b.y+b.height-12}])) });
+    if (heldFrame && input.platform === "windows") {
+      const native = samples.native;
+      if (!native) throw new Error(`First host ${name} has no native capture readback`);
+      const scale = native.scale;
+      const pointerMoved = Math.abs(native.pointer.x-heldFrame.x*scale) > 2 ||
+        Math.abs(native.pointer.y-heldFrame.y*scale) > 2;
+      const frameMoved = Math.abs(native.frame.left-heldFrame.windowX*scale) > 2 ||
+        Math.abs(native.frame.top-heldFrame.windowY*scale) > 2 ||
+        Math.abs(native.frame.right-native.frame.left-heldFrame.width*scale) > 2 ||
+        Math.abs(native.frame.bottom-native.frame.top-heldFrame.height*scale) > 2;
+      if (pointerMoved || frameMoved || native.leftButton >= 0) {
+        throw new Error(`First host ${name} changed during held native resize: expected ${JSON.stringify(heldFrame)}, captured ${JSON.stringify(native)}`);
+      }
+    }
     expect(gap).toBe(expectedGap);
     expect(right[1]!.y-right[0]!.y-right[0]!.height).toBe(expectedGap);
     expect(samples.labels).toEqual([]);
@@ -128,7 +143,7 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
               return Math.abs(now.width - old.width - movedWidth) <= 1 &&
                 Math.abs(now.height - old.height - movedHeight) <= 1;
             }, {timeout:20_000,timeoutMsg:`First host ${phase} ${edge} step ${step} layout did not track the ${movedWidth}x${movedHeight} frame move`});
-            await capture(`${prefix}-${edge}-${step}-held`);
+            await capture(`${prefix}-${edge}-${step}-held`, frame);
           }});
         await capture(`${prefix}-${edge}-ended`);
       }
@@ -144,7 +159,7 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
                 return Math.abs(current.width-normal.width-(frame.width-initialFrame.width)) <= 1 &&
                   Math.abs(current.height-normal.height-(frame.height-initialFrame.height)) <= 1;
               }, {timeout:20_000,timeoutMsg:`First host ${phase} range step ${step} did not match the native frame`});
-              await capture(`${prefix}-${rapid?"rapid":"range"}-${step}-held`);
+              await capture(`${prefix}-${rapid?"rapid":"range"}-${step}-held`, frame);
             }});
           await capture(`${prefix}-${rapid?"rapid":"range"}-ended`);
         }

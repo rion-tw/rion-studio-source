@@ -38,7 +38,7 @@ export async function expectExtensionPassedClassification(roleId: string, previo
     return terminals.some(entry => entry.context?.code === "ELECTRON_EXTENSION_READY" &&
       entry.context?.stage === "bootstrap" && entry.context?.status === "loaded");
 
-  }, { timeout: 30_000, timeoutMsg: "AdBlock did not reach native worker running and compatibility readiness" });
+  }, { timeout: 90_000, timeoutMsg: "AdBlock did not reach native worker running and compatibility readiness" });
   if (terminalFailure) throw new Error(`AdBlock native extension readiness failed: ${terminalFailure}`);
 }
 

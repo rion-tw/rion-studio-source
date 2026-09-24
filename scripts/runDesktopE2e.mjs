@@ -244,6 +244,7 @@ await mkdir(resolve(artifactRoot, "phases"), { recursive: true });
 async function run(command, args, options = {}) {
   const child = spawn(command, args, {
     cwd: root,
+    detached: options.isolatedProcessGroup ?? false,
     env: { ...process.env, ...options.env },
     stdio: options.logPath ? ["ignore", "pipe", "pipe"] : "inherit"
   });
@@ -265,7 +266,18 @@ async function run(command, args, options = {}) {
     });
   });
   if (stream) await new Promise((resolveEnd) => stream.end(resolveEnd));
-  return { code, output };
+  return { code, output, processGroupId: options.isolatedProcessGroup ? child.pid : undefined };
+}
+
+function cleanupPhaseProcessGroup(processGroupId) {
+  if (!processGroupId || process.platform !== "darwin") return;
+  // WebDriverIO can exit while its ChromeDriver children remain. The isolated
+  // group contains only this completed phase, including any orphaned drivers.
+  try {
+    process.kill(-processGroupId, "SIGKILL");
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+  }
 }
 
 async function startFixture() {
@@ -1153,6 +1165,7 @@ try {
     await mkdir(phaseDir, { recursive: true });
     await mkdir(userDataDir, { recursive: true });
     const result = await run(node, [wdio, "run", executionPlan.wdioConfigPath], {
+      isolatedProcessGroup: process.platform === "darwin",
       env: {
         RION_STUDIO_E2E_APP_BINARY: binary,
         RION_STUDIO_E2E_ARTIFACT_DIR: phaseDir,
@@ -1217,6 +1230,7 @@ try {
       sqliteEvidence,
       status: phaseStatus
     });
+    cleanupPhaseProcessGroup(result.processGroupId);
     if (blocked || (result.code !== 0 && !forcedTermination)) {
       throw new Error(
         blocked ?? `Desktop E2E phase ${phase} failed (${result.code})`

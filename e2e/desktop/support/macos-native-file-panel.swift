@@ -17,7 +17,7 @@ guard (action == "cancel" && CommandLine.arguments.count == 3)
 let selectedPath = action == "cancel" ? "" : CommandLine.arguments[3]
 let fixturePath = action == "save-file" ? URL(fileURLWithPath: selectedPath).deletingLastPathComponent().path : selectedPath
 let application = AXUIElementCreateApplication(targetPid)
-let expiry = Date().addingTimeInterval(10)
+let expiry = Date().addingTimeInterval(action == "save-file" ? 15 : 10)
 func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
   var ownerPid: pid_t = 0
   guard AXUIElementGetPid(element, &ownerPid) == .success else { fail("file-panel control has no native owner") }
@@ -135,19 +135,35 @@ awaitCondition("Go to Folder sheet") {
 let fields = descendants(sheets[0]).filter { text($0, "AXRole") == "AXTextField" }
 guard fields.count == 1,
       AXUIElementSetAttributeValue(fields[0], kAXValueAttribute as CFString, fixturePath as CFString) == .success,
-      text(fields[0], "AXValue") == fixturePath else { fail("exact folder field did not accept the fixture path") }
+      text(fields[0], "AXValue") == fixturePath,
+      AXUIElementSetAttributeValue(fields[0], kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success,
+      (attribute(fields[0], "AXFocused") as? NSNumber)?.boolValue == true,
+      text(fields[0], "AXValue") == fixturePath else {
+  fail("exact folder field did not accept focus and the fixture path")
+}
 key(36)
 awaitCondition("resolved folder") {
   descendants(panel).filter { !CFEqual($0, panel) && text($0, "AXRole") == "AXSheet" }.isEmpty
 }
-let buttons = descendants(panel).filter { text($0, "AXRole") == "AXButton" && text($0, "AXTitle") == (action == "save-file" ? "Save" : "Open") }
-let currentPanels = panels()
-guard currentPanels.count == 1, CFEqual(currentPanels[0], panel) else { fail("exact attached folder panel changed") }
-guard buttons.count == 1, (attribute(buttons[0], "AXEnabled") as? NSNumber)?.boolValue == true else {
-  fail("exact enabled Open button unavailable")
+let buttonTitle = action == "save-file" ? "Save" : "Open"
+var actionButton: AXUIElement?
+awaitCondition("enabled \(buttonTitle) button in the exact attached panel") {
+  let currentPanels = panels()
+  guard currentPanels.count == 1, CFEqual(currentPanels[0], panel) else {
+    fail("exact attached folder panel changed")
+  }
+  let buttons = descendants(panel).filter {
+    text($0, "AXRole") == "AXButton" && text($0, "AXTitle") == buttonTitle
+  }
+  if buttons.count > 1 { fail("multiple exact \(buttonTitle) buttons") }
+  guard let button = buttons.first,
+        (attribute(button, "AXEnabled") as? NSNumber)?.boolValue == true else { return false }
+  actionButton = button
+  return true
 }
-guard AXUIElementPerformAction(buttons[0], kAXPressAction as CFString) == .success else {
-  fail("native Open action failed")
+guard let actionButton,
+      AXUIElementPerformAction(actionButton, kAXPressAction as CFString) == .success else {
+  fail("native \(buttonTitle) action failed")
 }
 awaitCondition("panel closure") { panels().isEmpty }
 print("selected")

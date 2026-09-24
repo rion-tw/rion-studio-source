@@ -12,7 +12,7 @@ export async function saveVisibleDiagnostics(input: { platform: "macos" | "windo
   }
   if (input.platform === "macos") {
     await promisify(execFile)("/usr/bin/xcrun", ["swift", fileURLToPath(new URL("./macos-native-file-panel.swift", import.meta.url)),
-      String(input.processId), "save-file", input.path], { encoding: "utf8", timeout: 20_000 });
+      String(input.processId), "save-file", input.path], { encoding: "utf8", timeout: 30_000 });
     return;
   }
   await runEncodedPowerShellJson(String.raw`

@@ -20,8 +20,9 @@ export async function expectExtensionPassedClassification(roleId: string, previo
     const terminals = page.entries.filter(entry => !previous.has(entry.id) &&
       entry.event === "extension_runtime_terminal" && entry.context?.roleId === roleId &&
       entry.context?.extensionId === EXTENSION_ID);
-    const rejected = terminals.find(entry => entry.context?.stage === "classification" ||
-      entry.context?.code === "ELECTRON_EXTENSION_BOOTSTRAP_DEADLINE_EXCEEDED");
+    const rejected = terminals.find(entry =>
+      ["classification", "load", "bootstrap", "rulesets"].includes(String(entry.context?.stage)) &&
+      (entry.context?.code !== "ELECTRON_EXTENSION_READY" || entry.context?.status !== "loaded"));
     if (rejected) {
       const bootstrap = page.entries.filter(entry =>
         entry.event === "extension_bootstrap_incomplete" &&

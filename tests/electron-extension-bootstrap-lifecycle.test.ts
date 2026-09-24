@@ -25,10 +25,9 @@ describe.each(["darwin", "win32"])("bootstrap lease lifecycle (%s)", platform =>
     const load = deferred<{ id: string }>();
     const started = deferred<void>();
     const removing = deferred<void>();
-    const wake = deferred<{ scope: string; scriptURL: string; versionId: number }>();
     const workers = Object.assign(new EventEmitter(), { getWorkerFromVersionID: () => ({
       scope: `chrome-extension://${id}/`, scriptURL: `chrome-extension://${id}/background.js`
-    }), startWorkerForScope: vi.fn(() => wake.promise) });
+    }) });
     const native = Object.assign(new EventEmitter(), {
       current: [] as { id: string }[], getAllExtensions: () => native.current,
       loadExtension: vi.fn(() => { started.resolve(); return load.promise.then(x => {
@@ -57,25 +56,13 @@ describe.each(["darwin", "win32"])("bootstrap lease lifecycle (%s)", platform =>
       native.current = [];
       native.emit("extension-unloaded", {}, { id });
     };
-    return { started, load, removing, wake, native, workers, core, sessions, handle, surface, prepared, status, error,
+    return { started, load, removing, native, workers, core, sessions, handle, surface, prepared, status, error,
       ready: () => ready(id, receipt, 1), unloaded };
   }
 
   it("accepts zero enabled rulesets even when disabled resources are declared", async () => {
     const f = fixture(); await f.started.promise;
     f.load.resolve({ id }); f.status("starting"); f.ready(); f.status("running");
-    await f.prepared;
-    expect(f.core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
-      type: "complete", roleId: "role", leaseId: "lease", status: "loaded"
-    } });
-  });
-
-  it("completes the exact Role lease after one native worker start acknowledgement", async () => {
-    const f = fixture(); await f.started.promise;
-    f.status("starting"); f.ready(); f.load.resolve({ id });
-    await vi.waitFor(() => expect(f.workers.startWorkerForScope).toHaveBeenCalledTimes(1));
-    f.wake.resolve({ scope: `chrome-extension://${id}/`,
-      scriptURL: `chrome-extension://${id}/background.js`, versionId: 1 });
     await f.prepared;
     expect(f.core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
       type: "complete", roleId: "role", leaseId: "lease", status: "loaded"

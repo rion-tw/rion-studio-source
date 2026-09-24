@@ -18,7 +18,6 @@ export class ChromiumExtensionBootstrap {
   #loaded = false;
   #receipt: CompatibilityReadyRecord | undefined;
   #pendingReceipt: { record: CompatibilityReadyRecord; versionId: number } | undefined;
-  #startRequested = false;
   #events: string[] = [];
   readonly #origin: string;
 
@@ -45,7 +44,6 @@ export class ChromiumExtensionBootstrap {
   nativeLoaded(): void {
     this.#loaded = true;
     this.#record("native-loaded");
-    if (!this.#wasRunning || !this.#receipt) this.#startNativeWorker();
     this.#maybeReady();
   }
 
@@ -88,41 +86,6 @@ export class ChromiumExtensionBootstrap {
     this.#record(runningStatus);
     this.#maybeReady();
   };
-
-  #startNativeWorker(): void {
-    if (this.#startRequested || this.#outcome) return;
-    this.#startRequested = true;
-    this.#record("start-requested");
-    let started: ReturnType<ServiceWorkers["startWorkerForScope"]>;
-    try {
-      started = this.workers.startWorkerForScope(this.#origin);
-    } catch {
-      this.#finish({ status: "failed", code: "ELECTRON_EXTENSION_SERVICE_WORKER_START_FAILED" });
-      return;
-    }
-    void started.then(worker => {
-      if (this.#outcome) return;
-      if (worker.scope !== this.#origin || !worker.scriptURL.startsWith(this.#origin) ||
-          (this.#versionId !== undefined && worker.versionId !== this.#versionId)) {
-        this.#finish({ status: "failed", code: "ELECTRON_EXTENSION_WORKER_IDENTITY_MISMATCH" });
-        return;
-      }
-      this.#versionId = worker.versionId;
-      this.#running = true;
-      this.#wasRunning = true;
-      this.#record("start-completed");
-      if (this.#pendingReceipt?.versionId === worker.versionId) {
-        this.#receipt = this.#pendingReceipt.record;
-        this.#record("compatibility-ready");
-      }
-      this.#pendingReceipt = undefined;
-      this.#maybeReady();
-    }, () => {
-      if (!this.#outcome) {
-        this.#finish({ status: "failed", code: "ELECTRON_EXTENSION_SERVICE_WORKER_START_FAILED" });
-      }
-    });
-  }
 
   #record(event: string): void {
     if (this.#events.length < 16) this.#events.push(event);

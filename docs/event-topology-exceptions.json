@@ -20,7 +20,7 @@
         "src/electron/main/chromiumExtensionSessions.ts"
       ],
       "mechanism": "One-shot external Chromium extension load and compatibility-bootstrap deadline.",
-      "authoritativeEvent": "Electron's exact load rejection/resolution, captured worker-version JavaScript error, native running event or exact-scope startWorkerForScope completion, and sender-bound compatibility.ready receipt terminalize normal work.",
+      "authoritativeEvent": "Electron's exact load rejection/resolution, captured worker-version JavaScript error, native running event, and sender-bound compatibility.ready receipt terminalize normal work.",
       "reason": "Chromium may neither reject a package load nor start its service worker, which must not hold Role navigation indefinitely.",
       "terminalOutcome": "Load expiry is indeterminate and fences Role navigation until late cleanup; bootstrap expiry unloads the exact extension and degrades the lease. Elapsed time never becomes success.",
       "cleanup": "Every exact completion or cancellation clears the timer and worker observer; expiry disposes the exact bootstrap observer, and a late load is unloaded by extension ID."

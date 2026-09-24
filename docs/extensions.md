@@ -412,13 +412,12 @@ smoke/full-profile pass. Smoke and full resolve to the same native phase set.
 
 ## Worker startup failures and generic context menus (2026-09-14)
 
-Each service-worker bootstrap observes the exact Session before native load.
-A worker's extension scope and version are captured at `starting`. After load,
-Electron requests one native start for that exact scope if running or the
-compatibility receipt has not arrived. The matching native `running` event or
-the exact `startWorkerForScope` completion, plus a sender-version-bound receipt,
-are required for success. A normal idle stop does not erase the earlier running
-acknowledgement; an early receipt alone cannot hide a script evaluation exception.
+Each service-worker bootstrap now observes the exact Session before native load.
+A worker's extension scope and version are captured at `starting`; native load,
+`running`, and a sender-version-bound compatibility receipt are all required for
+success. A native running acknowledgement remains valid if Chromium normally
+stops the worker before the load promise and receipt finish; a different worker
+version never inherits it. An early receipt alone cannot hide a script evaluation exception.
 JavaScript error events (`source=javascript`, `level=3`) terminate the matching
 attempt immediately. Warnings, console API errors, network messages and stopping
 alone do not establish a failed initialization. Unknown acknowledgements retain

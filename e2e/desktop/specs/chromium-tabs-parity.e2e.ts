@@ -765,17 +765,19 @@ async function exerciseWindowsGeometry(input: Readonly<{
   let sourceResized = sourceBefore;
   let targetResized = targetBefore;
   await browser.waitUntil(async () => {
-    [sourceResized, targetResized] = await Promise.all([
-      readVisibleWindowsRuntimeHostLayout({
-        mainWindowHandle: input.mainWindowHandle,
-        tabId: input.sourceTabId
-      }),
-      readVisibleWindowsRuntimeHostLayout({
-        mainWindowHandle: input.mainWindowHandle,
-        tabId: input.targetTabId
-      })
-    ]);
-    return sourceResized.contentBounds.width !== sourceBefore.contentBounds.width &&
+    // Both reads switch the shared WebDriver window; keep each switch and read
+    // together so one host cannot satisfy the other host's geometry check.
+    sourceResized = await readVisibleWindowsRuntimeHostLayout({
+      mainWindowHandle: input.mainWindowHandle,
+      tabId: input.sourceTabId
+    });
+    targetResized = await readVisibleWindowsRuntimeHostLayout({
+      mainWindowHandle: input.mainWindowHandle,
+      tabId: input.targetTabId
+    });
+    return sourceResized.windowId === input.sourceWindow.id &&
+      targetResized.windowId === input.targetWindow.id &&
+      sourceResized.contentBounds.width !== sourceBefore.contentBounds.width &&
       sourceResized.contentBounds.height !== sourceBefore.contentBounds.height &&
       targetResized.contentBounds.width !== targetBefore.contentBounds.width &&
       targetResized.contentBounds.height !== targetBefore.contentBounds.height;

@@ -303,6 +303,20 @@ async function inspectNativePair(
   windowId: string,
   platform: "macos" | "windows"
 ) {
+  await browser.waitUntil(async () => {
+    const [a, b, gameWindow] = await Promise.all([
+      electronDesktopE2eRoleSessionRuntime(roles[0].id),
+      electronDesktopE2eRoleSessionRuntime(roles[1].id),
+      electronDesktopE2eGameWindowRuntime(windowId)
+    ]);
+    return [a, b].every(({ currentRuntime }) =>
+      currentRuntime?.windowId === windowId && currentRuntime.visible
+    ) && gameWindow.currentRuntime?.windowId === windowId
+      && gameWindow.currentRuntime.visible;
+  }, {
+    timeout: 15_000,
+    timeoutMsg: "Native Role pair did not commit the visible recovery window"
+  });
   const [a, b, gameWindow] = await Promise.all([
     electronDesktopE2eRoleSessionRuntime(roles[0].id),
     electronDesktopE2eRoleSessionRuntime(roles[1].id),

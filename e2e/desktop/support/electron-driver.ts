@@ -1,4 +1,6 @@
 import { browser } from "@wdio/globals";
+import { readElectronDesktopE2eRoleSessionMigration } from
+  "./roleSessionMigrationInspection";
 import type {
   ApplicationLifecycleStatusRecord,
   BrowserActionRequest,
@@ -637,22 +639,22 @@ export async function electronDesktopE2eRoleSessionMigration(
       sessionToken: string,
       targetRoleId: string,
       done: (
-        result: ElectronBridgeResult<ElectronDesktopE2eRoleSessionMigrationInspection>
+        result: ElectronBridgeResult<ElectronDesktopE2eRoleSessionMigrationInspection["receipt"]>
       ) => void
     ) => {
       const api = (window as typeof window & {
         rionStudioDesktopE2e?: {
-          roleSessionMigration: (
+          roleBrowserDataClearReceipt: (
             token: string,
             roleId: string
-          ) => Promise<ElectronDesktopE2eRoleSessionMigrationInspection>;
+          ) => Promise<ElectronDesktopE2eRoleSessionMigrationInspection["receipt"]>;
         };
       }).rionStudioDesktopE2e;
       if (!api) {
         done({ error: "Electron desktop E2E preload bridge is unavailable", ok: false });
         return;
       }
-      void api.roleSessionMigration(sessionToken, targetRoleId).then(
+      void api.roleBrowserDataClearReceipt(sessionToken, targetRoleId).then(
         (value) => done({ ok: true, value }),
         (error: unknown) => done({
           error: error instanceof Error ? error.message : String(error),
@@ -662,11 +664,18 @@ export async function electronDesktopE2eRoleSessionMigration(
     },
     token,
     roleId
-  ) as ElectronBridgeResult<ElectronDesktopE2eRoleSessionMigrationInspection>;
-  if (!result.ok || !result.value) {
-    throw new Error(result.error ?? "Electron desktop E2E migration inspection failed");
+  ) as ElectronBridgeResult<ElectronDesktopE2eRoleSessionMigrationInspection["receipt"]>;
+  if (!result.ok || result.value === undefined) {
+    throw new Error(result.error ?? "Electron desktop E2E clear receipt inspection failed");
   }
-  return result.value;
+  if (result.value?.roleId !== undefined && result.value.roleId !== roleId) {
+    throw new Error("Electron desktop E2E clear receipt belongs to another role");
+  }
+  return readElectronDesktopE2eRoleSessionMigration({
+    receipt: result.value,
+    roleId,
+    userDataDirectory: required("RION_STUDIO_USER_DATA_DIR")
+  });
 }
 
 export async function electronDesktopE2eRoleSessionRuntime(

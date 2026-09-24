@@ -13,7 +13,6 @@ import {
   TOKEN,
   GAME_ID,
   ROLE_ID,
-  TRANSFER_ID,
   CLEAR_OPERATION_ID,
   TAB_ID,
   WINDOW_ID,
@@ -82,28 +81,6 @@ const clearReceipt = Object.freeze({
   cookieReadbackCount: 0 as const,
   evidence: "electron-clear-storage-data-promise-and-cookie-readback" as const,
   operationId: CLEAR_OPERATION_ID,
-  roleId: ROLE_ID
-});
-const journal = Object.freeze({
-  cleanFlushReceiptId: `chromium-session-clear:${CLEAR_OPERATION_ID}`,
-  firstVerifiedLaunchAt: "2026-08-30T13:37:26.000Z",
-  journalRevision: 2,
-  outcome: "explicitReset" as const,
-  phase: "v23Ready" as const,
-  platform: "macos" as const,
-  resetReceiptId: `role-browser-clear:role-browser-clear-${CLEAR_OPERATION_ID}`,
-  roleId: ROLE_ID,
-  sourceEngine: "wkwebview" as const,
-  sourceRevision: 0,
-  targetEngine: "chromium" as const,
-  targetRevision: 1,
-  transferId: TRANSFER_ID
-});
-const migrationInspection = Object.freeze({
-  journal,
-  pendingRoleBrowserDataClearOperations: 0,
-  receipt: clearReceipt,
-  roleExists: true,
   roleId: ROLE_ID
 });
 const runtimeInspection = Object.freeze({
@@ -540,7 +517,7 @@ function registrationFixture(overrides: Partial<Parameters<
     readRuntimeTabReload: vi.fn(() => runtimeTabReloadInspection),
     readRetainedV22Precondition: vi.fn(() => precondition),
     readRolePlaceholderRuntime: vi.fn(async () => rolePlaceholderInspection),
-    readRoleSessionMigration: vi.fn(() => migrationInspection),
+    readRoleBrowserDataClearReceipt: vi.fn(() => clearReceipt),
     readRoleSessionRuntime: vi.fn(() => runtimeInspection),
     readTrustedInputRuntime: vi.fn(() => trustedInputObservations),
     readWorkspaceWebRuntime: vi.fn(async () => workspaceWebInspection),
@@ -675,10 +652,10 @@ describe("Electron desktop E2E-only bridge", () => {
       token: TOKEN
     })).resolves.toEqual(rolePlaceholderInspection);
     await expect(fixture.listener(sender, {
-      action: "roleSessionMigration",
+      action: "roleBrowserDataClearReceipt",
       roleId: ROLE_ID,
       token: TOKEN
-    })).resolves.toEqual(migrationInspection);
+    })).resolves.toEqual(clearReceipt);
     await expect(fixture.listener(sender, {
       action: "roleSessionRuntime",
       roleId: ROLE_ID,
@@ -705,7 +682,7 @@ describe("Electron desktop E2E-only bridge", () => {
     expect(fixture.input.readRuntimeTabReload).toHaveBeenCalledWith(WINDOW_ID);
     expect(fixture.input.readRetainedV22Precondition).toHaveBeenCalledOnce();
     expect(fixture.input.readRolePlaceholderRuntime).toHaveBeenCalledWith(ROLE_ID);
-    expect(fixture.input.readRoleSessionMigration).toHaveBeenCalledWith(ROLE_ID);
+    expect(fixture.input.readRoleBrowserDataClearReceipt).toHaveBeenCalledWith(ROLE_ID);
     expect(fixture.input.readRoleSessionRuntime).toHaveBeenCalledWith(ROLE_ID);
     expect(fixture.input.readTrustedInputRuntime).toHaveBeenCalledWith(ROLE_ID);
     expect(fixture.input.signalApplicationLifecycle).toHaveBeenCalledWith("suspend");
@@ -718,7 +695,7 @@ describe("Electron desktop E2E-only bridge", () => {
       windowId: "not-a-window"
     })).rejects.toThrow("request is invalid");
     await expect(fixture.listener(sender, {
-      action: "roleSessionMigration",
+      action: "roleBrowserDataClearReceipt",
       roleId: "not-a-role",
       token: TOKEN
     })).rejects.toThrow("request is invalid");
@@ -784,8 +761,8 @@ describe("Electron desktop E2E-only bridge", () => {
           return popupLifecycleJournalInspection;
         case "runtimeTabReload":
           return runtimeTabReloadInspection;
-        case "roleSessionMigration":
-          return migrationInspection;
+        case "roleBrowserDataClearReceipt":
+          return clearReceipt;
         case "rolePlaceholderRuntime":
           return rolePlaceholderInspection;
         case "roleSessionRuntime":
@@ -865,8 +842,8 @@ describe("Electron desktop E2E-only bridge", () => {
     await expect(api.runtimeTabReload(TOKEN, WINDOW_ID))
       .resolves.toEqual(runtimeTabReloadInspection);
     await expect(api.retainedV22Precondition(TOKEN)).resolves.toEqual(precondition);
-    await expect(api.roleSessionMigration(TOKEN, ROLE_ID))
-      .resolves.toEqual(migrationInspection);
+    await expect(api.roleBrowserDataClearReceipt(TOKEN, ROLE_ID))
+      .resolves.toEqual(clearReceipt);
     await expect(api.rolePlaceholderRuntime(TOKEN, ROLE_ID))
       .resolves.toEqual(rolePlaceholderInspection);
     await expect(api.roleSessionRuntime(TOKEN, ROLE_ID))
@@ -909,7 +886,7 @@ describe("Electron desktop E2E-only bridge", () => {
       token: TOKEN
     });
     expect(invoke).toHaveBeenCalledWith(ELECTRON_DESKTOP_E2E_CHANNEL, {
-      action: "roleSessionMigration",
+      action: "roleBrowserDataClearReceipt",
       roleId: ROLE_ID,
       token: TOKEN
     });

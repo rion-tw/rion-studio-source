@@ -2,10 +2,12 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import type {
-  ElectronDesktopE2eRoleBrowserDataClearReceipt,
-  ElectronDesktopE2eRoleSessionMigrationInspection,
-  ElectronDesktopE2eRoleSessionMigrationJournal
-} from "./desktopE2eBridge";
+  ElectronDesktopE2eRoleSessionMigrationInspection
+} from "./electron-driver";
+
+type ElectronDesktopE2eRoleSessionMigrationJournal = NonNullable<
+  ElectronDesktopE2eRoleSessionMigrationInspection["journal"]
+>;
 
 interface MigrationJournalRow {
   cleanFlushReceiptId: string | null;
@@ -45,7 +47,7 @@ function migrationJournal(
 }
 
 export function readElectronDesktopE2eRoleSessionMigration(input: Readonly<{
-  receipt: ElectronDesktopE2eRoleBrowserDataClearReceipt | null;
+  receipt: ElectronDesktopE2eRoleSessionMigrationInspection["receipt"];
   roleId: string;
   userDataDirectory: string;
 }>): ElectronDesktopE2eRoleSessionMigrationInspection {

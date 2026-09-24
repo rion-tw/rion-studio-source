@@ -228,7 +228,7 @@ type ElectronDesktopE2eRequest =
     windowId: string;
   }>
   | Readonly<{
-    action: "rolePlaceholderRuntime" | "roleSessionMigration";
+    action: "roleBrowserDataClearReceipt" | "rolePlaceholderRuntime";
     roleId: string;
     token: string;
   }>
@@ -299,10 +299,10 @@ export interface ElectronDesktopE2ePreloadApi {
   retainedV22Precondition: (
     token: string
   ) => Promise<ElectronDesktopE2eRetainedV22Precondition | null>;
-  roleSessionMigration: (
+  roleBrowserDataClearReceipt: (
     token: string,
     roleId: string
-  ) => Promise<ElectronDesktopE2eRoleSessionMigrationInspection>;
+  ) => Promise<ElectronDesktopE2eRoleBrowserDataClearReceipt | null>;
   rolePlaceholderRuntime: (
     token: string,
     roleId: string
@@ -375,9 +375,9 @@ export interface RegisterElectronDesktopE2eBridgeInput {
   readDiagnosticsExportJournal: () =>
     ElectronDesktopE2eDiagnosticsExportJournalInspection;
   readRetainedV22Precondition: () => ElectronDesktopE2eRetainedV22Precondition | null;
-  readRoleSessionMigration: (
+  readRoleBrowserDataClearReceipt: (
     roleId: string
-  ) => ElectronDesktopE2eRoleSessionMigrationInspection;
+  ) => ElectronDesktopE2eRoleBrowserDataClearReceipt | null;
   readRolePlaceholderRuntime: (
     roleId: string
   ) => Promise<ElectronDesktopE2eRolePlaceholderInspection>;
@@ -421,7 +421,7 @@ function parseRequest(candidate: unknown): ElectronDesktopE2eRequest {
   const action = String(request.action);
   const requiresRoleId = new Set([
     "rolePlaceholderRuntime",
-    "roleSessionMigration",
+    "roleBrowserDataClearReceipt",
     "roleSessionRuntime",
     "trustedInputRuntime"
   ]).has(action);
@@ -467,7 +467,7 @@ function parseRequest(candidate: unknown): ElectronDesktopE2eRequest {
       "probe",
       "retainedV22Precondition",
       "rolePlaceholderRuntime",
-      "roleSessionMigration",
+      "roleBrowserDataClearReceipt",
       "roleSessionRuntime",
       "showAppKitRuntimeTabMenu",
       "trustedInputRuntime",
@@ -519,7 +519,7 @@ function parseRequest(candidate: unknown): ElectronDesktopE2eRequest {
   }
   return requiresRoleId
     ? {
-        action: action as "rolePlaceholderRuntime" | "roleSessionMigration" |
+        action: action as "roleBrowserDataClearReceipt" | "rolePlaceholderRuntime" |
           "roleSessionRuntime" | "trustedInputRuntime",
         roleId: request.roleId as string,
         token: request.token
@@ -580,7 +580,7 @@ export function registerElectronDesktopE2eBridge(
     | ElectronDesktopE2eCloseReceipt
     | ElectronDesktopE2eDiagnosticsExportJournalInspection
     | ElectronDesktopE2eRetainedV22Precondition
-    | ElectronDesktopE2eRoleSessionMigrationInspection
+    | ElectronDesktopE2eRoleBrowserDataClearReceipt
     | ElectronDesktopE2eRoleSessionRuntimeInspection
     | ElectronDesktopE2eApplicationLifecycleSignalReceipt
     | readonly ElectronDesktopE2eTrustedInputObservation[]
@@ -632,8 +632,8 @@ export function registerElectronDesktopE2eBridge(
     if (request.action === "retainedV22Precondition") {
       return input.readRetainedV22Precondition();
     }
-    if (request.action === "roleSessionMigration") {
-      return input.readRoleSessionMigration(request.roleId);
+    if (request.action === "roleBrowserDataClearReceipt") {
+      return input.readRoleBrowserDataClearReceipt(request.roleId);
     }
     if (request.action === "rolePlaceholderRuntime") {
       return input.readRolePlaceholderRuntime(request.roleId);
@@ -831,105 +831,6 @@ function parseClearReceipt(
     throw new Error("Electron desktop E2E Chromium clear receipt is invalid.");
   }
   return candidate as unknown as ElectronDesktopE2eRoleBrowserDataClearReceipt;
-}
-
-function parseMigrationJournal(
-  candidate: unknown
-): ElectronDesktopE2eRoleSessionMigrationJournal | null {
-  if (candidate === null) return null;
-  if (!isRecord(candidate) || !hasExactKeys(candidate, [
-    "cleanFlushReceiptId",
-    "firstVerifiedLaunchAt",
-    "journalRevision",
-    "outcome",
-    "phase",
-    "platform",
-    "resetReceiptId",
-    "roleId",
-    "sourceEngine",
-    "sourceRevision",
-    "targetEngine",
-    "targetRevision",
-    "transferId"
-  ])) {
-    throw new Error("Electron desktop E2E role-session migration journal is invalid.");
-  }
-  const expectedEngine = candidate.platform === "macos" ? "wkwebview" : "webview2";
-  if (
-    !new Set([
-      "v22Ready",
-      "exported",
-      "importing",
-      "verifying",
-      "v23Ready",
-      "failed",
-      "indeterminate"
-    ]).has(String(candidate.phase))
-    || !new Set(["macos", "windows"]).has(String(candidate.platform))
-    || candidate.sourceEngine !== expectedEngine
-    || candidate.targetEngine !== "chromium"
-    || !Number.isSafeInteger(candidate.journalRevision)
-    || Number(candidate.journalRevision) < 1
-    || !Number.isSafeInteger(candidate.sourceRevision)
-    || Number(candidate.sourceRevision) < 0
-    || (candidate.targetRevision !== null && (
-      !Number.isSafeInteger(candidate.targetRevision) || Number(candidate.targetRevision) < 0
-    ))
-    || !new Set([null, "explicitReset", "failed", "indeterminate", "verified"]).has(
-      candidate.outcome as null | string
-    )
-    || typeof candidate.roleId !== "string"
-    || !ROLE_ID_PATTERN.test(candidate.roleId)
-    || typeof candidate.transferId !== "string"
-    || !ROLE_ID_PATTERN.test(candidate.transferId)
-    || (candidate.cleanFlushReceiptId !== null
-      && typeof candidate.cleanFlushReceiptId !== "string")
-    || (candidate.firstVerifiedLaunchAt !== null
-      && !isCanonicalRfc3339(candidate.firstVerifiedLaunchAt))
-    || (candidate.resetReceiptId !== null && typeof candidate.resetReceiptId !== "string")
-  ) {
-    throw new Error("Electron desktop E2E role-session migration journal is invalid.");
-  }
-  return candidate as unknown as ElectronDesktopE2eRoleSessionMigrationJournal;
-}
-
-function parseMigrationInspection(
-  candidate: unknown
-): ElectronDesktopE2eRoleSessionMigrationInspection {
-  if (!isRecord(candidate) || !hasExactKeys(candidate, [
-    "journal",
-    "pendingRoleBrowserDataClearOperations",
-    "receipt",
-    "roleExists",
-    "roleId"
-  ])) {
-    throw new Error("Electron desktop E2E role-session migration inspection is invalid.");
-  }
-  if (
-    typeof candidate.roleId !== "string"
-    || !ROLE_ID_PATTERN.test(candidate.roleId)
-    || typeof candidate.roleExists !== "boolean"
-    || !Number.isSafeInteger(candidate.pendingRoleBrowserDataClearOperations)
-    || Number(candidate.pendingRoleBrowserDataClearOperations) < 0
-  ) {
-    throw new Error("Electron desktop E2E role-session migration inspection is invalid.");
-  }
-  const journal = parseMigrationJournal(candidate.journal);
-  const receipt = parseClearReceipt(candidate.receipt);
-  if (journal?.roleId !== undefined && journal.roleId !== candidate.roleId) {
-    throw new Error("Electron desktop E2E role-session migration inspection is invalid.");
-  }
-  if (receipt?.roleId !== undefined && receipt.roleId !== candidate.roleId) {
-    throw new Error("Electron desktop E2E role-session migration inspection is invalid.");
-  }
-  return {
-    journal,
-    pendingRoleBrowserDataClearOperations:
-      candidate.pendingRoleBrowserDataClearOperations as number,
-    receipt,
-    roleExists: candidate.roleExists,
-    roleId: candidate.roleId
-  };
 }
 
 function parseRuntimeInspection(
@@ -1468,10 +1369,10 @@ export function createElectronDesktopE2ePreloadApi(
         ELECTRON_DESKTOP_E2E_CHANNEL,
         { action: "retainedV22Precondition", token }
       )),
-    roleSessionMigration: async (token: string, roleId: string) =>
-      parseMigrationInspection(await ipcRenderer.invoke(
+    roleBrowserDataClearReceipt: async (token: string, roleId: string) =>
+      parseClearReceipt(await ipcRenderer.invoke(
         ELECTRON_DESKTOP_E2E_CHANNEL,
-        { action: "roleSessionMigration", roleId, token }
+        { action: "roleBrowserDataClearReceipt", roleId, token }
       )),
     rolePlaceholderRuntime: async (token: string, roleId: string) =>
       parseElectronDesktopE2eRolePlaceholderInspection(await ipcRenderer.invoke(

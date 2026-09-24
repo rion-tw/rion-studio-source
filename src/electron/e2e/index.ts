@@ -99,8 +99,6 @@ import { ElectronDesktopE2eRuntimeTabReloadObserver } from
   "./runtimeTabReloadObserver";
 import { ElectronDesktopE2eAppKitTabMenuRuntimeObserver } from
   "./appKitTabMenuRuntimeObserver";
-import { readElectronDesktopE2eRoleSessionMigration } from
-  "./roleSessionMigrationInspection";
 import { installElectronDesktopE2eSavedWindowRestoreObserver } from
   "./savedWindowRestoreDiagnosticsObserver";
 import {
@@ -124,7 +122,6 @@ const ROLE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const artifactDirectory = process.env.RION_STUDIO_E2E_ARTIFACT_DIR;
 const phase = process.env.RION_STUDIO_E2E_PHASE;
-const userDataDirectory = process.env.RION_STUDIO_USER_DATA_DIR;
 const clearReceiptsByRole = new Map<
   string,
   ElectronDesktopE2eRoleBrowserDataClearReceipt
@@ -1541,15 +1538,8 @@ async function readFullscreenToolbarRuntime(
   return inspection;
 }
 
-function readRoleSessionMigration(roleId: string) {
-  if (!userDataDirectory || !isAbsolute(userDataDirectory)) {
-    throw new Error("The Electron desktop E2E migration inspection has no user-data directory.");
-  }
-  return readElectronDesktopE2eRoleSessionMigration({
-    receipt: clearReceiptsByRole.get(roleId) ?? null,
-    roleId,
-    userDataDirectory
-  });
+function readRoleBrowserDataClearReceipt(roleId: string) {
+  return clearReceiptsByRole.get(roleId) ?? null;
 }
 
 function readRoleSessionRuntime(
@@ -1655,7 +1645,7 @@ const registration = registerElectronDesktopE2eBridge({
   readGameWindowRuntime,
   readPopupLifecycleJournal,
   readRolePlaceholderRuntime,
-  readRoleSessionMigration,
+  readRoleBrowserDataClearReceipt,
   readRoleSessionRuntime,
   readRuntimeTabReload: (windowId) => runtimeTabReloadObserver.read(windowId),
   readTrustedInputRuntime,

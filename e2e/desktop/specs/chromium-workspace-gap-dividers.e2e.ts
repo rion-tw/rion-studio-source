@@ -25,7 +25,7 @@ import {
 } from "../support/electron-driver";
 import { dragWindowsVisibleWorkspaceDivider } from
   "../support/electron-role-surface";
-import { dragMacosVisibleWorkspaceDivider, readMacosVisibleRuntimeTabPoint } from
+import { dragMacosVisibleWorkspaceDivider, movePointerToMacosRuntimeContent, readMacosVisibleRuntimeTabPoint } from
   "../support/macos-appkit-ui";
 import {
   installRuntimeTabShellErrorJournal,
@@ -336,6 +336,7 @@ async function dragDivider(input: Readonly<{
       deltaScreenPixels: input.delta ?? 192,
       windowId: input.windowId
     });
+    await movePointerToMacosRuntimeContent(input.windowId);
   } else {
     const current = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
     const bounds = current.surfaces.filter(surface => surface.visible).map(surface => surface.bounds);

@@ -25,7 +25,19 @@ let windows = attribute(AXUIElementCreateApplication(pid), "AXWindows") as? [AXU
 let windowId = "com.rionstudio.runtime.appkit-window.v1:" + (input["windowId"] as! String)
 guard let window = windows.first(where: { attribute($0, "AXIdentifier") as? String == windowId }) else { fail("exact window missing") }
 let nodes = descendants(window)
-let labels = nodes.filter { attribute($0, "AXDescription") as? String == "Workspace size ratio" }.map { attribute($0, "AXValue") as? String ?? "" }
+func readLabels() -> [String] {
+  descendants(window).filter { attribute($0, "AXDescription") as? String == "Workspace size ratio" }
+    .map { attribute($0, "AXValue") as? String ?? "" }
+}
+var labels = readLabels()
+if let expectedLabels = input["expectedLabels"] as? [String] {
+  let deadline = Date().addingTimeInterval(10)
+  while labels.sorted() != expectedLabels.sorted() {
+    if Date() >= deadline { fail("native size labels did not match Core: expected \(expectedLabels), actual \(labels)") }
+    Thread.sleep(forTimeInterval: 0.05)
+    labels = readLabels()
+  }
+}
 let windowEdges = input["windowEdges"] as? Bool == true
 let divider = nodes.first { attribute($0, "AXRole") as? String == "AXSplitter" && (attribute($0, "AXValue") as? NSNumber)?.intValue == 0 }
 guard let referenceElement = windowEdges ? window : divider,

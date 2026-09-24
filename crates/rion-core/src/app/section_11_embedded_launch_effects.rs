@@ -3,6 +3,10 @@ struct EmbeddedWebSurfaceLoadPlan {
     surfaces: Vec<crate::model::EmbeddedWebSurfaceLoadEffectRecord>,
 }
 
+// Chromium may spend 15 seconds loading an extension package and another 60
+// seconds waiting for its native worker bootstrap before Role navigation.
+const EMBEDDED_ROLE_LOAD_DEADLINE: Duration = Duration::from_secs(90);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EmbeddedLaunchPresentationIntent {
     Foreground,
@@ -121,7 +125,7 @@ fn embedded_launch_effects(
         steps.push(effect_step(tab_id, CoreEffectAction::EmbeddedLoadWorkspaceSlots {
             tab_id: tab_id.to_owned(), attempt_generation,
             roles: managed_role_loads, profile, surfaces,
-        }, Duration::from_secs(45), None));
+        }, EMBEDDED_ROLE_LOAD_DEADLINE, None));
         return Ok(steps);
     }
     if web_surface_load.is_none() || !managed_role_loads.is_empty() {
@@ -130,7 +134,7 @@ fn embedded_launch_effects(
             CoreEffectAction::EmbeddedLoadRoles {
                 roles: managed_role_loads,
             },
-            Duration::from_secs(45),
+            EMBEDDED_ROLE_LOAD_DEADLINE,
             None,
         ));
     }

@@ -198,7 +198,7 @@ impl AppCore {
         self.run_effect_plan(vec![effect_step(
             &record.tab_id,
             CoreEffectAction::EmbeddedRetryWorkspaceSlot { record: next },
-            Duration::from_secs(45),
+            EMBEDDED_ROLE_LOAD_DEADLINE,
             None,
         )])?;
         Ok(true)

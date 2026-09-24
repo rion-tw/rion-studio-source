@@ -928,7 +928,7 @@ impl AppCore {
                                 zoom_factor,
                             }],
                         },
-                        Duration::from_secs(45),
+                        EMBEDDED_ROLE_LOAD_DEADLINE,
                         None,
                     ),
                 ],

@@ -130,7 +130,7 @@ describe("Extensions store and per-role configuration", () => {
           role.roleId === future.id &&
           hasTerminalCompatibilityStatus(role.status) &&
           role.extensionIds.includes(EXTENSION_ID)
-        ), { timeout: 90_000 });
+        ), { timeout: 120_000, timeoutMsg: "The extension Role did not reach compatibility readiness within its Core load deadline" });
       } finally {
         await captureNativeApplicationObservation("extensions-after-role-open");
       }
@@ -188,7 +188,7 @@ describe("Extensions store and per-role configuration", () => {
           role.extensionIds.includes(EXTENSION_ID)
         );
       }, {
-        timeout: 90_000,
+        timeout: 120_000,
         timeoutMsg: "The extension Role did not reopen with compatibility readiness"
       });
       expect(await runtimeTabShellErrors()).toEqual([]);

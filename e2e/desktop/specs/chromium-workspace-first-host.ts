@@ -151,8 +151,11 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
         const normal = (await layout()).contentBounds;
         for (const rapid of [false,true]) {
           await resizeWorkspaceWindow({inspection:await inspect(input.windowId),edge:"bottomRight",rapid,
+            // Keep the range inside the initial frame: the Windows CI display
+            // is only 1024x768, but min -> near-normal -> normal still proves
+            // that the content tracks the full native resize range.
             moves: rapid ? [{x:-96,y:-72},{x:0,y:0}] : [
-              {x:640-normal.width,y:400-normal.height},{x:320,y:160},{x:0,y:0}],
+              {x:640-normal.width,y:400-normal.height},{x:-64,y:-48},{x:0,y:0}],
             whileHeld:async (step, frame, initialFrame) => {
               await browser.waitUntil(async () => {
                 const current = (await layout()).contentBounds;

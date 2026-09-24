@@ -23,7 +23,11 @@ export async function expectExtensionPassedClassification(roleId: string, previo
     const rejected = terminals.find(entry => entry.context?.stage === "classification" ||
       entry.context?.code === "ELECTRON_EXTENSION_BOOTSTRAP_DEADLINE_EXCEEDED");
     if (rejected) {
-      terminalFailure = JSON.stringify(rejected.context);
+      const bootstrap = page.entries.filter(entry =>
+        entry.event === "extension_bootstrap_incomplete" &&
+        entry.context?.roleId === roleId && entry.context?.extensionId === EXTENSION_ID
+      ).map(entry => entry.context);
+      terminalFailure = JSON.stringify({ terminal: rejected.context, bootstrap });
       return true;
     }
     // Native running plus the exact compatibility receipt proves successful
@@ -34,7 +38,7 @@ export async function expectExtensionPassedClassification(roleId: string, previo
       entry.context?.stage === "bootstrap" && entry.context?.status === "loaded");
 
   }, { timeout: 30_000, timeoutMsg: "AdBlock did not reach native worker running and compatibility readiness" });
-  if (terminalFailure) throw new Error(`AdBlock native extension classification failed: ${terminalFailure}`);
+  if (terminalFailure) throw new Error(`AdBlock native extension readiness failed: ${terminalFailure}`);
 }
 
 export async function verifyExtensionPermissionsAfterRestart(): Promise<void> {

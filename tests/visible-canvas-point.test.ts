@@ -38,6 +38,15 @@ describe.each(["macos", "windows"] as const)("visible canvas input on %s", () =>
     expect(document.activeElement).not.toBe(canvas);
   });
 
+  it("finds a narrow exposed side strip beside a centered page panel", () => {
+    const { canvas, hitTest } = fixture();
+    hitTest.mockImplementation((x) => x < window.innerWidth * 0.05 ? canvas : document.body);
+    const point = visibleCanvasPoint();
+    expect(point.x).toBeLessThan(window.innerWidth * 0.05);
+    expect(point.y).toBeGreaterThan(0);
+    expect(document.elementFromPoint(point.x, point.y)).toBe(canvas);
+  });
+
   it("rejects an obscured canvas without focusing or clicking through the cover", () => {
     const { canvas, hitTest } = fixture();
     hitTest.mockReturnValue(document.body);

@@ -1,5 +1,5 @@
 import { browser, expect } from "@wdio/globals";
-import { electronDesktopE2eFullscreenToolbarRuntime as inspect, electronDesktopE2eProbe } from "../support/electron-driver";
+import { electronDesktopE2eFullscreenToolbarRuntime as inspect } from "../support/electron-driver";
 import { resizeWorkspaceWindow } from "../support/workspace-window-resize";
 import { captureWorkspacePixels } from "../support/workspace-pixels";
 import { expectWorkspacePixels } from "./chromium-workspace-gap-evidence";
@@ -7,10 +7,9 @@ import { expectWorkspacePixels } from "./chromium-workspace-gap-evidence";
 export async function resizeWorkspaceWithLoadingSibling(windowId: string, tabId: string): Promise<number> {
   const before = await inspect(windowId);
   const width = Math.max(...before.surfaces.filter(s => s.tabId === tabId).map(s => s.bounds.x+s.bounds.width));
-  const { platform } = await electronDesktopE2eProbe();
-  // A wide macOS window can already reach the screen's right edge. Shrink it
-  // there; grow narrower windows that may be at the native tracking minimum.
-  const delta = platform === "macos" && width >= 800 ? -96 : 96;
+  // A wide window can already reach the screen's right edge. Shrink it there;
+  // grow narrower windows that may be at the native tracking minimum.
+  const delta = width >= 800 ? -96 : 96;
   await resizeWorkspaceWindow({ inspection: before, edge: "right", moves:[{x:delta,y:0}],
     whileHeld: async () => {
       await browser.waitUntil(async () => {

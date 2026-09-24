@@ -14,6 +14,7 @@ import type {
 } from "../../../src/shared/types";
 import {
   electronDesktopE2eFocusMainWindow,
+  electronDesktopE2eFullscreenToolbarRuntime,
   electronDesktopE2eGameWindowRuntime,
   electronDesktopE2eProbe,
   electronDesktopE2eRolePlaceholderRuntime,
@@ -751,6 +752,16 @@ export async function activateChromiumRoleVisible(
     platform: context.platform,
     tabId: tab.tabId,
     tabName: tab.role.name
+  });
+  await browser.waitUntil(async () => {
+    const runtime = await rendererCall("getEmbeddedRuntimeState");
+    if (runtime.windows.find((window) => window.windowId === tab.windowId)
+      ?.activeTabId !== tab.tabId) return false;
+    const native = await electronDesktopE2eFullscreenToolbarRuntime(tab.windowId);
+    return native.surfaces.some((surface) => surface.tabId === tab.tabId && surface.visible);
+  }, {
+    timeout: 20_000,
+    timeoutMsg: `Visible Chromium Role tab ${tab.tabId} did not reach its native surface`
   });
 }
 

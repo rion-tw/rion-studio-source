@@ -10,8 +10,8 @@ export function visibleCanvasPoint(): { x: number; y: number } {
   const right = Math.min(window.innerWidth, bounds.right);
   const bottom = Math.min(window.innerHeight, bounds.bottom);
   if (right > left && bottom > top) {
-    for (const vertical of [0.1, 0.9, 0.5]) {
-      for (const horizontal of [0.1, 0.9, 0.5]) {
+    for (const vertical of [0.5, 0.1, 0.9]) {
+      for (const horizontal of [0.02, 0.98, 0.05, 0.95, 0.1, 0.9, 0.5]) {
         const x = Math.floor(left + (right - left) * horizontal);
         const y = Math.floor(top + (bottom - top) * vertical);
         if (document.elementFromPoint(x, y) === canvas) return { x, y };

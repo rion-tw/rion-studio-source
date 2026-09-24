@@ -28,6 +28,7 @@ export async function exerciseWorkspaceResize(input: ResizeInput): Promise<void>
     };
     const original = extent(await inspect(input.windowId));
     await resizeWorkspaceWindow({ inspection: await inspect(input.windowId), edge,
+      requireRequestedFrame: "all",
       // Reverse the drag within the initial frame so a border near the screen
       // edge never asks the OS to grow the window beyond its work area.
       moves: [first, { x: first.x/2, y: first.y/2 }, {x:0,y:0}],

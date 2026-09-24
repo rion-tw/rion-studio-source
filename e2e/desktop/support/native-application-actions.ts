@@ -177,11 +177,13 @@ async function settleMacosAppKitRuntimeFocus(input: Readonly<{
   }
   const expectedWindowIdentifier =
     `com.rionstudio.runtime.appkit-window.v1:${input.windowId}`;
+  // Swift compilation on a cold CI runner precedes the helper's own bounded
+  // 10-second AX focus check. Let that check finish and report its exact error.
   await executeFile("/usr/bin/xcrun", [
     "swift", nativeFocusScript, String(input.processId), expectedWindowIdentifier,
     input.runtimeTabName ?? "", input.activate ? "focus" : "observe",
     input.requireActiveTab ? "active" : ""
-  ], { encoding: "utf8", timeout: 15_000 });
+  ], { encoding: "utf8", timeout: 30_000 });
 }
 
 /** Observes Quick Access' exact AppKit focus result without touching the launcher. */

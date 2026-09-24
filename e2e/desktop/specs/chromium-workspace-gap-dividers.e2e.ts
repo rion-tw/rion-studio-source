@@ -543,10 +543,19 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
       const before = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
       await dragDivider({ axis, dividerIndex: axis === "vertical" ? 0 : 1, gap, delta,
         mainWindowHandle: launched.mainWindowHandle, platform, windowId: gameWindow.id,
-        whileDragging: async () => expectWorkspacePixels({
-          inspection: await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id),
-          tabId: launched.tabId, name: `matrix-${gap}-${background}-${axis}-held`, background, indicators: axis
-        }) });
+        whileDragging: async () => {
+          let held: ElectronDesktopE2eFullscreenToolbarRuntimeInspection | undefined;
+          const beforeSlots = before.workspaceTabs.find(tab => tab.tabId === launched.tabId)!.slots;
+          await browser.waitUntil(async () => {
+            held = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
+            const slots = held.workspaceTabs.find(tab => tab.tabId === launched.tabId)?.slots;
+            return held.topologyRevision > before.topologyRevision &&
+              (axis === "vertical" ? slots?.[0]?.rect.width !== beforeSlots[0]!.rect.width
+                : slots?.[1]?.rect.height !== beforeSlots[1]!.rect.height);
+          }, { timeout: 20_000, timeoutMsg: `${axis} divider did not project its held Core slot rect` });
+          await expectWorkspacePixels({ inspection: held!, tabId: launched.tabId,
+            name: `matrix-${gap}-${background}-${axis}-held`, background, indicators: axis });
+        } });
       await browser.waitUntil(async () => (await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id))
         .topologyRevision > before.topologyRevision, { timeout: 20_000 });
       await expectWorkspacePixels({ inspection: await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id),

@@ -20,6 +20,7 @@ export interface FixtureEvent {
   contract?: string;
   coordinates?: { x: number; y: number };
   defaultPrevented?: boolean;
+  documentStarted?: number;
   errorCode?: string;
   errorMessage?: string;
   eventType?: "auxclick" | "click";

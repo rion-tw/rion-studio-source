@@ -10,6 +10,7 @@ import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eProbe, el
   "../support/electron-driver";
 import { clickVisibleElectronPageElement, withRolePageTarget } from
   "../support/electron-role-surface";
+import { clickMacosVisibleRoleControl } from "../support/macos-appkit-ui";
 import { fixtureCursor, fixtureRequest, waitFixtureEvent } from
   "../support/fixture";
 import { rendererCall } from "../support/renderer-bridge";
@@ -35,6 +36,28 @@ const FAILING_ROLE_NAME = "Chromium Workspaces Recovery Failing";
 const WORKSPACE_NAME = "Chromium Workspaces Recovery";
 const HEALTHY_FIXTURE = "chromium-workspaces-recovery-healthy";
 const FAILING_FIXTURE = "chromium-workspaces-recovery-failing";
+
+async function clickHealthyRole(input: Readonly<{
+  launchUrl: string;
+  mainWindowHandle: string;
+  platform: "macos" | "windows";
+  roleId: string;
+  windowId: string;
+}>): Promise<void> {
+  if (input.platform === "macos") {
+    // The fixture button is fixed at the document center. Keep the gated or
+    // failed sibling out of WebDriver's window-switch path.
+    await clickMacosVisibleRoleControl(input.windowId, input.roleId, {
+      viewport: { height: 1, width: 1 },
+      x: 0.5,
+      y: 0.5
+    });
+    return;
+  }
+  await clickVisibleElectronPageElement(
+    input.launchUrl, input.mainWindowHandle, "#qa-target"
+  );
+}
 
 type RoleInspection = Awaited<ReturnType<
   typeof electronDesktopE2eRolePlaceholderRuntime
@@ -157,9 +180,15 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
       const healthySlot = workspace.slots.find((slot) => slot.roleId === healthyRole.id)!;
       expect((await workspaceSlotUi({ ...slotInput, slotId: healthySlot.id })).phase).toBe("ready");
       const cursor = await fixtureCursor();
-      await clickVisibleElectronPageElement(healthyRole.launchUrl, input.mainWindowHandle, "#qa-target");
+      await clickHealthyRole({
+        launchUrl: healthyRole.launchUrl,
+        mainWindowHandle: input.mainWindowHandle,
+        platform: input.platform,
+        roleId: healthyRole.id,
+        windowId: openingTab.windowId
+      });
       expect(await waitFixtureEvent({ afterSequence: cursor, kind: "click", roleId: HEALTHY_FIXTURE }))
-        .toEqual(expect.objectContaining({ isTrusted: true }));
+        .toEqual(expect.objectContaining({ isTrusted: true, targetId: "qa-target" }));
     } finally {
       await fixtureRequest("/api/release", { roleId: FAILING_FIXTURE });
     }
@@ -237,11 +266,13 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
       expectExactNativeOwner(healthyAfter, input.platform);
 
       const healthyCursor = await fixtureCursor();
-      await clickVisibleElectronPageElement(
-        healthyRole.launchUrl,
-        input.mainWindowHandle,
-        "#qa-target"
-      );
+      await clickHealthyRole({
+        launchUrl: healthyRole.launchUrl,
+        mainWindowHandle: input.mainWindowHandle,
+        platform: input.platform,
+        roleId: healthyRole.id,
+        windowId: initialTab.windowId
+      });
       expect(await waitFixtureEvent({
         afterSequence: healthyCursor,
         kind: "click",
@@ -280,13 +311,24 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
         { timeout: 45_000, timeoutMsg: "Initial slot failure did not render locally" });
       const healthyUnchanged = await waitRoleInspection(healthyRole.id,
         (inspection) => inspection.coreStatus.automationState === "ready", "healthy sibling before local retry");
-      await clickVisibleElectronPageElement(healthyRole.launchUrl, input.mainWindowHandle, "#qa-target");
-      const readHealthyState = () => withRolePageTarget(healthyRole.launchUrl, input.mainWindowHandle,
-        async () => browser.execute(() => ({
-          clicks: document.querySelector("#click")?.textContent, documentStarted: performance.timeOrigin
-        })));
-      const healthyDocument = await readHealthyState();
-      expect(Number(healthyDocument.clicks)).toBeGreaterThan(0);
+      const healthyCursor = await fixtureCursor();
+      await clickHealthyRole({
+        launchUrl: healthyRole.launchUrl,
+        mainWindowHandle: input.mainWindowHandle,
+        platform: input.platform,
+        roleId: healthyRole.id,
+        windowId: failedTab.windowId
+      });
+      const healthyClick = await waitFixtureEvent({
+        afterSequence: healthyCursor,
+        kind: "click",
+        roleId: HEALTHY_FIXTURE
+      });
+      expect(healthyClick).toEqual(expect.objectContaining({
+        isTrusted: true,
+        targetId: "qa-target"
+      }));
+      expect(healthyClick.documentStarted).toBeGreaterThan(0);
       await fixtureRequest("/api/navigation-failure", { enabled: false, roleId: FAILING_FIXTURE });
       await workspaceSlotUi({ ...failureSlotInput, action: "retry" });
       await waitCutoverWorkspaceTab(workspace, [
@@ -298,7 +340,15 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
         (inspection) => inspection.coreStatus.automationState === "ready", "healthy sibling after local retry");
       expect(healthyAfterRetry.nativeOwner.generation).toBe(healthyUnchanged.nativeOwner.generation);
       expect(healthyAfterRetry.coreOwner).toEqual(healthyUnchanged.coreOwner);
-      expect(await readHealthyState()).toEqual(healthyDocument);
+      const healthyDocument = await withRolePageTarget(
+        healthyRole.launchUrl, input.mainWindowHandle,
+        async () => browser.execute(() => ({
+          clicks: document.querySelector("#click")?.textContent,
+          documentStarted: performance.timeOrigin
+        }))
+      );
+      expect(Number(healthyDocument.clicks)).toBeGreaterThan(0);
+      expect(healthyDocument.documentStarted).toBe(healthyClick.documentStarted);
       await stopCutoverWindow({ ...input, tab: failedTab });
     } finally {
       await fixtureRequest("/api/navigation-failure", { enabled: false, roleId: FAILING_FIXTURE });

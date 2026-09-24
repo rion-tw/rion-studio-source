@@ -142,6 +142,9 @@ function recordFixtureEvent(input) {
     defaultPrevented: typeof input.defaultPrevented === "boolean"
       ? input.defaultPrevented
       : undefined,
+    documentStarted: Number.isFinite(input.documentStarted) && input.documentStarted > 0
+      ? input.documentStarted
+      : undefined,
     errorCode: typeof input.errorCode === "string" ? input.errorCode : undefined,
     errorMessage: typeof input.errorMessage === "string" ? input.errorMessage : undefined,
     eventType: input.eventType === "click" || input.eventType === "auxclick"
@@ -542,6 +545,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
         button: event.button,
         buttons: event.buttons,
         coordinates: { x: event.clientX, y: event.clientY },
+        documentStarted: performance.timeOrigin,
         isTrusted: event.isTrusted,
         targetId: event.currentTarget.id
       });

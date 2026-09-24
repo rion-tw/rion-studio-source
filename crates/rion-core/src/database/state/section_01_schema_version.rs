@@ -45,7 +45,9 @@ use crate::session_migration::{
 
 pub(crate) const SCHEMA_VERSION: u32 = 31;
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+// A WAL checkpoint can exceed three seconds under concurrent Windows load.
+// Preserve an indeterminate terminal, with the same bound as the log worker.
+const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 const WORKER_START_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]

@@ -58,6 +58,7 @@ event.post(tap: .cghidEventTap)
 usleep(100_000)
 let expected = input["expected"] as? [String: NSNumber]
 let deadline = Date().addingTimeInterval(10)
+var lastDragAt = Date.distantPast
 while true {
   guard let currentSize = attribute(window, "AXSize"),
         let currentPosition = attribute(window, "AXPosition") else {
@@ -70,6 +71,19 @@ while true {
       abs(extent.height - expected["y"]!.doubleValue) <= 1 { break }
   if Date() >= deadline {
     fatalError("native resize did not reach requested frame: \(expected), actual \(extent)")
+  }
+  // A busy AppKit run loop can coalesce the short initial drag stream before
+  // its final sample is handled. Keep the real button-held stream at the exact
+  // destination until the native window acknowledges the requested frame.
+  if phase == "move" && Date().timeIntervalSince(lastDragAt) >= 0.15 {
+    guard let drag = CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged,
+                             mouseCursorPosition: point, mouseButton: .left) else {
+      fatalError("resize acknowledgement drag unavailable")
+    }
+    drag.flags = []
+    drag.setIntegerValueField(.mouseEventClickState, value: 1)
+    drag.post(tap: .cghidEventTap)
+    lastDragAt = Date()
   }
   usleep(10_000)
 }

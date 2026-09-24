@@ -1,4 +1,4 @@
-import { $, browser, expect } from "@wdio/globals";
+import { $, browser } from "@wdio/globals";
 import { rendererCall } from "./renderer-bridge";
 import { waitForRoute } from "./ui";
 import { electronDesktopE2eProbe } from "./electron-driver";
@@ -14,13 +14,18 @@ export async function extensionTerminalIds(): Promise<string[]> {
 
 export async function expectExtensionPassedClassification(roleId: string, previousIds: string[]): Promise<void> {
   const previous = new Set(previousIds);
+  let terminalFailure: string | undefined;
   await browser.waitUntil(async () => {
     const page = await rendererCall("queryLogs", { sources: ["extension"], limit: 200 });
     const terminals = page.entries.filter(entry => !previous.has(entry.id) &&
       entry.event === "extension_runtime_terminal" && entry.context?.roleId === roleId &&
       entry.context?.extensionId === EXTENSION_ID);
-    expect(terminals.some(entry => entry.context?.stage === "classification")).toBe(false);
-    expect(terminals.some(entry => entry.context?.code === "ELECTRON_EXTENSION_BOOTSTRAP_DEADLINE_EXCEEDED")).toBe(false);
+    const rejected = terminals.find(entry => entry.context?.stage === "classification" ||
+      entry.context?.code === "ELECTRON_EXTENSION_BOOTSTRAP_DEADLINE_EXCEEDED");
+    if (rejected) {
+      terminalFailure = JSON.stringify(rejected.context);
+      return true;
+    }
     // Native running plus the exact compatibility receipt proves successful
     // bootstrap; generic degraded or deadline outcomes never count as success.
     // Post-navigation API/DNR behavior has a separate acceptance gate. In
@@ -29,6 +34,7 @@ export async function expectExtensionPassedClassification(roleId: string, previo
       entry.context?.stage === "bootstrap" && entry.context?.status === "loaded");
 
   }, { timeout: 30_000, timeoutMsg: "AdBlock did not reach native worker running and compatibility readiness" });
+  if (terminalFailure) throw new Error(`AdBlock native extension classification failed: ${terminalFailure}`);
 }
 
 export async function verifyExtensionPermissionsAfterRestart(): Promise<void> {

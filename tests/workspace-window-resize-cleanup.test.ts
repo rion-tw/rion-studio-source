@@ -29,7 +29,8 @@ it.each([false, true])("retains resize evidence when a retired HWND rejects clea
   mocks.run.mockImplementation(async (_script: string, payload: { phase: string }) => {
     if (payload.phase === "end") throw cleanup;
     return JSON.stringify({ x: 100, y: 100, width: 900, height: 600,
-      windowX: 0, windowY: 0, minimumWidth: 640, minimumHeight: 480 });
+      windowX: 0, windowY: 0, minimumWidth: 640, minimumHeight: 480,
+      dragFullWindows: false });
   });
   const action = resizeWorkspaceWindow({
     inspection: { windowId: "window", nativeWindowHandle: "456" },
@@ -39,4 +40,5 @@ it.each([false, true])("retains resize evidence when a retired HWND rejects clea
   if (failWhileHeld) await expect(action).rejects.toMatchObject({ errors: [primary, cleanup] });
   else await expect(action).rejects.toBe(cleanup);
   expect(mocks.run.mock.calls.map(call => call[1].phase)).toEqual(["start", "move", "end"]);
+  expect(mocks.run.mock.calls[2]?.[1]).toMatchObject({ restoreDragFullWindows: false });
 });

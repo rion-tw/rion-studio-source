@@ -7,7 +7,7 @@ import { focusVisibleMacosAppKitRuntime } from "./native-application-actions";
 import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
 
 type Point = { x: number; y: number };
-type NativeFrame = Point & { width:number; height:number; windowX:number; windowY:number; minimumWidth?:number; minimumHeight?:number };
+type NativeFrame = Point & { width:number; height:number; windowX:number; windowY:number; minimumWidth?:number; minimumHeight?:number; dragFullWindows?:boolean };
 /** Real native border input, held across read-only geometry/pixel evidence. */
 export async function resizeWorkspaceWindow(input: {
   inspection: Inspection; edge: "right" | "bottom" | "bottomRight" | "left" | "top";
@@ -19,8 +19,9 @@ export async function resizeWorkspaceWindow(input: {
   const nativeWindowHandle = input.inspection.nativeWindowHandle;
   if (platform === "macos") await focusVisibleMacosAppKitRuntime({ processId, windowId });
   else await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle: nativeWindowHandle! });
+  const nativeSetting = { originalDragFullWindows: undefined as boolean | undefined };
   const action = async (phase: string, point: Point, expected?: Point): Promise<NativeFrame> => {
-    const payload = { processId, windowId, nativeWindowHandle, phase, edge: input.edge, rapid: input.rapid ?? false, expected: expected ?? null, ...point };
+    const payload = { processId, windowId, nativeWindowHandle, phase, edge: input.edge, rapid: input.rapid ?? false, expected: expected ?? null, restoreDragFullWindows: nativeSetting.originalDragFullWindows ?? null, ...point };
     if (platform === "macos") {
       const request = resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "resize-request.json");
       await writeFile(request, JSON.stringify(payload));
@@ -44,12 +45,18 @@ public static class WorkspaceResize {
  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint x,uint y,uint data,UIntPtr extra);
+ [DllImport("user32.dll", EntryPoint="SystemParametersInfoW", SetLastError=true)] public static extern bool GetDragFullWindows(uint action,uint param,out int value,uint flags);
+ [DllImport("user32.dll", EntryPoint="SystemParametersInfoW", SetLastError=true)] public static extern bool SetDragFullWindows(uint action,uint param,IntPtr value,uint flags);
 }
 '@
 [WorkspaceResize]::SetThreadDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
 # Release this helper's held button even if a product failure retired the HWND.
 # Do not move the pointer before release and accidentally resize a replacement.
 if ($payload.phase -eq 'end') { [WorkspaceResize]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero) }
+if ($payload.phase -eq 'end' -and $payload.restoreDragFullWindows -eq $false -and
+    -not [WorkspaceResize]::SetDragFullWindows(0x25,0,[IntPtr]::Zero,0)) {
+ throw 'native full-window drag setting could not be restored'
+}
 $h=[IntPtr]::new([long]$payload.nativeWindowHandle); $owner=[uint32]0
 [WorkspaceResize]::GetWindowThreadProcessId($h,[ref]$owner) | Out-Null
 if ($owner -ne [uint32]$payload.processId) { throw 'exact resize HWND changed' }
@@ -58,6 +65,12 @@ if (-not [WorkspaceResize]::GetWindowRect($h,[ref]$r)) { throw 'resize frame una
 $scale=[WorkspaceResize]::GetDpiForWindow($h)/96.0
 $limits=New-Object WorkspaceResize+MinMax; $reply=[UIntPtr]::Zero
 if ([WorkspaceResize]::SendMessageTimeout($h,0x24,[IntPtr]::Zero,[ref]$limits,2,5000,[ref]$reply) -eq [IntPtr]::Zero) { throw 'native resize constraints unavailable' }
+$dragFullWindows=0
+if (-not [WorkspaceResize]::GetDragFullWindows(0x26,0,[ref]$dragFullWindows,0)) { throw 'native full-window drag setting unavailable' }
+if ($payload.phase -eq 'start' -and $dragFullWindows -eq 0 -and
+    -not [WorkspaceResize]::SetDragFullWindows(0x25,1,[IntPtr]::Zero,0)) {
+ throw 'native full-window drag could not be enabled for live resize evidence'
+}
 $x=$payload.x*$scale; $y=$payload.y*$scale
 if ($payload.phase -eq 'start') {
  $x=$r.right-2; $y=$r.bottom-2
@@ -92,18 +105,19 @@ if ($payload.expected) {
  $clock=[Diagnostics.Stopwatch]::StartNew()
  while ([Math]::Abs(($r.right-$r.left)/$scale-$payload.expected.x) -gt 1 -or
         [Math]::Abs(($r.bottom-$r.top)/$scale-$payload.expected.y) -gt 1) {
-  if ($clock.ElapsedMilliseconds -gt 10000) { throw "native resize did not reach requested frame: $($payload.expected | ConvertTo-Json -Compress), actual $($r.right-$r.left)x$($r.bottom-$r.top), scale $scale" }
+  if ($clock.ElapsedMilliseconds -gt 10000) { throw "native resize did not reach requested frame: $($payload.expected | ConvertTo-Json -Compress), actual $($r.right-$r.left)x$($r.bottom-$r.top), scale $scale, dragFullWindows $dragFullWindows" }
   Start-Sleep -Milliseconds 10
   if (-not [WorkspaceResize]::GetWindowRect($h,[ref]$r)) { throw 'resize acknowledgement frame unavailable' }
  }
 }
-@{x=$x/$scale;y=$y/$scale;windowX=$r.left/$scale;windowY=$r.top/$scale;width=($r.right-$r.left)/$scale;height=($r.bottom-$r.top)/$scale;minimumWidth=$limits.minTrack.x/$scale;minimumHeight=$limits.minTrack.y/$scale} | ConvertTo-Json -Compress
+@{x=$x/$scale;y=$y/$scale;windowX=$r.left/$scale;windowY=$r.top/$scale;width=($r.right-$r.left)/$scale;height=($r.bottom-$r.top)/$scale;minimumWidth=$limits.minTrack.x/$scale;minimumHeight=$limits.minTrack.y/$scale;dragFullWindows=($dragFullWindows -ne 0)} | ConvertTo-Json -Compress
 `, payload, { timeoutMilliseconds: 30_000 }));
     await appendFile(resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "native-resize-events.jsonl"),
       JSON.stringify({ ...payload, native })+"\n");
     return native;
   };
   const initialFrame = await action("start", {x:0,y:0});
+  nativeSetting.originalDragFullWindows = initialFrame.dragFullWindows;
   let point: Point = initialFrame;
   const start = point;
   let failed = false;

@@ -1,5 +1,4 @@
 import { macosNativeWindowControl } from "./macos-native-window-controls";
-import { MACOS_NATIVE_CHROME_ELEMENTS } from "./macos-native-chrome";
 import { readMacosVisibleRuntimeTabPoint } from "./macos-appkit-ui";
 import { focusVisibleMacosAppKitRuntime, waitForFocusedMacosAppKitRuntime } from
   "./native-application-actions";
@@ -122,22 +121,6 @@ async function runAppKitAction(script: string, ...arguments_: string[]): Promise
   });
 }
 
-async function readAppKitAction(
-  script: string,
-  ...arguments_: string[]
-): Promise<string> {
-  if (process.platform !== "darwin") {
-    throw new Error("The retained AppKit window is macOS-only");
-  }
-  const result = await executeFile("/usr/bin/osascript", [
-    "-e",
-    `${MACOS_NATIVE_CHROME_ELEMENTS}\n${script}`,
-    "--",
-    ...arguments_
-  ], { encoding: "utf8", timeout: 10_000 });
-  return result.stdout.trim();
-}
-
 async function clickMacosScreenPoint(
   x: number,
   y: number,
@@ -202,10 +185,6 @@ async function clickMacosAppKitTab(tabId: string, tabName: string): Promise<void
   const point = await readMacosVisibleRuntimeTabPoint({ tabId, tabName, windowId });
   await clickMacosScreenPoint(point.x, point.y);
   await waitForFocusedMacosAppKitRuntime({ processId, windowId, runtimeTabName: tabName });
-}
-
-function notPendingAppKitValue(value: string): boolean {
-  return value !== "pending" && !value.startsWith("pending:");
 }
 
 export interface VisibleMacosRuntimeTabCloseEvidence {
@@ -290,9 +269,7 @@ async function closeMacosAppKitTab(
       (!Number.isSafeInteger(exactProcessId) || exactProcessId < 1)) {
     throw new Error("The exact AppKit tab close requires one valid process ID");
   }
-  const processId = String(
-    exactProcessId ?? (await electronDesktopE2eProbe()).processId
-  );
+  const processId = exactProcessId ?? (await electronDesktopE2eProbe()).processId;
   const evidence = preloadedEvidence ??
     await readVisibleMacosRuntimeTabCloseEvidence({ tabId, tabName, windowId });
   if (evidence.tabId !== tabId || evidence.windowId !== windowId ||
@@ -302,39 +279,12 @@ async function closeMacosAppKitTab(
   if (deferRendererVerification && preloadedEvidence === undefined) {
     throw new Error("A deferred AppKit close requires preloaded native evidence");
   }
-  const expectedWindowIdentifier =
-    `com.rionstudio.runtime.appkit-window.v1:${windowId}`;
-  await browser.waitUntil(async () => notPendingAppKitValue(await readAppKitAction(`
-on run argv
-  set expectedWindowIdentifier to item 1 of argv
-  set targetPid to (item 2 of argv) as integer
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set targetWindow to missing value
-    set targetCount to 0
-    repeat with appWindow in windows of targetProcess
-      try
-        if value of attribute "AXIdentifier" of appWindow is expectedWindowIdentifier then
-          set targetWindow to appWindow
-          set targetCount to targetCount + 1
-        end if
-      end try
-    end repeat
-    if targetCount is 0 then return "pending"
-    if targetCount is not 1 then error "ambiguous AppKit close window"
-    set frontmost of targetProcess to true
-    perform action "AXRaise" of targetWindow
-    return "raised"
-  end tell
-end run`, expectedWindowIdentifier, processId)), {
-    interval: 100,
-    timeout: 10_000,
-    timeoutMsg: `The exact AppKit close window ${windowId} did not become Accessibility-ready`
-  });
+  // The typed AX helper waits for the exact native window to be frontmost and
+  // focused. Raising it alone can return before AppKit accepts pointer input.
+  await focusVisibleMacosAppKitRuntime({ processId, windowId });
   // The native close slot appears on pointer entry with a 120 ms AppKit
   // animation. Enter it from the tab body and click after that transition.
+  console.info("AppKit tab close pointer", JSON.stringify(evidence));
   await clickMacosScreenPoint(evidence.x, evidence.y, false, true);
   if (deferRendererVerification) return;
   await switchTrackedWindow(mainWindowHandle);

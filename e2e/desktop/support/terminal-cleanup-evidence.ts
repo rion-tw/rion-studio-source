@@ -61,6 +61,18 @@ export async function runtimeEffectCursor(): Promise<number> {
   return entries.at(-1)?.sequence ?? 0;
 }
 
+/** Observe the restore controller's completion after every saved Window journal receipt. */
+export async function waitForSavedWindowRestoreCompletion(afterSequence: number): Promise<void> {
+  const terminal = await waitForArtifact("electron-core-flow-observations.json", value =>
+    (value as Array<{ sequence: number; boundary: string; type: string;
+      status: string; error?: string }>).find(entry =>
+      entry.sequence > afterSequence && entry.boundary === "launch" &&
+      entry.type === "savedWindowRestore" && entry.status !== "started"));
+  if (terminal.status !== "completed") {
+    throw new Error(`Saved window restore did not complete: ${terminal.error ?? terminal.status}`);
+  }
+}
+
 /** Observe Core's durable restore receipt before deliberately terminating Electron. */
 export async function waitForRestoreSessionTerminal(windowId: string, afterSequence: number): Promise<void> {
   const terminal = await waitForArtifact("electron-core-flow-observations.json", value =>

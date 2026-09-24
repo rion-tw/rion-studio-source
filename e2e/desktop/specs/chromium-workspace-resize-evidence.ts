@@ -4,12 +4,25 @@ import { electronDesktopE2eFullscreenToolbarRuntime as inspect } from "../suppor
 import { expectWorkspacePixels } from "./chromium-workspace-gap-evidence";
 
 type ResizeInput = { windowId: string; tabId: string; gap: number; background: "black" | "material" };
+async function inspectProjected(windowId: string): Promise<Awaited<ReturnType<typeof inspect>>> {
+  let current: Awaited<ReturnType<typeof inspect>> | undefined;
+  await browser.waitUntil(async () => {
+    try {
+      current = await inspect(windowId);
+      return true;
+    } catch (error) {
+      if (!String(error).includes("has stale preference, presentation, or native fences")) throw error;
+      return false;
+    }
+  }, { timeout: 20_000, timeoutMsg: "Core and native Workspace topology revisions did not converge" });
+  return current!;
+}
 /** Every move is real border input. Core dimensions, gaps and native pixels must agree while held. */
 export async function exerciseWorkspaceResize(input: ResizeInput): Promise<void> {
-  const baseline = await inspect(input.windowId);
+  const baseline = await inspectProjected(input.windowId);
   const rects = baseline.workspaceTabs.find(t => t.tabId === input.tabId)!.slots.map(s => s.rect);
   const check = async (name: string) => {
-    const current = await inspect(input.windowId);
+    const current = await inspectProjected(input.windowId);
     expect(current.workspaceTabs.find(t => t.tabId === input.tabId)!.slots.map(s => s.rect)).toEqual(rects);
     const surfaces = current.surfaces.filter(s => s.tabId === input.tabId);
     const left = surfaces.reduce((a,b) => a.bounds.x < b.bounds.x ? a : b).bounds;
@@ -26,15 +39,15 @@ export async function exerciseWorkspaceResize(input: ResizeInput): Promise<void>
       return {width:Math.max(...boxes.map(b => b.x+b.width))-Math.min(...boxes.map(b => b.x)),
         height:Math.max(...boxes.map(b => b.y+b.height))-Math.min(...boxes.map(b => b.y))};
     };
-    const original = extent(await inspect(input.windowId));
-    await resizeWorkspaceWindow({ inspection: await inspect(input.windowId), edge,
+    const original = extent(await inspectProjected(input.windowId));
+    await resizeWorkspaceWindow({ inspection: await inspectProjected(input.windowId), edge,
       requireRequestedFrame: "all",
       // Reverse the drag within the initial frame so a border near the screen
       // edge never asks the OS to grow the window beyond its work area.
       moves: [first, { x: first.x/2, y: first.y/2 }, {x:0,y:0}],
       whileHeld: async (step, frame, initialFrame) => {
         await browser.waitUntil(async () => {
-          const current = extent(await inspect(input.windowId));
+          const current = extent(await inspectProjected(input.windowId));
           return Math.abs(current.width-original.width-(frame.width-initialFrame.width)) <= 1 &&
             Math.abs(current.height-original.height-(frame.height-initialFrame.height)) <= 1;
         }, { timeout:20_000, timeoutMsg:`Core geometry did not match the actual ${edge} native resize` });
@@ -46,11 +59,11 @@ export async function exerciseWorkspaceResize(input: ResizeInput): Promise<void>
     const surfaceBounds = baseline.surfaces.filter(s => s.tabId === input.tabId).map(s => s.bounds);
     const width = Math.max(...surfaceBounds.map(b => b.x+b.width));
     const height = Math.max(...surfaceBounds.map(b => b.y+b.height));
-    await resizeWorkspaceWindow({ inspection: await inspect(input.windowId), edge: "bottomRight",
+    await resizeWorkspaceWindow({ inspection: await inspectProjected(input.windowId), edge: "bottomRight",
       moves: [{x:640-width,y:400-height}, {x:0,y:0}],
       whileHeld: step => check(`resize-range-${step}-held`) });
     await check("resize-range-ended");
-    await resizeWorkspaceWindow({ inspection: await inspect(input.windowId), edge: "bottomRight", rapid: true,
+    await resizeWorkspaceWindow({ inspection: await inspectProjected(input.windowId), edge: "bottomRight", rapid: true,
       moves: [{x:-96,y:-72}, {x:0,y:0}],
       whileHeld: step => check(`resize-rapid-reversal-${step}-held`) });
     await check("resize-rapid-reversal-ended");

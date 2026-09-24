@@ -568,7 +568,12 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         );
       }
       await finishRestore(windowId);
-      const presented = await this.#readCoherentSnapshot();
+      // Revealing the host can admit a native placement event that advances
+      // Core before its exact Chromium projection. Settle only this window's
+      // admitted work before checking the final presentation receipt.
+      const presented = await this.#awaitLiveTarget(
+        await this.#readCoherentSnapshot(false), windowId
+      );
       const presentedLogical = presented.core.logicalWindows.find(
         (candidate) => candidate.windowId === windowId
       );

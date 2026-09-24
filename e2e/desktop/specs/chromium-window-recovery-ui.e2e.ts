@@ -14,6 +14,7 @@ import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import { clickVisibleRuntimeTab } from "../support/native-runtime-tabs";
 import { forceTerminateProcessTree } from "../support/process";
 import { rendererCall } from "../support/renderer-bridge";
+import { runtimeEffectCursor, waitForSavedWindowRestoreCompletion } from "../support/terminal-cleanup-evidence";
 import {
   acceptLegalAndSkipFirstRun,
   ensureEnglishUi,
@@ -378,9 +379,11 @@ async function restoreAndForcePhase(input: Readonly<{
   }
   expect(awaiting.windows).toEqual([]);
   const cursor = await fixtureCursor();
+  const restoreCursor = await runtimeEffectCursor();
   const restore = await $("button=Restore session");
   await restore.waitForClickable({ timeout: 10_000 });
   await restore.click();
+  await waitForSavedWindowRestoreCompletion(restoreCursor);
   await waitExactWindows(lifecycle);
   await Promise.all([
     waitSession(cursor, ROLES[0], true),

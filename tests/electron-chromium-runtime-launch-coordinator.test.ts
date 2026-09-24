@@ -971,6 +971,45 @@ describe("Electron Chromium runtime launch coordinator", () => {
     expect(finishRestore).toHaveBeenCalledExactlyOnceWith(WINDOW_ID);
   });
 
+  it("settles the restored host's admitted placement projection before committing presentation", async () => {
+    let releaseProjection!: () => void;
+    let projectionAdmitted = false;
+    const pendingProjection = new Promise<void>(resolve => { releaseProjection = resolve; });
+    const settleWindowProjection = vi.fn(async (windowId: string) => {
+      expect(windowId).toBe(WINDOW_ID);
+      if (!projectionAdmitted) return false;
+      await pendingProjection;
+      state.nativeSnapshot = { ...state.nativeSnapshot, windows: state.nativeSnapshot.windows.map(window =>
+        ({ ...window, topologyRevision: state.coreSnapshot.logicalWindows[0]!.revision })) };
+      projectionAdmitted = false;
+      return true;
+    });
+    const finishRestore = vi.fn(() => {
+      state.coreSnapshot.logicalWindows[0]!.revision += 1;
+      state.coreSnapshot.revision += 1;
+      state.coreSnapshot.runtimeRevision += 1;
+      projectionAdmitted = true;
+    });
+    const { coordinator, state } = launchHarness({
+      observedSnapshots: true,
+      settleWindowProjection,
+      activateRestoredTab: async () => undefined,
+      beginSavedWindowRestore: () => undefined,
+      completeRestores: true,
+      finishSavedWindowRestore: finishRestore
+    });
+    const saved = nonemptySavedWindow();
+    state.coreSnapshot.state.gameWindows.push(saved);
+
+    const restoring = coordinator.restoreSavedGameWindow(saved);
+    await vi.waitFor(() => expect(finishRestore).toHaveBeenCalledExactlyOnceWith(WINDOW_ID));
+    expect(settleWindowProjection).toHaveBeenCalledWith(WINDOW_ID);
+    releaseProjection();
+    await expect(restoring).resolves.toBeUndefined();
+    expect(state.nativeSnapshot.windows[0]!.topologyRevision)
+      .toBe(state.coreSnapshot.logicalWindows[0]!.revision);
+  });
+
   it.each([false, true])("restores saved tabs with a single admission focus only for explicit Show (%s)", async foreground => {
     const order: string[] = [];
     const beginRestore = vi.fn();

@@ -94,7 +94,11 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
 
 @end
 
-@implementation RionRuntimeWorkspaceDividerOverlayView
+@implementation RionRuntimeWorkspaceDividerOverlayView {
+  BOOL _cornerResizeActive;
+  NSRect _cornerResizeInitialFrame;
+  NSPoint _cornerResizeInitialPointer;
+}
 - (instancetype)initWithFrame:(NSRect)frameRect {
   self = [super initWithFrame:frameRect];
   if (self) {
@@ -123,12 +127,22 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   return YES;
 }
 
+- (BOOL)mouseDownCanMoveWindow {
+  return NO;
+}
+
 - (nullable NSView *)hitTest:(NSPoint)point {
-  if (self.hidden || !NSPointInRect(point, self.bounds) ||
-      RionWorkspacePointIsOnWindowResizeBorder(self, point)) return nil;
-  // The full-size overlay is presentation-only. Only exact Core-projected
-  // native divider hit rects may consume pointer input; every other point
-  // falls through to the retained Chromium content surfaces below it.
+  if (self.hidden || !NSPointInRect(point, self.bounds)) return nil;
+  NSWindow *window = self.window;
+  if (window && (window.styleMask & NSWindowStyleMaskResizable) &&
+      !(window.styleMask & NSWindowStyleMaskFullScreen) &&
+      NSPointInRect(point, NSMakeRect(NSMaxX(self.bounds) - 16.0,
+                                     NSMaxY(self.bounds) - 16.0, 16.0, 16.0))) {
+    return self;
+  }
+  if (RionWorkspacePointIsOnWindowResizeBorder(self, point)) return nil;
+  // Beyond the corner grip, only exact Core-projected divider hit rects
+  // consume input; other points reach the Chromium surfaces below.
   for (NSView *subview in self.subviews.reverseObjectEnumerator) {
     if (!subview.hidden && NSPointInRect(point, subview.frame)) {
       NSPoint local = [subview convertPoint:point fromView:self];
@@ -137,6 +151,44 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
     }
   }
   return nil;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+  (void)event;
+  NSWindow *window = self.window;
+  if (!window || !(window.styleMask & NSWindowStyleMaskResizable) ||
+      (window.styleMask & NSWindowStyleMaskFullScreen)) return;
+  _cornerResizeInitialFrame = window.frame;
+  _cornerResizeInitialPointer = NSEvent.mouseLocation;
+  _cornerResizeActive = YES;
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+  (void)event;
+  NSWindow *window = self.window;
+  if (!_cornerResizeActive || !window ||
+      (window.styleMask & NSWindowStyleMaskFullScreen)) return;
+  NSPoint pointer = NSEvent.mouseLocation;
+  CGFloat width = MAX(window.minSize.width,
+                      NSWidth(_cornerResizeInitialFrame) +
+                          pointer.x - _cornerResizeInitialPointer.x);
+  CGFloat height = MAX(window.minSize.height,
+                       NSHeight(_cornerResizeInitialFrame) -
+                           (pointer.y - _cornerResizeInitialPointer.y));
+  NSRect frame = NSMakeRect(NSMinX(_cornerResizeInitialFrame),
+                            NSMaxY(_cornerResizeInitialFrame) - height,
+                            width, height);
+  [window setFrame:frame display:YES];
+}
+
+- (void)mouseUp:(NSEvent *)event {
+  (void)event;
+  _cornerResizeActive = NO;
+}
+
+- (void)viewWillMoveToWindow:(nullable NSWindow *)newWindow {
+  if (!newWindow) _cornerResizeActive = NO;
+  [super viewWillMoveToWindow:newWindow];
 }
 
 @end

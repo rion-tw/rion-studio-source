@@ -22,10 +22,10 @@ let phase = input["phase"] as! String
 var point = CGPoint(x: (input["x"] as? NSNumber)?.doubleValue ?? 0, y: (input["y"] as? NSNumber)?.doubleValue ?? 0)
 if phase == "start" {
   let edge = input["edge"] as! String
-  // The native right edge engages at its outermost point. Move only the
-  // vertical coordinate clear of the rounded corner for a diagonal drag.
+  // The AppKit Workspace overlay owns a native 16-point corner resize grip.
+  // Start inside it, away from the rounded outer pixels.
   point = CGPoint(x: origin.x + extent.width - 1, y: origin.y + extent.height - 1)
-  if edge == "bottomRight" { point.y -= 7 }
+  if edge == "bottomRight" { point = CGPoint(x: point.x - 7, y: point.y - 7) }
   if edge == "right" { point.y = origin.y + extent.height / 2 }
   if edge == "bottom" { point.x = origin.x + extent.width / 2 }
   if edge == "left" { point = CGPoint(x: origin.x + 1, y: origin.y + extent.height / 2) }

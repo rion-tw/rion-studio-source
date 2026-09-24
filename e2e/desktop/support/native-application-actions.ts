@@ -18,11 +18,10 @@ export async function withMacosAnsiInputSource<T>(task: () => Promise<T>): Promi
   const current = (await executeFile("/usr/bin/xcrun", ["swift", macosInputSourceScript, "current"], {
     encoding: "utf8", timeout: 15_000
   })).stdout.trim();
-  const ansi = "com.apple.keylayout.ABC";
-  if (current === ansi) return task();
-  await executeFile("/usr/bin/xcrun", ["swift", macosInputSourceScript, "select", ansi], {
+  const ansi = (await executeFile("/usr/bin/xcrun", ["swift", macosInputSourceScript, "select-ansi"], {
     encoding: "utf8", timeout: 15_000
-  });
+  })).stdout.trim();
+  if (current === ansi) return task();
   try {
     return await task();
   } finally {

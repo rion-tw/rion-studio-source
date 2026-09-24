@@ -553,8 +553,26 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
               (axis === "vertical" ? slots?.[0]?.rect.width !== beforeSlots[0]!.rect.width
                 : slots?.[1]?.rect.height !== beforeSlots[1]!.rect.height);
           }, { timeout: 20_000, timeoutMsg: `${axis} divider did not project its held Core slot rect` });
-          await expectWorkspacePixels({ inspection: held!, tabId: launched.tabId,
-            name: `matrix-${gap}-${background}-${axis}-held`, background, indicators: axis });
+          // AppKit can deliver the final dragged event after Core has already
+          // projected an earlier sample. Keep the native proof tied to the
+          // latest authoritative revision while the mouse remains down.
+          for (let attempt = 0; attempt < 4; attempt += 1) {
+            let failure: unknown;
+            try {
+              await expectWorkspacePixels({ inspection: held!, tabId: launched.tabId,
+                name: `matrix-${gap}-${background}-${axis}-held`, background, indicators: axis });
+            } catch (error) {
+              failure = error;
+            }
+            const latest = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
+            if (latest.topologyRevision > held!.topologyRevision) {
+              held = latest;
+              continue;
+            }
+            if (failure) throw failure;
+            return;
+          }
+          throw new Error(`${axis} divider kept changing during held native pixel proof`);
         } });
       await browser.waitUntil(async () => (await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id))
         .topologyRevision > before.topologyRevision, { timeout: 20_000 });

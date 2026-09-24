@@ -74,6 +74,9 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
 @interface RionRuntimeWorkspaceDividerOverlayView
     : NSView <NSAccessibilityGroup>
 @property(nonatomic) NSPoint layoutOrigin;
+@property(nonatomic, readonly) BOOL cornerResizeActive;
+- (BOOL)isCornerResizePoint:(NSPoint)point;
+- (void)cancelCornerResize;
 @end
 
 @interface RionRuntimeWorkspaceDividerView : NSView
@@ -131,15 +134,22 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   return NO;
 }
 
-- (nullable NSView *)hitTest:(NSPoint)point {
-  if (self.hidden || !NSPointInRect(point, self.bounds)) return nil;
+- (BOOL)cornerResizeActive {
+  return _cornerResizeActive;
+}
+
+- (BOOL)isCornerResizePoint:(NSPoint)point {
+  if (self.hidden || !NSPointInRect(point, self.bounds)) return NO;
   NSWindow *window = self.window;
-  if (window && (window.styleMask & NSWindowStyleMaskResizable) &&
+  return window && (window.styleMask & NSWindowStyleMaskResizable) &&
       !(window.styleMask & NSWindowStyleMaskFullScreen) &&
       NSPointInRect(point, NSMakeRect(NSMaxX(self.bounds) - 16.0,
-                                     NSMaxY(self.bounds) - 16.0, 16.0, 16.0))) {
-    return self;
-  }
+                                     NSMaxY(self.bounds) - 16.0, 16.0, 16.0));
+}
+
+- (nullable NSView *)hitTest:(NSPoint)point {
+  if (self.hidden || !NSPointInRect(point, self.bounds)) return nil;
+  if ([self isCornerResizePoint:point]) return self;
   if (RionWorkspacePointIsOnWindowResizeBorder(self, point)) return nil;
   // Beyond the corner grip, only exact Core-projected divider hit rects
   // consume input; other points reach the Chromium surfaces below.
@@ -183,6 +193,10 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
 
 - (void)mouseUp:(NSEvent *)event {
   (void)event;
+  _cornerResizeActive = NO;
+}
+
+- (void)cancelCornerResize {
   _cornerResizeActive = NO;
 }
 

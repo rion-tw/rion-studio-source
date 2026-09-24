@@ -219,6 +219,16 @@ NS_ASSUME_NONNULL_BEGIN
       _workspaceDividerOverlay.hidden) {
     return event;
   }
+  if (_workspaceDividerOverlay.cornerResizeActive) {
+    if (event.type == NSEventTypeLeftMouseDragged) {
+      [_workspaceDividerOverlay mouseDragged:event];
+      return nil;
+    }
+    if (event.type == NSEventTypeLeftMouseUp) {
+      [_workspaceDividerOverlay mouseUp:event];
+      return nil;
+    }
+  }
   RionRuntimeWorkspaceDividerView *active = _activeWorkspaceDivider;
   if (active && event.type == NSEventTypeLeftMouseDragged) {
     // NSEvent.locationInWindow can remain at mouse-down when the AppKit run
@@ -238,6 +248,10 @@ NS_ASSUME_NONNULL_BEGIN
   NSPoint point = NSZeroPoint;
   if (![self workspaceDividerPointForEvent:event overlayPoint:&point]) return event;
   if (event.type == NSEventTypeLeftMouseDown) {
+    if ([_workspaceDividerOverlay isCornerResizePoint:point]) {
+      [_workspaceDividerOverlay mouseDown:event];
+      return nil;
+    }
     if (RionWorkspacePointIsOnWindowResizeBorder(_workspaceDividerOverlay, point)) return event;
     if (_activeWorkspaceDivider) {
       [_activeWorkspaceDivider cancelActiveGesture];
@@ -270,6 +284,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (void)removeWorkspaceDividerEventMonitor {
+  [_workspaceDividerOverlay cancelCornerResize];
   if (_workspaceDividerEventMonitor) {
     [NSEvent removeMonitor:_workspaceDividerEventMonitor];
     _workspaceDividerEventMonitor = nil;

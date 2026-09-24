@@ -163,11 +163,18 @@ async function observeMacosPointerMotion(
   const motion = move().finally(() => { completed = true; });
   const observations: ElectronDesktopE2eFullscreenToolbarRuntimeInspection[] = [];
   while (!completed && observations.length < 60) {
-    observations.push(await electronDesktopE2eFullscreenToolbarRuntime(windowId));
+    try {
+      observations.push(await electronDesktopE2eFullscreenToolbarRuntime(windowId));
+    } catch (error) {
+      // AppKit can retire the old titlebar view between animation frames.
+      // Only a valid native observation can establish motion evidence.
+      if (!String(error).includes("InvalidLayout")) throw error;
+    }
     await browser.pause(20);
   }
   await motion;
-  observations.push(await electronDesktopE2eFullscreenToolbarRuntime(windowId));
+  observations.push(await waitForToolbar(windowId, () => true,
+    "AppKit toolbar geometry did not settle after pointer motion"));
   return observations;
 }
 

@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { access, copyFile, mkdir, readFile, watch, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, readdir, stat, watch, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -278,6 +278,38 @@ function cleanupPhaseProcessGroup(processGroupId) {
   } catch (error) {
     if (error?.code !== "ESRCH") throw error;
   }
+}
+
+async function captureMacosCrashReports(phaseDir, phaseStartedAt) {
+  if (process.platform !== "darwin") return;
+  const locations = [
+    process.env.HOME && resolve(process.env.HOME, "Library/Logs/DiagnosticReports"),
+    "/Library/Logs/DiagnosticReports"
+  ].filter(Boolean);
+  const destination = resolve(phaseDir, "macos-crash-reports");
+  const copied = [];
+  for (const location of locations) {
+    let entries;
+    try {
+      entries = await readdir(location, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code === "ENOENT" || error?.code === "EACCES") continue;
+      throw error;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile() || !/^(?:Electron|Rion Studio Dev)/u.test(entry.name) ||
+          !/\.(?:ips|crash)$/u.test(entry.name)) continue;
+      const source = resolve(location, entry.name);
+      const details = await stat(source);
+      if (details.mtimeMs < phaseStartedAt - 5_000 || details.size > 10_000_000) continue;
+      await mkdir(destination, { recursive: true });
+      const name = `${copied.length + 1}-${entry.name}`;
+      await copyFile(source, resolve(destination, name));
+      copied.push(name);
+    }
+  }
+  await writeFile(resolve(phaseDir, "macos-crash-reports.json"),
+    `${JSON.stringify({ copied, phaseStartedAt: new Date(phaseStartedAt).toISOString() }, null, 2)}\n`);
 }
 
 async function startFixture() {
@@ -1164,6 +1196,7 @@ try {
     const userDataDir = userDataDirForPhase(phase);
     await mkdir(phaseDir, { recursive: true });
     await mkdir(userDataDir, { recursive: true });
+    const phaseStartedAt = Date.now();
     const result = await run(node, [wdio, "run", executionPlan.wdioConfigPath], {
       isolatedProcessGroup: process.platform === "darwin",
       env: {
@@ -1213,6 +1246,14 @@ try {
       userDataDir,
       result.code === 0 || Boolean(forcedTermination)
     );
+    if (result.code !== 0 && !forcedTermination) {
+      try {
+        await captureMacosCrashReports(phaseDir, phaseStartedAt);
+      } catch (error) {
+        await writeFile(resolve(phaseDir, "macos-crash-reports-error.txt"),
+          `${String(error)}\n`);
+      }
+    }
     const phaseStatus = blocked
       ? "BLOCKED"
       : forcedTermination

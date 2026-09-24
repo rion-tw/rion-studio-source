@@ -24,6 +24,10 @@ import type {
 import { ChromiumExtensionBootstrap } from "./chromiumExtensionBootstrap";
 
 const EXTENSION_DEADLINE_MS = 15_000;
+// Large MV3 workers can remain in native `starting` while Chromium initializes
+// their packaged rulesets. Keep the same fail-closed terminal with a distinct
+// bound for worker bootstrap after loadExtension has already resolved.
+const EXTENSION_BOOTSTRAP_DEADLINE_MS = 60_000;
 const REQUIRED_COMPATIBILITY_APIS = Object.freeze([
   "action",
   "alarms",
@@ -297,7 +301,10 @@ export class ChromiumExtensionSessions {
 
     if (readiness) {
       readiness.nativeLoaded();
-      const bootstrapped = await this.#deadline(readiness.result);
+      const bootstrapped = await this.#deadline(
+        readiness.result,
+        this.#input.deadlineMs ?? EXTENSION_BOOTSTRAP_DEADLINE_MS
+      );
       this.#clearBootstrap(entry.handle.session as Session, packageRecord.id);
       if (bootstrapped.status !== "completed") {
         this.#input.logger?.extensionDiagnostic("warn", "extension_bootstrap_incomplete",
@@ -465,8 +472,10 @@ export class ChromiumExtensionSessions {
     this.#bootstraps.delete(session);
   }
 
-  #deadline<Value>(promise: Promise<Value>): Promise<DeadlineResult<Value>> {
-    const duration = this.#input.deadlineMs ?? EXTENSION_DEADLINE_MS;
+  #deadline<Value>(
+    promise: Promise<Value>,
+    duration = this.#input.deadlineMs ?? EXTENSION_DEADLINE_MS
+  ): Promise<DeadlineResult<Value>> {
     // DeadlineBound: an unknown external Chromium load/bootstrap acknowledgement
     // terminalizes as indeterminate; elapsed time is never success.
     return new Promise((resolve) => {

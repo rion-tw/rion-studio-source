@@ -69,6 +69,20 @@ describe.each(["darwin", "win32"])("bootstrap lease lifecycle (%s)", platform =>
     } });
   });
 
+  it("accepts an exact native worker that finishes starting after the load bound", async () => {
+    vi.useFakeTimers();
+    const f = fixture(); await f.started.promise;
+    f.load.resolve({ id }); f.status("starting"); f.ready();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(f.native.removeExtension).not.toHaveBeenCalled();
+    f.status("running");
+    await f.prepared;
+    expect(f.core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
+      type: "complete", roleId: "role", leaseId: "lease", status: "loaded"
+    } });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("latches errors before native load completes and waits for exact unload before Core completion", async () => {
     vi.useFakeTimers();
     const f = fixture();
@@ -152,7 +166,7 @@ describe.each(["darwin", "win32"])("bootstrap lease lifecycle (%s)", platform =>
     vi.useFakeTimers();
     const f = fixture(); await f.started.promise;
     f.load.resolve({ id }); f.status("starting"); f.ready();
-    await vi.advanceTimersByTimeAsync(14_999);
+    await vi.advanceTimersByTimeAsync(59_999);
     expect(f.native.removeExtension).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     await f.removing.promise; f.unloaded(); await f.prepared;

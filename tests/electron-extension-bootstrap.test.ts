@@ -7,8 +7,17 @@ const origin = `chrome-extension://${id}/`;
 const receipt = { availableApis: [], staticRulesetCount: 0,
   staticRulesetStatus: "not-declared" as const, unavailableApis: [] };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
 function fixture() {
+  const start = deferred<{ scope: string; scriptURL: string; versionId: number }>();
   const workers = Object.assign(new EventEmitter(), {
+    startWorkerForScope: vi.fn(() => start.promise),
     getWorkerFromVersionID: vi.fn((versionId: number) => ({
       scope: versionId === 9 ? "https://unrelated.invalid/" : origin,
       scriptURL: `${origin}background.js`
@@ -23,7 +32,7 @@ function fixture() {
     message: "Uncaught TypeError: Cannot read properties of undefined (reading 'onClicked')",
     ...overrides
   });
-  return { bootstrap, workers, status, error };
+  return { bootstrap, workers, start, status, error };
 }
 
 // The same native follower protocol is used on both supported desktop targets.
@@ -32,12 +41,13 @@ describe.each(["darwin", "win32"])("worker bootstrap (%s)", () => {
     const { bootstrap, status, error, workers } = fixture();
     bootstrap.nativeLoaded();
     expect(bootstrap.inspect()).toEqual({ nativeLoaded: true, workerVersionId: null,
-      workerRunning: false, compatibilityReady: false, events: ["native-loaded"] });
+      workerRunning: false, workerWasRunning: false, compatibilityReady: false,
+      events: ["native-loaded", "start-requested"] });
     status("starting");
     bootstrap.compatibilityReady(receipt, 1);
     expect(bootstrap.inspect()).toEqual({ nativeLoaded: true, workerVersionId: 1,
-      workerRunning: false, compatibilityReady: true,
-      events: ["native-loaded", "starting", "compatibility-ready"] });
+      workerRunning: false, workerWasRunning: false, compatibilityReady: true,
+      events: ["native-loaded", "start-requested", "starting", "compatibility-ready"] });
     expect(bootstrap.outcome).toBeUndefined();
     error();
     const first = await bootstrap.result;
@@ -60,6 +70,62 @@ describe.each(["darwin", "win32"])("worker bootstrap (%s)", () => {
     expect(bootstrap.outcome).toBeUndefined();
     bootstrap.nativeLoaded();
     expect(await bootstrap.result).toEqual({ status: "ready", receipt });
+  });
+
+  it("starts the exact scope once when load finishes before a native running event", async () => {
+    const { bootstrap, workers, start, status } = fixture();
+    status("starting");
+    bootstrap.compatibilityReady(receipt, 1);
+    bootstrap.nativeLoaded();
+    bootstrap.nativeLoaded();
+    expect(workers.startWorkerForScope).toHaveBeenCalledTimes(1);
+    expect(workers.startWorkerForScope).toHaveBeenCalledWith(origin);
+    start.resolve({ scope: origin, scriptURL: `${origin}background.js`, versionId: 1 });
+    expect(await bootstrap.result).toEqual({ status: "ready", receipt });
+  });
+
+  it("accepts a sender-bound receipt only after the exact native start identifies its version", async () => {
+    const { bootstrap, start } = fixture();
+    bootstrap.compatibilityReady(receipt, 1);
+    bootstrap.nativeLoaded();
+    expect(bootstrap.outcome).toBeUndefined();
+    start.resolve({ scope: origin, scriptURL: `${origin}background.js`, versionId: 1 });
+    expect(await bootstrap.result).toEqual({ status: "ready", receipt });
+  });
+
+  it("keeps normal worker idle-stop from erasing a completed native running acknowledgement", async () => {
+    const { bootstrap, status, workers } = fixture();
+    status("starting"); status("running"); status("stopped");
+    bootstrap.compatibilityReady(receipt, 1);
+    bootstrap.nativeLoaded();
+    expect(workers.startWorkerForScope).not.toHaveBeenCalled();
+    expect(await bootstrap.result).toEqual({ status: "ready", receipt });
+  });
+
+  it("rejects a native start for a different worker version", async () => {
+    const { bootstrap, start, status } = fixture();
+    status("starting");
+    bootstrap.compatibilityReady(receipt, 1);
+    bootstrap.nativeLoaded();
+    start.resolve({ scope: origin, scriptURL: `${origin}background.js`, versionId: 2 });
+    expect(await bootstrap.result).toEqual({ status: "failed",
+      code: "ELECTRON_EXTENSION_WORKER_IDENTITY_MISMATCH" });
+  });
+
+  it("terminalizes an explicit native start rejection", async () => {
+    const { bootstrap, start } = fixture();
+    bootstrap.nativeLoaded();
+    start.reject(new Error("worker unavailable"));
+    expect(await bootstrap.result).toEqual({ status: "failed",
+      code: "ELECTRON_EXTENSION_SERVICE_WORKER_START_FAILED" });
+  });
+
+  it("terminalizes a synchronous native start failure", async () => {
+    const { bootstrap, workers } = fixture();
+    workers.startWorkerForScope.mockImplementation(() => { throw new Error("session retired"); });
+    bootstrap.nativeLoaded();
+    expect(await bootstrap.result).toEqual({ status: "failed",
+      code: "ELECTRON_EXTENSION_SERVICE_WORKER_START_FAILED" });
   });
 
   it("ignores warnings, handled console errors, network errors and unrelated workers", async () => {

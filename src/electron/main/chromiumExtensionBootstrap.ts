@@ -14,8 +14,11 @@ export class ChromiumExtensionBootstrap {
   #outcome: ExtensionBootstrapOutcome | undefined;
   #versionId: number | undefined;
   #running = false;
+  #wasRunning = false;
   #loaded = false;
   #receipt: CompatibilityReadyRecord | undefined;
+  #pendingReceipt: { record: CompatibilityReadyRecord; versionId: number } | undefined;
+  #startRequested = false;
   #events: string[] = [];
   readonly #origin: string;
 
@@ -30,21 +33,32 @@ export class ChromiumExtensionBootstrap {
 
   inspect(): Readonly<{
     workerVersionId: number | null; nativeLoaded: boolean;
-    workerRunning: boolean; compatibilityReady: boolean; events: readonly string[];
+    workerRunning: boolean; workerWasRunning: boolean;
+    compatibilityReady: boolean; events: readonly string[];
   }> {
     return { workerVersionId: this.#versionId ?? null, nativeLoaded: this.#loaded,
-      workerRunning: this.#running, compatibilityReady: this.#receipt !== undefined,
+      workerRunning: this.#running, workerWasRunning: this.#wasRunning,
+      compatibilityReady: this.#receipt !== undefined,
       events: [...this.#events] };
   }
 
   nativeLoaded(): void {
     this.#loaded = true;
     this.#record("native-loaded");
+    if (!this.#wasRunning || !this.#receipt) this.#startNativeWorker();
     this.#maybeReady();
   }
 
   compatibilityReady(receipt: CompatibilityReadyRecord, versionId: number): void {
-    if (this.#outcome || versionId !== this.#versionId) return;
+    if (this.#outcome) return;
+    if (this.#versionId === undefined) {
+      // Keep one sender-bound receipt until the native start result proves
+      // the same version and extension scope. A different version is ignored.
+      this.#pendingReceipt = { record: receipt, versionId };
+      this.#record("compatibility-pending");
+      return;
+    }
+    if (versionId !== this.#versionId) return;
     this.#receipt = receipt;
     this.#record("compatibility-ready");
     this.#maybeReady();
@@ -62,12 +76,53 @@ export class ChromiumExtensionBootstrap {
       // Capture while starting: getInfoFromVersionID may already throw when an
       // evaluation error is delivered. Never infer ownership from console text.
       this.#versionId = versionId;
+      if (this.#pendingReceipt?.versionId === versionId) {
+        this.#receipt = this.#pendingReceipt.record;
+        this.#record("compatibility-ready");
+      }
+      this.#pendingReceipt = undefined;
     }
     if (versionId !== this.#versionId) return;
     this.#running = runningStatus === "running";
+    if (this.#running) this.#wasRunning = true;
     this.#record(runningStatus);
     this.#maybeReady();
   };
+
+  #startNativeWorker(): void {
+    if (this.#startRequested || this.#outcome) return;
+    this.#startRequested = true;
+    this.#record("start-requested");
+    let started: ReturnType<ServiceWorkers["startWorkerForScope"]>;
+    try {
+      started = this.workers.startWorkerForScope(this.#origin);
+    } catch {
+      this.#finish({ status: "failed", code: "ELECTRON_EXTENSION_SERVICE_WORKER_START_FAILED" });
+      return;
+    }
+    void started.then(worker => {
+      if (this.#outcome) return;
+      if (worker.scope !== this.#origin || !worker.scriptURL.startsWith(this.#origin) ||
+          (this.#versionId !== undefined && worker.versionId !== this.#versionId)) {
+        this.#finish({ status: "failed", code: "ELECTRON_EXTENSION_WORKER_IDENTITY_MISMATCH" });
+        return;
+      }
+      this.#versionId = worker.versionId;
+      this.#running = true;
+      this.#wasRunning = true;
+      this.#record("start-completed");
+      if (this.#pendingReceipt?.versionId === worker.versionId) {
+        this.#receipt = this.#pendingReceipt.record;
+        this.#record("compatibility-ready");
+      }
+      this.#pendingReceipt = undefined;
+      this.#maybeReady();
+    }, () => {
+      if (!this.#outcome) {
+        this.#finish({ status: "failed", code: "ELECTRON_EXTENSION_SERVICE_WORKER_START_FAILED" });
+      }
+    });
+  }
 
   #record(event: string): void {
     if (this.#events.length < 16) this.#events.push(event);
@@ -90,7 +145,7 @@ export class ChromiumExtensionBootstrap {
   };
 
   #maybeReady(): void {
-    if (this.#loaded && this.#running && this.#receipt) {
+    if (this.#loaded && this.#wasRunning && this.#receipt) {
       this.#finish({ status: "ready", receipt: this.#receipt });
     }
   }

@@ -23,9 +23,9 @@ var point = CGPoint(x: (input["x"] as? NSNumber)?.doubleValue ?? 0, y: (input["y
 if phase == "start" {
   let edge = input["edge"] as! String
   // The Workspace overlay yields input within four points of the frame.
-  // Press three points inward to clear the rounded outer corner.
+  // Use the right border near the bottom, clear of the rounded corner.
   point = CGPoint(x: origin.x + extent.width - 1, y: origin.y + extent.height - 1)
-  if edge == "bottomRight" { point = CGPoint(x: point.x - 2, y: point.y - 2) }
+  if edge == "bottomRight" { point = CGPoint(x: point.x - 1, y: point.y - 7) }
   if edge == "right" { point.y = origin.y + extent.height / 2 }
   if edge == "bottom" { point.x = origin.x + extent.width / 2 }
   if edge == "left" { point = CGPoint(x: origin.x + 1, y: origin.y + extent.height / 2) }

@@ -82,7 +82,18 @@ async function selectOption(
   const step = steps[stepIndex];
   if (!step) throw new Error(`Macro step ${stepIndex} is missing`);
   await step.$(`button[aria-label='${ariaLabel}']`).click();
-  await $(`//*[@role="option" and normalize-space(.)="${option}"]`).click();
+  const choice = await $(`//*[@role="option" and normalize-space(.)="${option}"]`);
+  await choice.waitForClickable({ timeout: 10_000 });
+  await choice.click();
+  await browser.waitUntil(async () => {
+    const current = (await $$("[data-macro-step-id]"))[stepIndex];
+    return current
+      ? (await current.$(`button[aria-label='${ariaLabel}']`).getText()).trim() === option
+      : false;
+  }, {
+    timeout: 10_000,
+    timeoutMsg: `Macro step ${stepIndex} did not select ${option}`
+  });
 }
 
 async function addStep(label: "Click" | "Delay" | "Key"): Promise<void> {
@@ -117,6 +128,7 @@ async function createNativeEffectMacro(role: Role): Promise<Macro> {
 
   const macro = await findMacro(MACRO_NAME);
   expect(macro.roleIds).toEqual([role.id]);
+  expect(macro.steps[0]).toMatchObject({ type: "key", code: "KeyA" });
   expect(macro.steps.at(-1)).toMatchObject({ type: "delay", ms: 60_000 });
   expect(macro.steps.map((step) => step.type)).toEqual([
     "key", "click", "click", "click", "delay"

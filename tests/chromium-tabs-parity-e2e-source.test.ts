@@ -40,10 +40,12 @@ describe("Chromium native tab exact replacements", () => {
     expect(spec).not.toContain("runtimeUiAction(");
     expect(spec).not.toContain("controlWindow(");
     expect(spec).not.toContain("browser.execute(");
-    expect(helper).toContain('perform action "AXRaise" of targetWindow');
     expect(helper).toContain("readMacosVisibleRuntimeTabPoint({ tabId, tabName, windowId })");
     expect(helper).toContain("focusVisibleMacosAppKitRuntime({ processId, windowId, runtimeTabName: tabName })");
-    expect(helper).toContain('if targetCount is 0 then return "pending"');
+    const closeTab = helper.slice(helper.indexOf("async function closeMacosAppKitTab("),
+      helper.indexOf("async function closeMacosAppKitWindow("));
+    expect(closeTab).toContain("await focusVisibleMacosAppKitRuntime({ processId, windowId });");
+    expect(closeTab).toContain("await clickMacosScreenPoint(evidence.x, evidence.y, false, true)");
     expect(helper).toContain("await clickMacosScreenPoint(point.x, point.y)");
     expect(helper).toContain(".leftMouseDown");
     expect(helper).toContain(".leftMouseUp");
@@ -51,6 +53,7 @@ describe("Chromium native tab exact replacements", () => {
     const nativeFocus = await source(
       "e2e/desktop/support/macos-native-focus.swift"
     );
+    expect(nativeFocus).toContain("AXUIElementPerformAction(target, kAXRaiseAction as CFString)");
     expect(nativeFocus).toContain('mode == "shortcut" && (command == "nextTab" || command == "previousTab")');
     expect(nativeFocus).toContain('case "nextTab": key = 48; flags = [.maskControl]');
     expect(nativeFocus).toContain("var events = [controlDown, down, up, controlUp]");

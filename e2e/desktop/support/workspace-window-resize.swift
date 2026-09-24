@@ -22,7 +22,10 @@ let phase = input["phase"] as! String
 var point = CGPoint(x: (input["x"] as? NSNumber)?.doubleValue ?? 0, y: (input["y"] as? NSNumber)?.doubleValue ?? 0)
 if phase == "start" {
   let edge = input["edge"] as! String
+  // The outermost bottom-right pixel is outside the rounded AppKit resize hit
+  // region on the CI host. Begin inside both native border hit regions.
   point = CGPoint(x: origin.x + extent.width - 1, y: origin.y + extent.height - 1)
+  if edge == "bottomRight" { point = CGPoint(x: point.x - 7, y: point.y - 7) }
   if edge == "right" { point.y = origin.y + extent.height / 2 }
   if edge == "bottom" { point.x = origin.x + extent.width / 2 }
   if edge == "left" { point = CGPoint(x: origin.x + 1, y: origin.y + extent.height / 2) }

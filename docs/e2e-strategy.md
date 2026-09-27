@@ -209,8 +209,11 @@ journey cleanly seeds two windows and three Role tabs, visibly Shows both before
 termination, visibly Restores and activates every native tab before a second
 termination, visibly Discards that exact cohort, and finally visibly Shows the
 unchanged dormant definitions. Every terminal phase requires an empty
-restore-in-progress cohort. macOS must report the retained AppKit host and
-identity throughout; Windows reports an independent bundled-Chromium verdict.
+restore-in-progress cohort. Both journeys require each restored native window's
+display identity to belong to the current Electron topology; deterministic unit
+coverage separately removes a saved modern display and proves primary-display
+remapping plus work-area clamping. macOS must report the retained AppKit host
+and identity throughout; Windows reports an independent bundled-Chromium verdict.
 
 The same profiles pair
 `CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SLOT-016` and

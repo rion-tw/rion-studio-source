@@ -130,10 +130,13 @@ snapshot before launch admission. A legacy `Monitor #<number>` fingerprint may
 match a different Electron ID/name only when logical bounds, physical resolution
 (DIP bounds times scale), scale, primary status and internal status identify one
 display. Pre-fingerprint records require one exact saved-work-area match. Missing
-or ambiguous matches fail without choosing an arbitrary primary display. Modern
-fingerprints retain exact matching. Launch and empty-window registration retain
-their topology revision fences; an unchanged legacy saved record may acknowledge
-registration before a native placement event persists the current display data.
+or ambiguous legacy matches fail without choosing an arbitrary display. Modern
+fingerprints retain an exact match when it is available; an unavailable or
+changed exact identity resolves to the one OS-authoritative primary display and
+clamps the saved normal bounds to its current work area. Launch and empty-window
+registration retain their topology revision fences; an unchanged legacy saved
+record may acknowledge registration before a native placement event persists
+the current display data.
 If a snapshot read observes a newer Core revision, admission also captures any
 exact-window native work admitted during that read. Only admitted work permits
 another snapshot; absent work or a failed receipt still rejects the mismatch.

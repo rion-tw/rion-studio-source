@@ -2258,7 +2258,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create one exact permanent Game Window containing a Role tab and a mixed Role/Rion Website Workspace tab, navigate the Website from the Rion entrance, establish isolated Role cookies, LocalStorage, and per-slot global-Web continuation through a normal clean exit, visibly Show it before exact-PID termination, then use the visible Dashboard Restore session action. SQLite and native evidence require the exact schema-v2 cohort, saved last URL, isolated Sessions, and retained AppKit host."
+      "description": "Create one exact permanent Game Window containing a Role tab and a mixed Role/Rion Website Workspace tab, navigate the Website from the Rion entrance, establish isolated Role cookies, LocalStorage, and per-slot global-Web continuation through a normal clean exit, visibly Show it before exact-PID termination, then use the visible Dashboard Restore session action. SQLite and native evidence require the exact schema-v2 cohort, saved last URL, isolated Sessions, a currently available display identity, and retained AppKit host."
     },
     {
       "id": "CHROMIUM-WINDOWS-MIXED-RECOVERY-021",
@@ -2286,7 +2286,7 @@
         "failure",
         "restart"
       ],
-      "description": "Run the same Rion-entrance navigation, clean-seed, visible Show, exact-PID termination, and visible Restore sequence for the paired Windows Chromium host. Exact evidence requires the same Role/Workspace-Web topology, per-slot last URL, isolated Sessions, and bundled native Windows host ownership; Windows execution remains an independent CI verdict."
+      "description": "Run the same Rion-entrance navigation, clean-seed, visible Show, exact-PID termination, and visible Restore sequence for the paired Windows Chromium host. Exact evidence requires the same Role/Workspace-Web topology, per-slot last URL, isolated Sessions, a currently available display identity, and bundled native Windows host ownership; Windows execution remains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WINDOW-RECOVERY-UI-022",
@@ -2316,7 +2316,7 @@
         "failure",
         "restart"
       ],
-      "description": "Seed two permanent AppKit Game Windows and three Role tabs with a normal clean exit, visibly Show the exact cohort before forced termination, visibly Restore and require the saved-window controller's terminal receipt before native-tab activation and a second exact-PID termination, visibly Discard the second recovery cohort, then visibly Show the clean dormant definitions. SQLite requires exact schema-v2 live and empty in-progress cohorts at every terminal phase; native evidence requires unchanged window/tab identities, Chromium Session continuity, and retained AppKit host identity."
+      "description": "Seed two permanent AppKit Game Windows and three Role tabs with a normal clean exit, visibly Show the exact cohort before forced termination, visibly Restore and require the saved-window controller's terminal receipt before native-tab activation and a second exact-PID termination, visibly Discard the second recovery cohort, then visibly Show the clean dormant definitions. SQLite requires exact schema-v2 live and empty in-progress cohorts at every terminal phase; native evidence requires unchanged window/tab identities, current available-display membership, Chromium Session continuity, and retained AppKit host identity."
     },
     {
       "id": "CHROMIUM-WINDOWS-WINDOW-RECOVERY-UI-022",
@@ -2346,7 +2346,7 @@
         "failure",
         "restart"
       ],
-      "description": "Run the paired Windows Chromium two-window recovery sequence through visible Show, Restore, native-tab activation, Discard, and final Show controls. Require the saved-window controller's terminal receipt before native-tab activation and exact-PID termination. Exact SQLite and native evidence require the same schema-v2 cohorts, persistent Role Sessions, saved active-tab topology, and bundled Windows host ownership; Windows execution remains an independent CI verdict."
+      "description": "Run the paired Windows Chromium two-window recovery sequence through visible Show, Restore, native-tab activation, Discard, and final Show controls. Require the saved-window controller's terminal receipt before native-tab activation and exact-PID termination. Exact SQLite and native evidence require the same schema-v2 cohorts, persistent Role Sessions, saved active-tab topology, current available-display membership, and bundled Windows host ownership; Windows execution remains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-GAME-WINDOW-UI-016",

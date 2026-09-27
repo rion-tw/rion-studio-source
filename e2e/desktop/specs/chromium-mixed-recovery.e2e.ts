@@ -262,9 +262,14 @@ async function readLifecycle(platform: "macos" | "windows"): Promise<MixedRecove
 
 async function waitExactRuntime(lifecycle: MixedRecoveryLifecycle): Promise<void> {
   await browser.waitUntil(async () => {
-    const runtime = await rendererCall("getEmbeddedRuntimeState");
+    const [runtime, topology] = await Promise.all([
+      rendererCall("getEmbeddedRuntimeState"),
+      rendererCall("getDisplayTopology")
+    ]);
+    const live = runtime.windows[0];
     return runtime.windows.length === 1
-      && runtime.windows[0]?.id === lifecycle.windowId
+      && live?.id === lifecycle.windowId
+      && topology.displays.some(({ id }) => id === live.displayId)
       && runtime.tabs.map(({ id }) => id).sort().join("|") ===
         [lifecycle.roleTab.tabId, lifecycle.workspace.tabId].sort().join("|");
   }, { timeout: 45_000, timeoutMsg: "Exact mixed native topology did not become live" });

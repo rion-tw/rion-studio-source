@@ -18,6 +18,15 @@ export function displayFingerprintMatches(
     saved.isInternal === display.isInternal;
 }
 
+function primaryDisplay(
+  topology: DisplayTopologySnapshotRecord
+): DisplayInfoRecord | undefined {
+  const candidates = topology.displays.filter(display =>
+    String(display.id) === topology.primaryDisplayId && display.isPrimary
+  );
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
 /** Resolve consumed legacy metadata against one authoritative screen snapshot. */
 export function resolveSavedWindowDisplay(
   saved: StateGameWindowRecord,
@@ -28,9 +37,15 @@ export function resolveSavedWindowDisplay(
   if (exact && fingerprint && displayFingerprintMatches(fingerprint, exact)) return exact;
 
   // The retired shell used different monitor IDs, placeholder names and physical
-  // resolution. Electron reports DIP size. Never reinterpret a modern fingerprint
-  // or choose an arbitrary display when legacy evidence is absent or ambiguous.
-  if (fingerprint && !/^Monitor #\d+$/u.test(fingerprint.label)) return undefined;
+  // resolution. Electron reports DIP size. Modern records can distinguish a
+  // disconnected or changed display from missing legacy evidence, so recover
+  // them on the OS-authoritative primary display. The launch coordinator clamps
+  // their saved bounds to that display's current work area.
+  if (fingerprint && !/^Monitor #\d+$/u.test(fingerprint.label)) {
+    return primaryDisplay(topology);
+  }
+  // Never choose an arbitrary display when legacy evidence is absent or
+  // ambiguous; those records do not prove which modern display they described.
   const candidates = topology.displays.filter(display => {
     if (!fingerprint) return sameBounds(saved.placement.savedWorkArea, display.workArea);
     return sameBounds(fingerprint.bounds, display.bounds) &&

@@ -47,7 +47,7 @@ async function main() {
       platform: process.platform, currentVersion: appVersion, packaged: true });
     stage = "seed-isolated-core";
     const core = await addon.createAppCore({ appVersion, packaged: true,
-      platform: process.platform, runtimeContractVersion: 47, userDataDir: isolation.userDataDirectory });
+      platform: process.platform, runtimeContractVersion: 48, userDataDir: isolation.userDataDirectory });
     const workspaceName = "DRM capability workspace";
     await runPackagedCoreOperation(core, async () => {
       const invoke = async command => JSON.parse(await core.invoke(JSON.stringify(command)));

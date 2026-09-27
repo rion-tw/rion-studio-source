@@ -82,6 +82,25 @@ function emptySavedWindow(): StateGameWindowRecord {
   return { ...window, tabs: [], activeTabId: undefined };
 }
 
+function moveSavedWindowToExternalDisplay(window: StateGameWindowRecord): void {
+  window.targetDisplay = {
+    id: 99,
+    fingerprint: {
+      label: "External Display",
+      bounds: { x: 1440, y: 0, width: 1920, height: 1080 },
+      resolution: { width: 1920, height: 1080 },
+      scaleFactor: 1,
+      isPrimary: false,
+      isInternal: false
+    }
+  };
+  window.placement = {
+    normalBounds: { x: 1560, y: 80, width: 1200, height: 760 },
+    savedWorkArea: { x: 1440, y: 24, width: 1920, height: 1056 },
+    presentation: "normal"
+  };
+}
+
 function emptyTransientTarget() {
   return {
     windowId: WINDOW_ID,
@@ -971,6 +990,30 @@ describe("Electron Chromium runtime launch coordinator", () => {
     expect(finishRestore).toHaveBeenCalledExactlyOnceWith(WINDOW_ID);
   });
 
+  it("restores a saved external-display window on the current primary display", async () => {
+    const { coordinator, launchCommands, state } = launchHarness({
+      activateRestoredTab: async () => undefined,
+      beginSavedWindowRestore: () => undefined,
+      completeRestores: true,
+      finishSavedWindowRestore: () => undefined
+    });
+    const saved = nonemptySavedWindow();
+    moveSavedWindowToExternalDisplay(saved);
+    state.coreSnapshot.state.gameWindows.push(saved);
+
+    await expect(coordinator.restoreSavedGameWindow(saved)).resolves.toBeUndefined();
+
+    expect(launchCommands[0]!.target).toEqual({
+      windowId: WINDOW_ID,
+      persistedName: "Saved",
+      displayId: 41,
+      scaleFactor: 2,
+      workArea: { x: 0, y: 0, width: 1440, height: 900 },
+      bounds: { x: 240, y: 80, width: 1200, height: 760 },
+      presentation: "normal"
+    });
+  });
+
   it("settles the restored host's admitted placement projection before committing presentation", async () => {
     let releaseProjection!: () => void;
     let projectionAdmitted = false;
@@ -1236,6 +1279,28 @@ describe("Electron Chromium runtime launch coordinator", () => {
       launchReceipt: { destinationReason: "requested-live-game-window" }
     });
     expect(launchCommands).toHaveLength(1);
+  });
+
+  it("registers an empty saved external-display window on the current primary display", async () => {
+    const { coordinator, coreInvoke, state } = launchHarness();
+    const saved = emptySavedWindow();
+    moveSavedWindowToExternalDisplay(saved);
+    state.coreSnapshot.state.gameWindows.push(saved);
+
+    await expect(coordinator.openEmptySavedGameWindow(saved)).resolves.toBeUndefined();
+
+    expect(coreInvoke).toHaveBeenCalledWith({
+      type: "embeddedWindowRegister",
+      target: {
+        windowId: WINDOW_ID,
+        persistedName: "Saved",
+        displayId: 41,
+        scaleFactor: 2,
+        workArea: { x: 0, y: 0, width: 1440, height: 900 },
+        bounds: { x: 240, y: 80, width: 1200, height: 760 },
+        presentation: "normal"
+      }
+    });
   });
 
   it("registers a transient empty Game Window before admitting a launch into it", async () => {

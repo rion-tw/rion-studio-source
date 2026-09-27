@@ -205,7 +205,7 @@ Production Web/DRM, restart, audio/video and Netflix controls therefore remain
 existing release-configured package is needed for that native pass. This local
 directory build is not a release candidate or a signed updater distribution.
 The separate older packaged-role seed helper still requests contract 43; this
-diagnostic seeds the current contract-47 package directly through its Core
+diagnostic seeds the current contract-48 package directly through its Core
 factory, without changing any product contract or database schema.
 
 ### Acceptance rerun (2026-09-21, 08:26–08:27 Asia/Taipei)

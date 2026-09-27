@@ -61,6 +61,7 @@ describe("Chromium recovery parity replacement source", () => {
       expect(source).toContain("clickVisibleRuntimeTab");
       expect(source).toContain("forceTerminateProcessTree");
       expect(source).toContain("electronDesktopE2eGameWindowRuntime");
+      expect(source).toContain('rendererCall("getDisplayTopology")');
       expect(source).not.toContain("runtimeUiAction(");
     }
     expect(windows).toContain("button=Discard");

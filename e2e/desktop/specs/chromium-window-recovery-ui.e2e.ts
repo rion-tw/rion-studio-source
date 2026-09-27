@@ -190,13 +190,17 @@ async function showWindow(windowId: string): Promise<void> {
 
 async function waitExactWindows(lifecycle: WindowRecoveryLifecycle): Promise<void> {
   await browser.waitUntil(async () => {
-    const runtime = await rendererCall("getEmbeddedRuntimeState");
+    const [runtime, topology] = await Promise.all([
+      rendererCall("getEmbeddedRuntimeState"),
+      rendererCall("getDisplayTopology")
+    ]);
     if (runtime.windows.length !== lifecycle.windows.length) return false;
     return lifecycle.windows.every((window) => {
       const live = runtime.windows.find(({ id }) => id === window.windowId);
       const tabIds = runtime.tabs.filter(({ windowId }) => windowId === window.windowId)
         .map(({ id }) => id);
       return live?.visible === true
+        && topology.displays.some(({ id }) => id === live.displayId)
         && tabIds.join("|") === window.tabIds.join("|");
     });
   }, { timeout: 45_000, timeoutMsg: "Exact multi-window native topology did not become live" });

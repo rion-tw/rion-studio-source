@@ -52,15 +52,41 @@ describe.each(["macos", "windows"] as const)("%s legacy saved display compatibil
     expect(resolveSavedWindowDisplay(saved, topology)).toBeUndefined();
   });
 
-  it("does not weaken a modern fingerprint or fall back to the primary display", () => {
+  it("recovers a modern fingerprint on the current primary display", () => {
     const { saved, topology, display } = fixture();
     saved.targetDisplay.fingerprint = {
       ...display, bounds: { ...display.bounds }, resolution: { ...display.resolution }
     };
-    expect(resolveSavedWindowDisplay(saved, topology)).toBeUndefined();
+    expect(resolveSavedWindowDisplay(saved, topology)).toBe(display);
     saved.targetDisplay.id = display.id;
     expect(resolveSavedWindowDisplay(saved, topology)).toBe(display);
     display.scaleFactor = 1;
+    expect(resolveSavedWindowDisplay(saved, topology)).toBe(display);
+  });
+
+  it("moves a saved external-display window to the unique primary display", () => {
+    const { saved, topology, display } = fixture();
+    const external = topology.displays[1]!;
+    saved.targetDisplay = {
+      id: external.id,
+      fingerprint: {
+        ...external,
+        bounds: { ...external.bounds },
+        resolution: { ...external.resolution }
+      }
+    };
+    topology.displays = [display];
+
+    expect(resolveSavedWindowDisplay(saved, topology)).toBe(display);
+  });
+
+  it("fails closed when the current primary display identity is ambiguous", () => {
+    const { saved, topology, display } = fixture();
+    saved.targetDisplay.fingerprint = {
+      ...display, bounds: { ...display.bounds }, resolution: { ...display.resolution }
+    };
+    topology.primaryDisplayId = "99";
+
     expect(resolveSavedWindowDisplay(saved, topology)).toBeUndefined();
   });
 });

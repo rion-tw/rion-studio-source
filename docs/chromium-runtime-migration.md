@@ -189,7 +189,7 @@ their top edge. Pointer end/cancel, tab changes, host teardown, stream failure,
 and supersede retire the presentation. Exact gesture and paint revisions prevent
 late events from reviving it. These changes do not alter portable or SQLite schemas.
 
-The active runtime contract is version 47. Version 23 remains the first
+The active runtime contract is version 48. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -241,6 +241,14 @@ current physical modifier snapshot in addition to Core-owned modifiers. Expected
 trusted receipts use the same flags as submission. Physical provenance
 reconciliation, cleanup, Core ownership and document/host fences remain intact;
 SQLite, portable data and public bridge shapes are unchanged.
+Version 48 changes saved-window display recovery only. A modern display
+fingerprint still uses its exact current display when available. If that exact
+identity is unavailable or changed, restore deterministically selects the one
+OS-authoritative primary display and clamps the saved normal bounds to its
+current work area. Legacy `Monitor #<number>` and pre-fingerprint records retain
+their unique-evidence requirement and never select an arbitrary display. The
+frozen topology revision and native placement receipt remain the terminal
+authority; SQLite and public bridge shapes are unchanged.
 Workspace Website `lastUrl` updates remain live RuntimeKernel metadata but do
 not advance the window topology revision, so ordinary browsing cannot stale the
 exact parent fence used by a later controlled popup.

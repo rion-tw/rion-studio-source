@@ -16,6 +16,9 @@ export class ChromiumRuntimePlaceholderFollower {
       ports: this.ports, tabs: this.tabs, windows: this.windows,
       isCurrent: () => this.isOpen() && revision === this.#revision
     }).catch((error: unknown) => {
+      // A newer Core projection or native shutdown owns presentation now.
+      // A rejected earlier reconciliation cannot diagnose the current host.
+      if (!this.isOpen() || revision !== this.#revision) return;
       this.ports.onError({ code: "ELECTRON_ROLE_PLACEHOLDER_PROJECTION_FAILED",
         message: error instanceof Error ? error.message : "The local placeholder could not be presented." });
     });

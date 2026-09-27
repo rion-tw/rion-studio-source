@@ -143,6 +143,23 @@ describe("Chromium blocked Role-slot projection", () => {
     ]);
   });
 
+  it("retires presentation when a tab remains after its host window is gone", async () => {
+    const state = topology();
+    state.windows.delete(state.target.target.windowId);
+    const reconcile = vi.fn(async (
+      _descriptors: readonly ChromiumRuntimeRolePlaceholderDescriptor[]
+    ) => undefined);
+    await reconcileChromiumRuntimeRolePlaceholders({
+      ports: {
+        layout: { resolveRoleBounds: vi.fn() },
+        rolePlaceholders: { reconcile }
+      } as unknown as ChromiumRuntimeEffectExecutorInput,
+      tabs: state.tabs,
+      windows: state.windows
+    });
+    expect(reconcile).toHaveBeenCalledWith([]);
+  });
+
   it("moves the blocked demand only from a Core-projected owner", () => {
     const state = topology();
     const projected: BrowserRuntimeRoleRecord = {

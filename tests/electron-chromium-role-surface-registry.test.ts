@@ -1309,7 +1309,7 @@ describe("Electron Chromium role-surface registry", () => {
   );
 
   it.each(["darwin", "win32"] as const)(
-    "waits for exact destruction after transparency or configuration failure on %s",
+    "retires failed view %s",
     async platform => {
       for (const phase of ["transparency", "initial-configuration"] as const) {
         const subject = harness(() => fakeSession(), session => {
@@ -1331,6 +1331,7 @@ describe("Electron Chromium role-surface registry", () => {
         expect(subject.sessionStates[0]!.flushStorageData).not.toHaveBeenCalled();
         expect(subject.creationFailures).toHaveBeenCalledWith({
           roleId: "role-1", tabId: "tab-1", generation: 1, phase,
+          ...(phase === "initial-configuration" ? { configurationStep: "bounds-set" } : {}),
           cleanupOutcome: "pending", errorCode: "ELECTRON_ROLE_SURFACE_CREATE_FAILED"
         });
         const duplicateClose = subject.registry.closeRole("role-1", 1);
@@ -1343,6 +1344,7 @@ describe("Electron Chromium role-surface registry", () => {
         await expect(subject.registry.closeRole("role-1", 1)).resolves.toBe(false);
         expect(subject.creationFailures).toHaveBeenCalledWith({
           roleId: "role-1", tabId: "tab-1", generation: 1, phase,
+          ...(phase === "initial-configuration" ? { configurationStep: "bounds-set" } : {}),
           cleanupOutcome: "confirmed", errorCode: "ELECTRON_ROLE_SURFACE_CREATE_FAILED"
         });
       }

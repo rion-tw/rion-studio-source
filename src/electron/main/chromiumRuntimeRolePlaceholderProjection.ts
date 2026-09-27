@@ -69,12 +69,12 @@ export async function reconcileChromiumRuntimeRolePlaceholders(input: Readonly<{
     if (input.isCurrent?.() === false) return;
     const liveWindow = input.windows.get(tab.windowId);
     // A tombstoned tab retains resources until exact release, but owns no presentation.
-    if (liveWindow && !liveWindow.tabIds.includes(tab.specification.tabId)) continue;
+    if (!liveWindow || !liveWindow.tabIds.includes(tab.specification.tabId)) continue;
     const placeholdersSlots = tab.specification.slots.filter((slot) =>
       slot.web === undefined && (slot.state === "blocked" || slot.state === "available")
     );
     if (placeholdersSlots.length === 0) continue;
-    const window = input.windows.get(tab.windowId);
+    const window = liveWindow;
     if (
       !window || window.windowGeneration < 1 || window.topologyRevision < 1 ||
       window.host.isDestroyed()

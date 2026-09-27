@@ -1,6 +1,6 @@
 import { compatibleInputSource, type ChromiumCompatibleInputCommand } from "../ipc/chromiumCompatibleInputProtocol";
 import type { BrowserAction } from "../../shared/generated";
-import type { RionBridgeError } from "../ipc/errors";
+import { RionBridgeError } from "../ipc/errors";
 import {
   CHROMIUM_ROLE_FONTS_REFRESH_CHANNEL,
   type ChromiumRoleFontsRefreshControl,
@@ -95,6 +95,9 @@ function deferred<Value>(): Deferred<Value> {
 type RoleCreationFailurePhase = "view-construction" | "transparency" |
   "native-alias" | "session-mismatch" | "returned-destroyed" |
   "initial-configuration" | "parent-destroyed" | "contents-access";
+type RoleCreationConfigurationStep = "record-build" | "security-policy" |
+  "bounds-set" | "bounds-readback" | "visibility" | "audio-set" |
+  "audio-readback" | "zoom-set" | "zoom-readback";
 
 interface FailedRoleCreation {
   readonly generation: number;
@@ -112,6 +115,7 @@ interface RoleCreationFailureDiagnostic {
   readonly tabId: string;
   readonly generation: number;
   readonly phase: RoleCreationFailurePhase;
+  readonly configurationStep?: RoleCreationConfigurationStep;
   readonly cleanupOutcome: "pending" | "confirmed" | "indeterminate";
   readonly errorCode: string;
 }
@@ -758,7 +762,8 @@ export class ChromiumRoleSurfaceRegistry {
     catch {
       return this.#rejectFailedCreation(input, sessionHandle, "initial-configuration",
         surfaceError("ELECTRON_ROLE_SURFACE_CREATE_FAILED",
-          "Electron could not initialize the native Chromium role surface."), contents, view);
+          "Electron could not initialize the native Chromium role surface."),
+        contents, view, false, "record-build");
     }
     if (record.destroyed) {
       this.#removeAllListeners(record);
@@ -773,41 +778,49 @@ export class ChromiumRoleSurfaceRegistry {
         contents, view
       );
     }
+    let configurationStep: RoleCreationConfigurationStep = "security-policy";
     try {
       this.#installSecurityPolicy(record);
+      configurationStep = "bounds-set";
       view.setBounds({ ...input.bounds });
+      configurationStep = "bounds-readback";
       if (!sameBounds(view.getBounds(), input.bounds)) {
         fail(
           "ELECTRON_ROLE_SURFACE_BOUNDS_READBACK_FAILED",
           "The Chromium role surface did not retain its initial bounds."
         );
       }
+      configurationStep = "visibility";
       view.setVisible(input.visible);
+      configurationStep = "audio-set";
       contents.setAudioMuted(input.audioMuted);
+      configurationStep = "audio-readback";
       if (contents.isAudioMuted() !== input.audioMuted) {
         fail(
           "ELECTRON_ROLE_SURFACE_AUDIO_READBACK_FAILED",
           "The Chromium role surface did not retain its initial audio state."
         );
       }
+      configurationStep = "zoom-set";
       contents.setZoomFactor(input.zoomFactor);
+      configurationStep = "zoom-readback";
       if (contents.getZoomFactor() !== input.zoomFactor) {
         fail(
           "ELECTRON_ROLE_SURFACE_ZOOM_READBACK_FAILED",
           "The Chromium role surface did not retain its initial zoom factor."
         );
       }
-    } catch {
+    } catch (cause) {
       this.#removeAllListeners(record);
       return this.#rejectFailedCreation(
         input,
         sessionHandle,
         "initial-configuration",
-        surfaceError(
+        cause instanceof RionBridgeError ? cause : surfaceError(
           "ELECTRON_ROLE_SURFACE_CREATE_FAILED",
           "Electron could not secure the native Chromium role surface."
         ),
-        contents, view
+        contents, view, false, configurationStep
       );
     }
     if (input.parent.isDestroyed()) {
@@ -1694,7 +1707,8 @@ export class ChromiumRoleSurfaceRegistry {
     error: RionBridgeError,
     contents?: ChromiumRoleSurfaceWebContentsPort,
     view?: ChromiumRoleWebContentsViewPort,
-    unsafeAlias = false
+    unsafeAlias = false,
+    configurationStep?: RoleCreationConfigurationStep
   ): Promise<never> {
     const failed: FailedRoleCreation = {
       generation: input.generation,
@@ -1708,7 +1722,8 @@ export class ChromiumRoleSurfaceRegistry {
     try {
       this.#onCreationFailure?.({
         roleId: input.roleId, tabId: input.tabId, generation: input.generation,
-        phase, cleanupOutcome: "pending", errorCode: error.code
+        phase, ...(configurationStep ? { configurationStep } : {}),
+        cleanupOutcome: "pending", errorCode: error.code
       });
     } catch { /* Diagnostic failure cannot change native terminality. */ }
     let cleanupOutcome: RoleCreationFailureDiagnostic["cleanupOutcome"] = "confirmed";
@@ -1724,6 +1739,7 @@ export class ChromiumRoleSurfaceRegistry {
         tabId: input.tabId,
         generation: input.generation,
         phase,
+        ...(configurationStep ? { configurationStep } : {}),
         cleanupOutcome,
         errorCode: error.code
       });

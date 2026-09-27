@@ -2,11 +2,35 @@ import type { AppKitRuntimeActionEvent } from "./macosAppKitRuntimePorts";
 import { subscribeTrustedInputTerminals } from
   "./chromiumTrustedInputTerminalJournal";
 import { ElectronOperationalLogger } from "./electronOperationalLogger";
+import { setRuntimeOperationJournalSink } from "./runtimeOperationJournal";
 
 interface RuntimeDiagnosticLogger {
   nativeWindowPlacement: (context: Readonly<Record<string, unknown>>) => void;
   trustedInputTerminal: (context: Readonly<Record<string, unknown>>) => void;
   trustedInputIncident?: (context: Readonly<Record<string, unknown>>) => void;
+}
+
+export function compactAppliedTrustedInputContext(
+  context: Readonly<Record<string, unknown>>,
+  evidence: Readonly<{
+    traceSteps: readonly unknown[];
+    compatibleModifierEvidence?: Readonly<{
+      transitions: readonly unknown[];
+      droppedTransitionCount: number;
+    }>;
+  }>
+): Readonly<Record<string, unknown>> {
+  const { traceSteps: _traceSteps,
+    compatibleModifierEvidence: _compatibleModifierEvidence,
+    ...summary } = context;
+  return {
+    ...summary,
+    traceStepCount: evidence.traceSteps.length,
+    modifierTransitionCount:
+      evidence.compatibleModifierEvidence?.transitions.length ?? 0,
+    droppedModifierTransitionCount:
+      evidence.compatibleModifierEvidence?.droppedTransitionCount ?? 0
+  };
 }
 
 function installTrustedInputDiagnosticLogging(
@@ -68,16 +92,21 @@ function installTrustedInputDiagnosticLogging(
       cleanupOutcome: record.cleanupOutcome,
       recoveryOutcome: record.recoveryOutcome
     };
-    if (record.terminalCode === "APPLIED" || !logger.trustedInputIncident) {
-      logger.trustedInputTerminal(context);
-    } else {
+    if (record.terminalCode === "APPLIED") {
+      logger.trustedInputTerminal(compactAppliedTrustedInputContext(context, record));
+    } else if (logger.trustedInputIncident) {
       logger.trustedInputIncident(context);
+    } else {
+      logger.trustedInputTerminal(context);
     }
   });
 }
 
 export const runtimeLogs = new ElectronOperationalLogger();
 installTrustedInputDiagnosticLogging(runtimeLogs);
+setRuntimeOperationJournalSink(entry => runtimeLogs.info(
+  "browser", "runtime_effect_transition", "Runtime effect advanced.", { ...entry }
+));
 
 export function logMacosAppKitWindowPlacement(
   logger: RuntimeDiagnosticLogger,

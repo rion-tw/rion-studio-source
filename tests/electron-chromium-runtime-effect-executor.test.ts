@@ -566,6 +566,80 @@ describe("Electron Chromium runtime effect executor", () => {
     expect(subject.executor.snapshot()).toMatchObject({ tabs: [], webSurfaces: [], windows: [] });
   });
 
+  it.each(["macos", "windows"] as const)(
+    "closes a failed Role tab after its exact creation retirement on %s",
+    async platform => {
+      let rejectCreation = true;
+      const subject = harness(async input => {
+        if (input.roleId === "role-2" && rejectCreation) {
+          rejectCreation = false;
+          throw Object.assign(new Error("native creation failed"), {
+            code: "ELECTRON_ROLE_SURFACE_CREATE_FAILED"
+          });
+        }
+        return { roleId: input.roleId, generation: input.generation,
+          parentId: input.parent.id, url: input.url };
+      }, platform);
+      const first = tab("tab-1", "window-1", ["role-1"]);
+      const failed = tab("tab-2", "window-1", ["role-2"]);
+      await createTab(subject, first);
+      await loadRoles(subject, first);
+      await createTab(subject, failed);
+      subject.closeRole.mockImplementation(async roleId => roleId !== "role-2");
+      subject.surfaces.wasRetired = (roleId, generation) =>
+        roleId === "role-2" && generation === 1;
+      await expect(loadRoles(subject, failed)).rejects.toMatchObject({
+        code: "ELECTRON_ROLE_SURFACE_CREATE_FAILED"
+      });
+      await expect(executeTerminal(subject, effect(failed.tabId, {
+        type: "embeddedDestroyTab", tabId: failed.tabId,
+        attemptGeneration: failed.attemptGeneration
+      }))).resolves.toBe(true);
+      expect(subject.executor.snapshot().tabs.map(record => record.tabId)).toEqual(["tab-1"]);
+      expect(subject.executor.snapshot().roles.map(record => record.roleId)).toEqual(["role-1"]);
+      const retried = tab("tab-3", "window-1", ["role-2"]);
+      await createTab(subject, retried);
+      await loadRoles(subject, retried);
+      expect(subject.executor.snapshot().roles.map(record => record.roleId).sort())
+        .toEqual(["role-1", "role-2"]);
+    }
+  );
+
+  it.each(["macos", "windows"] as const)(
+    "retains an unverified failed Role owner and rejects native close on %s",
+    async platform => {
+      const subject = harness(async () => {
+        throw Object.assign(new Error("native creation failed"), {
+          code: "ELECTRON_ROLE_SURFACE_CREATE_CLEANUP_INDETERMINATE"
+        });
+      }, platform);
+      const failed = tab();
+      await createTab(subject, failed);
+      subject.closeRole.mockResolvedValue(false);
+      subject.surfaces.wasRetired = () => false;
+      await expect(loadRoles(subject, failed)).rejects.toMatchObject({
+        code: "ELECTRON_ROLE_SURFACE_CREATE_CLEANUP_INDETERMINATE"
+      });
+      await expect(executeTerminal(subject, effect(failed.tabId, {
+        type: "embeddedDestroyRole", roleId: "role-1"
+      }))).rejects.toMatchObject({
+        code: "ELECTRON_CHROMIUM_SURFACE_CLOSE_NOT_OBSERVED"
+      });
+      await expect(executeTerminal(subject, effect(failed.tabId, {
+        type: "embeddedDestroyTab", tabId: failed.tabId,
+        attemptGeneration: failed.attemptGeneration
+      }))).rejects.toMatchObject({
+        code: "ELECTRON_CHROMIUM_SURFACE_CLOSE_NOT_OBSERVED"
+      });
+      expect(subject.executor.snapshot().tabs).toHaveLength(1);
+      subject.surfaces.wasRetired = () => true;
+      await expect(executeTerminal(subject, effect(failed.tabId, {
+        type: "embeddedDestroyTab", tabId: failed.tabId,
+        attemptGeneration: failed.attemptGeneration
+      }))).resolves.toBe(true);
+    }
+  );
+
   it("retires successful mixed-tab surfaces and retries only the failed native close", async () => {
     const subject = harness();
     const specification = mixedTab();

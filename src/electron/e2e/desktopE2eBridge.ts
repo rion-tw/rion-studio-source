@@ -228,7 +228,8 @@ type ElectronDesktopE2eRequest =
     windowId: string;
   }>
   | Readonly<{
-    action: "roleBrowserDataClearReceipt" | "rolePlaceholderRuntime";
+    action: "failNextRoleCreation" | "roleCreationFailureConsumed" | "roleBrowserDataClearReceipt" |
+      "rolePlaceholderRuntime";
     roleId: string;
     token: string;
   }>
@@ -328,6 +329,8 @@ export interface ElectronDesktopE2ePreloadApi {
     windowId: string,
     tabId: string
   ) => Promise<void>;
+  failNextRoleCreation: (token: string, roleId: string) => Promise<void>;
+  roleCreationFailureConsumed: (token: string, roleId: string) => Promise<boolean>;
   showAppKitRuntimeTabMenu: (
     token: string,
     windowId: string,
@@ -362,6 +365,8 @@ export interface RegisterElectronDesktopE2eBridgeInput {
   electronVersion: string;
   expectedSessionToken: () => string | undefined;
   failNextRuntimeTabReload: (windowId: string, tabId: string) => void;
+  failNextRoleCreation: (roleId: string) => void;
+  roleCreationFailureConsumed: (roleId: string) => boolean;
   focusMainWindow: () => void;
   ipcMain: ElectronDesktopE2eIpcMainPort;
   isPackaged: () => boolean;
@@ -420,6 +425,8 @@ function parseRequest(candidate: unknown): ElectronDesktopE2eRequest {
   const request = candidate as Record<string, unknown>;
   const action = String(request.action);
   const requiresRoleId = new Set([
+    "failNextRoleCreation",
+    "roleCreationFailureConsumed",
     "rolePlaceholderRuntime",
     "roleBrowserDataClearReceipt",
     "roleSessionRuntime",
@@ -459,6 +466,8 @@ function parseRequest(candidate: unknown): ElectronDesktopE2eRequest {
       "armApplicationShortcutFullscreenExit",
       "diagnosticsExportJournal",
       "failNextRuntimeTabReload",
+      "failNextRoleCreation",
+      "roleCreationFailureConsumed",
       "focusMainWindow",
       "fullscreenToolbarRuntime",
       "gameWindowRuntime",
@@ -519,7 +528,7 @@ function parseRequest(candidate: unknown): ElectronDesktopE2eRequest {
   }
   return requiresRoleId
     ? {
-        action: action as "roleBrowserDataClearReceipt" | "rolePlaceholderRuntime" |
+        action: action as "failNextRoleCreation" | "roleCreationFailureConsumed" | "roleBrowserDataClearReceipt" | "rolePlaceholderRuntime" |
           "roleSessionRuntime" | "trustedInputRuntime",
         roleId: request.roleId as string,
         token: request.token
@@ -575,6 +584,7 @@ export function registerElectronDesktopE2eBridge(
     event: ElectronDesktopE2eIpcEventPort,
     candidate: unknown
   ): Promise<
+    | boolean
     | ElectronDesktopE2eProbe
     | ElectronDesktopE2eApplicationShortcutRuntimeInspection
     | ElectronDesktopE2eCloseReceipt
@@ -624,6 +634,13 @@ export function registerElectronDesktopE2eBridge(
     if (request.action === "failNextRuntimeTabReload") {
       input.failNextRuntimeTabReload(request.windowId, request.tabId);
       return;
+    }
+    if (request.action === "failNextRoleCreation") {
+      input.failNextRoleCreation(request.roleId);
+      return;
+    }
+    if (request.action === "roleCreationFailureConsumed") {
+      return input.roleCreationFailureConsumed(request.roleId);
     }
     if (request.action === "showAppKitRuntimeTabMenu") {
       input.showAppKitRuntimeTabMenu(request.windowId, request.tabId);
@@ -1330,6 +1347,16 @@ export function createElectronDesktopE2ePreloadApi(
         { action: "failNextRuntimeTabReload", tabId, token, windowId }
       );
     },
+    failNextRoleCreation: async (token: string, roleId: string) => {
+      await ipcRenderer.invoke(
+        ELECTRON_DESKTOP_E2E_CHANNEL,
+        { action: "failNextRoleCreation", roleId, token }
+      );
+    },
+    roleCreationFailureConsumed: (token: string, roleId: string) => ipcRenderer.invoke(
+      ELECTRON_DESKTOP_E2E_CHANNEL,
+      { action: "roleCreationFailureConsumed", roleId, token }
+    ) as Promise<boolean>,
     showAppKitRuntimeTabMenu: async (
       token: string,
       windowId: string,

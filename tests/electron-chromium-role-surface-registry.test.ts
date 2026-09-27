@@ -309,6 +309,7 @@ function rolePaths(roleId: string, platform: "darwin" | "win32" = "darwin"): Rol
 
 interface Harness {
   readonly registry: ChromiumRoleSurfaceRegistry;
+  readonly creationFailures: ReturnType<typeof vi.fn>;
   readonly sessionRegistry: ChromiumRoleSessionRegistry;
   readonly sessionStates: FakeSessionState[];
   readonly views: FakeWebContentsView[];
@@ -346,6 +347,7 @@ function harness(
   );
   const views: FakeWebContentsView[] = [];
   const preferences: unknown[] = [];
+  const creationFailures = vi.fn();
   const viewFactory: ChromiumWebContentsViewFactoryPort = {
     create: (options) => {
       preferences.push(options.webPreferences);
@@ -360,11 +362,13 @@ function harness(
     nativeAttachments,
     popups,
     quickAccess,
-    navigationFailures
+    navigationFailures,
+    creationFailures
   );
   const parent = new FakeParent();
   return {
     registry,
+    creationFailures,
     sessionRegistry,
     sessionStates,
     views,
@@ -1248,12 +1252,19 @@ describe("Electron Chromium role-surface registry", () => {
     await expect(subject.registry.create(subject.input("role-2", {
       rolePaths: rolePaths("role-2"),
       generation: 2
-    }))).rejects.toMatchObject({ code: "ELECTRON_ROLE_SURFACE_NATIVE_ALIAS" });
+    }))).rejects.toMatchObject({ code: "ELECTRON_ROLE_SURFACE_CREATE_CLEANUP_INDETERMINATE" });
     expect(subject.views[1]).toBe(subject.views[0]);
     expect(subject.parent.added).toEqual([subject.views[0]]);
     expect(subject.views[0].webContents.closeOptions).toHaveLength(0);
     expect(subject.registry.activeCount).toBe(1);
-    expect(subject.sessionRegistry.activeCount).toBe(1);
+    expect(subject.sessionRegistry.activeCount).toBe(2);
+    expect(subject.registry.wasRetired("role-2", 2)).toBe(false);
+    await expect(subject.registry.closeRole("role-2", 2)).resolves.toBe(false);
+    expect(subject.creationFailures).toHaveBeenCalledWith({
+      roleId: "role-2", tabId: "tab-1", generation: 2,
+      phase: "native-alias", cleanupOutcome: "indeterminate",
+      errorCode: "ELECTRON_ROLE_SURFACE_NATIVE_ALIAS"
+    });
   });
 
   it("destroys an unattached session-mismatched view before releasing storage", async () => {
@@ -1276,6 +1287,123 @@ describe("Electron Chromium role-surface registry", () => {
     expect(subject.sessionStates[0].flushStorageData).toHaveBeenCalledOnce();
     expect(subject.sessionRegistry.activeCount).toBe(0);
   });
+
+  it.each(["darwin", "win32"] as const)(
+    "certifies a failed view construction before admitting another generation on %s",
+    async platform => {
+      const subject = harness(() => fakeSession(), () => {
+        throw new Error("injected native construction failure");
+      }, null, null, null, null, {}, platform);
+      await expect(subject.registry.create(subject.input())).rejects.toMatchObject({
+        code: "ELECTRON_ROLE_SURFACE_CREATE_FAILED"
+      });
+      expect(subject.registry.wasRetired("role-1", 1)).toBe(true);
+      expect(subject.sessionRegistry.activeCount).toBe(0);
+      await expect(subject.registry.closeRole("role-1", 1)).resolves.toBe(false);
+      expect(subject.creationFailures).toHaveBeenCalledWith({
+        roleId: "role-1", tabId: "tab-1", generation: 1,
+        phase: "view-construction", cleanupOutcome: "confirmed",
+        errorCode: "ELECTRON_ROLE_SURFACE_CREATE_FAILED"
+      });
+    }
+  );
+
+  it.each(["darwin", "win32"] as const)(
+    "waits for exact destruction after transparency or configuration failure on %s",
+    async platform => {
+      for (const phase of ["transparency", "initial-configuration"] as const) {
+        const subject = harness(() => fakeSession(), session => {
+          const view = new FakeWebContentsView(session);
+          if (phase === "transparency") {
+            view.setBackgroundColor.mockImplementationOnce(() => { throw new Error("background failed"); });
+          } else {
+            vi.spyOn(view, "setBounds").mockImplementationOnce(() => { throw new Error("bounds failed"); });
+          }
+          return view;
+        }, null, null, null, null, {}, platform);
+        const creation = subject.registry.create(subject.input());
+        const rejected = expect(creation).rejects.toMatchObject({
+          code: "ELECTRON_ROLE_SURFACE_CREATE_FAILED"
+        });
+        const contents = subject.views[0]!.webContents;
+        expect(contents.closeOptions).toEqual([{ waitForBeforeUnload: false }]);
+        expect(subject.registry.wasRetired("role-1", 1)).toBe(false);
+        expect(subject.sessionStates[0]!.flushStorageData).not.toHaveBeenCalled();
+        expect(subject.creationFailures).toHaveBeenCalledWith({
+          roleId: "role-1", tabId: "tab-1", generation: 1, phase,
+          cleanupOutcome: "pending", errorCode: "ELECTRON_ROLE_SURFACE_CREATE_FAILED"
+        });
+        const duplicateClose = subject.registry.closeRole("role-1", 1);
+        contents.destroy();
+        await rejected;
+        await expect(duplicateClose).resolves.toBe(true);
+        contents.emit("destroyed");
+        expect(subject.registry.wasRetired("role-1", 1)).toBe(true);
+        expect(subject.sessionRegistry.activeCount).toBe(0);
+        await expect(subject.registry.closeRole("role-1", 1)).resolves.toBe(false);
+        expect(subject.creationFailures).toHaveBeenCalledWith({
+          roleId: "role-1", tabId: "tab-1", generation: 1, phase,
+          cleanupOutcome: "confirmed", errorCode: "ELECTRON_ROLE_SURFACE_CREATE_FAILED"
+        });
+      }
+    }
+  );
+
+  it.each(["darwin", "win32"] as const)(
+    "keeps failed creation quarantined until session release is confirmed on %s",
+    async platform => {
+      const flushCookies = vi.fn().mockRejectedValueOnce(new Error("flush unknown"))
+        .mockResolvedValueOnce(undefined);
+      const subject = harness(() => fakeSession(flushCookies), () => {
+        throw new Error("injected native construction failure");
+      }, null, null, null, null, {}, platform);
+      await expect(subject.registry.create(subject.input())).rejects.toMatchObject({
+        code: "ELECTRON_ROLE_SURFACE_CREATE_CLEANUP_INDETERMINATE"
+      });
+      expect(subject.registry.wasRetired("role-1", 1)).toBe(false);
+      expect(subject.creationFailures).toHaveBeenCalledWith({
+        roleId: "role-1", tabId: "tab-1", generation: 1,
+        phase: "view-construction", cleanupOutcome: "indeterminate",
+        errorCode: "ELECTRON_ROLE_SURFACE_CREATE_FAILED"
+      });
+      expect(() => subject.registry.create(subject.input("role-1", {
+        generation: 2
+      }))).toThrowError(expect.objectContaining({
+        code: "ELECTRON_ROLE_SURFACE_OWNERSHIP_CONFLICT"
+      }));
+      await expect(subject.registry.closeRole("role-1", 1)).resolves.toBe(true);
+      expect(subject.registry.wasRetired("role-1", 1)).toBe(true);
+      expect(flushCookies).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it.each(["darwin", "win32"] as const)(
+    "keeps a failed view owner when close throws until a late destroyed event on %s",
+    async platform => {
+      const subject = harness(() => fakeSession(), session => {
+        const view = new FakeWebContentsView(session);
+        view.setBackgroundColor.mockImplementationOnce(() => { throw new Error("injected"); });
+        vi.spyOn(view.webContents, "close").mockImplementationOnce(() => {
+          throw new Error("native close unknown");
+        });
+        return view;
+      }, null, null, null, null, {}, platform);
+      await expect(subject.registry.create(subject.input())).rejects.toMatchObject({
+        code: "ELECTRON_ROLE_SURFACE_CREATE_CLEANUP_INDETERMINATE"
+      });
+      expect(subject.registry.wasRetired("role-1", 1)).toBe(false);
+      expect(subject.sessionStates[0]!.flushStorageData).not.toHaveBeenCalled();
+      expect(subject.creationFailures).toHaveBeenCalledWith({
+        roleId: "role-1", tabId: "tab-1", generation: 1,
+        phase: "transparency", cleanupOutcome: "indeterminate",
+        errorCode: "ELECTRON_ROLE_SURFACE_CREATE_FAILED"
+      });
+      subject.views[0]!.webContents.destroy();
+      await expect(subject.registry.closeRole("role-1", 1)).resolves.toBe(true);
+      expect(subject.registry.wasRetired("role-1", 1)).toBe(true);
+      expect(subject.sessionRegistry.activeCount).toBe(0);
+    }
+  );
 
   it("completes detach when the native parent window was already destroyed", async () => {
     const subject = harness();

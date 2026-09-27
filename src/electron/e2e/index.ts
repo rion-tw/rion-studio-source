@@ -1,5 +1,6 @@
 import { readDrmPolicy } from "./workspaceWebDrmPolicy";
 import { installFixtureKeyboardCloseObserver } from "./fixtureKeyboardCloseObserver";
+import { ElectronDesktopE2eRoleCreationFailureObserver } from "./roleCreationFailureObserver";
 import { observeRuntimeEffectCompletion } from "./runtimeEffectCompletionObservation";
 import { MacosAppKitInputSurfaceAttachmentCoordinator } from "../main/macosAppKitInputSurfaceAttachmentCoordinator";
 import { installRuntimeTargetProjectionBarrier } from "./runtimeTargetProjectionBarrier";
@@ -1580,6 +1581,8 @@ installElectronDesktopE2eNativeWindowControlObserver();
 installElectronDesktopE2ePopupLifecycleObserver();
 installElectronDesktopE2eRolePlaceholderObserver();
 installElectronDesktopE2eSavedWindowRestoreObserver();
+const roleCreationFailureObserver = new ElectronDesktopE2eRoleCreationFailureObserver();
+roleCreationFailureObserver.install();
 applicationShortcutRuntimeObserver.install();
 runtimeTabReloadObserver.install();
 appKitTabMenuRuntimeObserver.install();
@@ -1618,6 +1621,9 @@ const registration = registerElectronDesktopE2eBridge({
   expectedSessionToken: () => process.env.RION_STUDIO_E2E_SESSION_TOKEN,
   failNextRuntimeTabReload: (windowId, tabId) =>
     runtimeTabReloadObserver.failNext(windowId, tabId),
+  failNextRoleCreation: (roleId) =>
+    roleCreationFailureObserver.failNext(roleId),
+  roleCreationFailureConsumed: (roleId) => roleCreationFailureObserver.wasConsumed(roleId),
   focusMainWindow: focusElectronMainWindow,
   ipcMain,
   isPackaged: () => app.isPackaged,

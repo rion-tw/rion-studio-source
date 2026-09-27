@@ -22,7 +22,9 @@ import type {
 import {
   electronDesktopE2eFullscreenToolbarRuntime,
   electronDesktopE2eGameWindowRuntime,
-  electronDesktopE2eProbe
+  electronDesktopE2eProbe,
+  electronDesktopE2eRoleCreationFailureConsumed,
+  failNextElectronDesktopE2eRoleCreation
 } from "../support/electron-driver";
 import {
   clickVisibleElectronRolePageButton
@@ -1084,6 +1086,57 @@ async function launchWithPendingTargetProjection(input: Readonly<{
   } finally { await fixtureRequest("/api/release", { roleId: projectionGateId }); }
 }
 
+async function exerciseFailedRoleCreationCleanup(input: Readonly<{
+  mainWindowHandle: string; platform: Platform;
+}>, roles: readonly Role[]): Promise<void> {
+  const window = await createGameWindowThroughVisibleUi("Role Creation Cleanup Window");
+  const healthyTabId = await launchRoleIntoWindow(roles[0]!, window);
+  await failNextElectronDesktopE2eRoleCreation(roles[1]!.id);
+  await openSection("Home", "/dashboard");
+  await $("[data-testid='quick-access-trigger']").click();
+  const palette = await $("[data-testid='quick-access-palette'][open]");
+  await palette.waitForDisplayed({ timeout: 10_000 });
+  await palette.$("input[role='combobox']").setValue(roles[1]!.name);
+  const destination = await $(`[data-testid='quick-access-destination-role-${roles[1]!.id}']`);
+  await destination.waitForClickable({ timeout: 10_000 });
+  await destination.click();
+  const target = await $(`[data-testid='quick-access-destination-option-window-${window.id}']`);
+  await target.waitForClickable({ timeout: 10_000 });
+  await target.click();
+
+  let failedTabId: string | undefined;
+  await browser.waitUntil(async () => {
+    try {
+      failedTabId = (await rendererCall("getEmbeddedRuntimeState")).tabs.find(
+        tab => tab.windowId === window.id && tab.sourceId === roles[1]!.id
+      )?.id;
+      if (!failedTabId || !await electronDesktopE2eRoleCreationFailureConsumed(roles[1]!.id)) {
+        return false;
+      }
+      const [statuses, native] = await Promise.all([
+        rendererCall("listRoleStatuses"),
+        electronDesktopE2eGameWindowRuntime(window.id)
+      ]);
+      return !statuses.some(status => status.roleId === roles[1]!.id) &&
+        native.currentRuntime?.nativeTabIds.includes(failedTabId) === true;
+    } catch { return false; }
+  }, { timeout: 45_000, timeoutMsg: "Injected Role creation did not reach failed presentation" });
+  await closeVisibleRuntimeTab({ ...input, windowId: window.id,
+    tabId: failedTabId!, tabName: roles[1]!.name });
+  await waitForExactWindowTopology({ windowId: window.id,
+    activeTabId: healthyTabId, orderedTabIds: [healthyTabId] });
+  expect(await runtimeTabShellErrors()).toEqual([]);
+
+  const retriedTabId = await launchRoleIntoWindow(roles[1]!, window);
+  await waitForExactWindowTopology({ windowId: window.id,
+    activeTabId: retriedTabId, orderedTabIds: [healthyTabId, retriedTabId] });
+  await closeVisibleRuntimeTab({ ...input, windowId: window.id,
+    tabId: retriedTabId, tabName: roles[1]!.name });
+  await closeVisibleRuntimeTab({ ...input, windowId: window.id,
+    tabId: healthyTabId, tabName: roles[0]!.name });
+  expect(await runtimeTabShellErrors()).toEqual([]);
+}
+
 async function tearoutPhase(input: { mainWindowHandle: string; platform: Platform; processId: number }): Promise<void> {
   await fixtureRequest("/api/reset", {});
   const { gameWindow, roles } = await createEntitiesThroughVisibleUi();
@@ -1111,6 +1164,7 @@ async function seedPhase(input: Readonly<{
 }>): Promise<void> {
   await fixtureRequest("/api/reset", {});
   const { gameWindow, roles, targetWindow } = await createEntitiesThroughVisibleUi();
+  await exerciseFailedRoleCreationCleanup(input, roles);
   await exerciseRoleFirstPaint({ ...input, roles,
     createWindow: createGameWindowThroughVisibleUi, launchRole: launchRoleIntoWindow });
   if (input.platform === "macos") await exerciseMacosLauncherDuringLoading({

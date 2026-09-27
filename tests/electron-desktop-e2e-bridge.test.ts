@@ -496,6 +496,8 @@ function registrationFixture(overrides: Partial<Parameters<
     electronVersion: "32.0.0",
     expectedSessionToken: () => TOKEN,
     failNextRuntimeTabReload: vi.fn(),
+    failNextRoleCreation: vi.fn(),
+    roleCreationFailureConsumed: vi.fn(() => true),
     focusMainWindow: vi.fn(),
     ipcMain: {
       handle: vi.fn((_channel, nextListener) => {
@@ -591,6 +593,13 @@ describe("Electron desktop E2E-only bridge", () => {
       WINDOW_ID,
       TAB_ID
     );
+    await expect(fixture.listener(sender, {
+      action: "failNextRoleCreation", roleId: ROLE_ID, token: TOKEN
+    })).resolves.toBeUndefined();
+    expect(fixture.input.failNextRoleCreation).toHaveBeenCalledWith(ROLE_ID);
+    await expect(fixture.listener(sender, {
+      action: "roleCreationFailureConsumed", roleId: ROLE_ID, token: TOKEN
+    })).resolves.toBe(true);
     await expect(fixture.listener(sender, {
       action: "focusMainWindow",
       token: TOKEN
@@ -747,6 +756,10 @@ describe("Electron desktop E2E-only bridge", () => {
           return diagnosticsExportJournalInspection;
         case "failNextRuntimeTabReload":
           return undefined;
+        case "failNextRoleCreation":
+          return undefined;
+        case "roleCreationFailureConsumed":
+          return true;
         case "focusMainWindow":
           return undefined;
         case "showAppKitRuntimeTabMenu":
@@ -820,6 +833,11 @@ describe("Electron desktop E2E-only bridge", () => {
       token: TOKEN,
       windowId: WINDOW_ID
     });
+    await expect(api.failNextRoleCreation(TOKEN, ROLE_ID)).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenCalledWith(ELECTRON_DESKTOP_E2E_CHANNEL, {
+      action: "failNextRoleCreation", roleId: ROLE_ID, token: TOKEN
+    });
+    await expect(api.roleCreationFailureConsumed(TOKEN, ROLE_ID)).resolves.toBe(true);
     await expect(api.focusMainWindow(TOKEN)).resolves.toBeUndefined();
     expect(invoke).toHaveBeenCalledWith(ELECTRON_DESKTOP_E2E_CHANNEL, {
       action: "focusMainWindow",

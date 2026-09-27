@@ -47,7 +47,6 @@ import {
   type ElectronShortcutMainWindowPort
 } from "./electronApplicationShortcutController";
 import { ElectronFocusedApplicationShortcutController } from "./electronFocusedApplicationShortcutController";
-import { setRuntimeOperationJournalSink } from "./runtimeOperationJournal";
 import { createElectronDiagnosticsComposition } from "./electronDiagnosticsComposition";
 import { resolveElectronNewGameWindowTarget } from "./electronNewGameWindowTarget";
 import { projectCoreAppSnapshot } from "./appSnapshotProjection";
@@ -230,10 +229,6 @@ async function createCore(userDataDir: string): Promise<CoreAddonClient> {
   return initialized.core;
 }
 const loadNativeAddon = () => loadElectronNativeAddon(app.isPackaged, process.resourcesPath);
-
-setRuntimeOperationJournalSink(entry => runtimeLogs.info(
-  "browser", "runtime_effect_transition", "Runtime effect advanced.", { ...entry }
-));
 
 function createMacosAppKitAdapter(
   addon: LoadedRionNodeAddon,
@@ -812,6 +807,10 @@ async function bootstrapReadyPhase(
       sessionIdentity: RUNTIME_ROLE_PLACEHOLDER_SHELL_SESSION
     },
     onRolePlaceholderError: (err) => runtimeLogs.shellError(err),
+    onRoleSurfaceCreationFailure: (context) => runtimeLogs.warn(
+      "browser", "role_surface_creation_failed",
+      "Chromium Role creation failure cleanup state recorded.", { ...context }
+    ),
     onWorkspaceWebError: (err) => runtimeLogs.shellError(err),
     onWorkspaceWebDiagnostic: (context) => runtimeLogs.workspaceWebDiagnostic(context),
     onRuntimeTabQuickAccess: (tabId) => {

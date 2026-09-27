@@ -5,7 +5,7 @@ import {
   ElectronOperationalLogger,
   type ElectronOperationalLogCorePort
 } from "../src/electron/main/electronOperationalLogger";
-import { logMacosAppKitWindowPlacement } from
+import { compactAppliedTrustedInputContext, logMacosAppKitWindowPlacement } from
   "../src/electron/main/electronRuntimeDiagnosticLogging";
 
 function deferred<Value>() {
@@ -40,6 +40,25 @@ function captured(invoke: ReturnType<typeof vi.fn>): LogCaptureRecord[] {
 }
 
 describe("Electron operational logger", () => {
+  it("keeps successful input correlation while omitting repeated modifier traces", () => {
+    const summary = compactAppliedTrustedInputContext({
+      requestId: "request-1",
+      terminalCode: "APPLIED",
+      traceSteps: [{ sequence: 1 }],
+      compatibleModifierEvidence: { transitions: [{ sequence: 2 }] }
+    }, {
+      traceSteps: [{ sequence: 1 }],
+      compatibleModifierEvidence: {
+        transitions: [{ sequence: 2 }], droppedTransitionCount: 72
+      }
+    });
+    expect(summary).toEqual({
+      requestId: "request-1", terminalCode: "APPLIED",
+      traceStepCount: 1, modifierTransitionCount: 1,
+      droppedModifierTransitionCount: 72
+    });
+  });
+
   it("projects validated AppKit placement provenance into one bounded debug record", () => {
     const nativeWindowPlacement = vi.fn();
     logMacosAppKitWindowPlacement({

@@ -1144,6 +1144,66 @@ export async function electronDesktopE2eRuntimeTabReload(
 }
 
 /** Arms one token-authenticated E2E failure; the next action must still use visible UI. */
+export async function failNextElectronDesktopE2eRoleCreation(
+  roleId: string
+): Promise<void> {
+  const token = required("RION_STUDIO_E2E_SESSION_TOKEN");
+  const result = await browser.executeAsync(
+    (sessionToken: string, targetRoleId: string,
+      done: (result: ElectronBridgeResult<true>) => void) => {
+      const api = (window as typeof window & {
+        rionStudioDesktopE2e?: {
+          failNextRoleCreation: (token: string, roleId: string) => Promise<void>;
+        };
+      }).rionStudioDesktopE2e;
+      if (!api) {
+        done({ error: "Electron desktop E2E preload bridge is unavailable", ok: false });
+        return;
+      }
+      void api.failNextRoleCreation(sessionToken, targetRoleId).then(
+        () => done({ ok: true, value: true }),
+        (error: unknown) => done({
+          error: error instanceof Error ? error.message : String(error),
+          ok: false
+        })
+      );
+    }, token, roleId
+  ) as ElectronBridgeResult<true>;
+  if (!result.ok) {
+    throw new Error(result.error ?? "Electron desktop E2E Role creation failure arm failed");
+  }
+}
+
+/** Reads whether the exact E2E fault reached native view initialization. */
+export async function electronDesktopE2eRoleCreationFailureConsumed(
+  roleId: string
+): Promise<boolean> {
+  const token = required("RION_STUDIO_E2E_SESSION_TOKEN");
+  const result = await browser.executeAsync(
+    (sessionToken: string, targetRoleId: string,
+      done: (result: ElectronBridgeResult<boolean>) => void) => {
+      const api = (window as typeof window & {
+        rionStudioDesktopE2e?: {
+          roleCreationFailureConsumed: (token: string, roleId: string) => Promise<boolean>;
+        };
+      }).rionStudioDesktopE2e;
+      if (!api) {
+        done({ error: "Electron desktop E2E preload bridge is unavailable", ok: false });
+        return;
+      }
+      void api.roleCreationFailureConsumed(sessionToken, targetRoleId).then(
+        value => done({ ok: true, value }),
+        (error: unknown) => done({
+          error: error instanceof Error ? error.message : String(error), ok: false
+        })
+      );
+    }, token, roleId
+  ) as ElectronBridgeResult<boolean>;
+  if (!result.ok) throw new Error(result.error ?? "Role creation failure evidence unavailable");
+  return result.value === true;
+}
+
+/** Arms one token-authenticated E2E failure; the next action must still use visible UI. */
 export async function failNextElectronDesktopE2eRuntimeTabReload(
   windowId: string,
   tabId: string

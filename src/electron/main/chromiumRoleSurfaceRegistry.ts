@@ -1,4 +1,3 @@
-import { createTransparentRuntimeView } from "./transparentRuntimeView";
 import { compatibleInputSource, type ChromiumCompatibleInputCommand } from "../ipc/chromiumCompatibleInputProtocol";
 import type { BrowserAction } from "../../shared/generated";
 import type { RionBridgeError } from "../ipc/errors";
@@ -93,6 +92,30 @@ function deferred<Value>(): Deferred<Value> {
   return { promise, resolve, reject };
 }
 
+type RoleCreationFailurePhase = "view-construction" | "transparency" |
+  "native-alias" | "session-mismatch" | "returned-destroyed" |
+  "initial-configuration" | "parent-destroyed" | "contents-access";
+
+interface FailedRoleCreation {
+  readonly generation: number;
+  readonly sessionHandle: ChromiumRoleSessionHandle;
+  readonly view?: ChromiumRoleWebContentsViewPort;
+  readonly contents?: ChromiumRoleSurfaceWebContentsPort;
+  readonly unsafeAlias?: boolean;
+  destroyed: boolean;
+  destruction?: Promise<void>;
+  release?: Promise<boolean>;
+}
+
+interface RoleCreationFailureDiagnostic {
+  readonly roleId: string;
+  readonly tabId: string;
+  readonly generation: number;
+  readonly phase: RoleCreationFailurePhase;
+  readonly cleanupOutcome: "pending" | "confirmed" | "indeterminate";
+  readonly errorCode: string;
+}
+
 export class ChromiumRoleSurfaceRegistry {
   readonly #retiredGenerations = new Map<string, number>();
   wasRetired(id: string, generation: number): boolean {
@@ -105,7 +128,9 @@ export class ChromiumRoleSurfaceRegistry {
   readonly #popups: ChromiumPopupOwnerLifecyclePort | null;
   readonly #quickAccess: ChromiumRoleQuickAccessShortcutPort | null;
   readonly #navigationFailures: ChromiumRoleActiveMainFrameFailurePort | null;
+  readonly #onCreationFailure?: (event: RoleCreationFailureDiagnostic) => void;
   readonly #recordsByRole = new Map<string, SurfaceRecord>();
+  readonly #failedCreations = new Map<string, FailedRoleCreation>();
   readonly #roleByView = new WeakMap<object, string>();
   readonly #roleByWebContents = new WeakMap<object, string>();
   readonly #retiredOverlayWebContents = new WeakSet<object>();
@@ -123,7 +148,8 @@ export class ChromiumRoleSurfaceRegistry {
     nativeAttachments: ChromiumRoleSurfaceNativeAttachmentPort | null = null,
     popups: ChromiumPopupOwnerLifecyclePort | null = null,
     quickAccess: ChromiumRoleQuickAccessShortcutPort | null = null,
-    navigationFailures: ChromiumRoleActiveMainFrameFailurePort | null = null
+    navigationFailures: ChromiumRoleActiveMainFrameFailurePort | null = null,
+    onCreationFailure?: (event: RoleCreationFailureDiagnostic) => void
   ) {
     this.#sessions = sessions;
     this.#views = views;
@@ -131,6 +157,7 @@ export class ChromiumRoleSurfaceRegistry {
     this.#popups = popups;
     this.#quickAccess = quickAccess;
     this.#navigationFailures = navigationFailures;
+    this.#onCreationFailure = onCreationFailure;
   }
 
   get activeCount(): number {
@@ -642,7 +669,8 @@ export class ChromiumRoleSurfaceRegistry {
         "A live Electron parent window is required for the role surface."
       );
     }
-    if (this.#recordsByRole.has(input.roleId)) {
+    if (this.#recordsByRole.has(input.roleId) ||
+        this.#failedCreations.has(input.roleId)) {
       fail(
         "ELECTRON_ROLE_SURFACE_OWNERSHIP_CONFLICT",
         "The role already owns a native Chromium surface."
@@ -663,12 +691,14 @@ export class ChromiumRoleSurfaceRegistry {
     const sessionHandle = this.#sessions.ensure(input.roleId, input.rolePaths);
     let view: ChromiumRoleWebContentsViewPort;
     try {
-      view = createTransparentRuntimeView(this.#views, {
+      view = this.#views.create({
         webPreferences: { ...webPreferences, session: sessionHandle.session }
       });
     } catch {
-      return this.#rejectAfterSessionRelease(
+      return this.#rejectFailedCreation(
+        input,
         sessionHandle,
+        "view-construction",
         surfaceError(
           "ELECTRON_ROLE_SURFACE_CREATE_FAILED",
           "Electron could not create the native Chromium role surface."
@@ -676,37 +706,71 @@ export class ChromiumRoleSurfaceRegistry {
       );
     }
 
-    const contents = view.webContents;
+    let contents: ChromiumRoleSurfaceWebContentsPort;
+    try { contents = view.webContents; }
+    catch {
+      return this.#rejectFailedCreation(input, sessionHandle, "contents-access",
+        surfaceError("ELECTRON_ROLE_SURFACE_CREATE_FAILED",
+          "Electron did not expose the native Chromium role surface."), undefined, view, true);
+    }
     const viewOwner = this.#roleByView.get(view);
     const contentsOwner = this.#roleByWebContents.get(contents);
     if (viewOwner || contentsOwner) {
-      return this.#rejectAfterSessionRelease(
+      return this.#rejectFailedCreation(
+        input,
         sessionHandle,
+        "native-alias",
         surfaceError(
           "ELECTRON_ROLE_SURFACE_NATIVE_ALIAS",
           "Electron returned one native role surface for distinct roles."
-        )
+        ), undefined, view, true
       );
     }
-    if (contents.session !== sessionHandle.session) {
-      return this.#rejectAfterUnattachedViewDestroy(
-        contents,
+    try {
+      view.setBackgroundColor("#00000000");
+    } catch {
+      return this.#rejectFailedCreation(input, sessionHandle, "transparency",
+        surfaceError("ELECTRON_ROLE_SURFACE_CREATE_FAILED",
+          "Electron could not initialize the transparent Chromium role surface."), contents, view);
+    }
+    let boundSession: typeof sessionHandle.session;
+    try { boundSession = contents.session; }
+    catch {
+      return this.#rejectFailedCreation(input, sessionHandle, "session-mismatch",
+        surfaceError("ELECTRON_ROLE_SURFACE_SESSION_MISMATCH",
+          "Electron could not verify the native Role session."), contents, view);
+    }
+    if (boundSession !== sessionHandle.session) {
+      return this.#rejectFailedCreation(
+        input,
         sessionHandle,
+        "session-mismatch",
         surfaceError(
           "ELECTRON_ROLE_SURFACE_SESSION_MISMATCH",
           "The native role surface is not bound to its Rust-owned Chromium session."
-        )
+        ),
+        contents, view
       );
     }
 
-    const record = this.#buildRecord(input, sessionHandle, view, contents);
+    let record: SurfaceRecord;
+    try { record = this.#buildRecord(input, sessionHandle, view, contents); }
+    catch {
+      return this.#rejectFailedCreation(input, sessionHandle, "initial-configuration",
+        surfaceError("ELECTRON_ROLE_SURFACE_CREATE_FAILED",
+          "Electron could not initialize the native Chromium role surface."), contents, view);
+    }
     if (record.destroyed) {
-      return this.#rejectAfterSessionRelease(
+      this.#removeAllListeners(record);
+      return this.#rejectFailedCreation(
+        input,
         sessionHandle,
+        "returned-destroyed",
         surfaceError(
           "ELECTRON_ROLE_SURFACE_CREATE_FAILED",
           "Electron returned an already-destroyed Chromium role surface."
-        )
+        ),
+        contents, view
       );
     }
     try {
@@ -735,24 +799,28 @@ export class ChromiumRoleSurfaceRegistry {
       }
     } catch {
       this.#removeAllListeners(record);
-      return this.#rejectAfterUnattachedViewDestroy(
-        contents,
+      return this.#rejectFailedCreation(
+        input,
         sessionHandle,
+        "initial-configuration",
         surfaceError(
           "ELECTRON_ROLE_SURFACE_CREATE_FAILED",
           "Electron could not secure the native Chromium role surface."
-        )
+        ),
+        contents, view
       );
     }
     if (input.parent.isDestroyed()) {
       this.#removeAllListeners(record);
-      return this.#rejectAfterUnattachedViewDestroy(
-        contents,
+      return this.#rejectFailedCreation(
+        input,
         sessionHandle,
+        "parent-destroyed",
         surfaceError(
           "ELECTRON_ROLE_SURFACE_PARENT_INVALID",
           "A live Electron parent window is required for the role surface."
-        )
+        ),
+        contents, view
       );
     }
 
@@ -1000,7 +1068,17 @@ export class ChromiumRoleSurfaceRegistry {
 
   closeRole(roleId: string, generation: number): Promise<boolean> {
     const record = this.#recordsByRole.get(roleId);
-    if (!record) return Promise.resolve(false);
+    if (!record) {
+      const failed = this.#failedCreations.get(roleId);
+      if (!failed) return Promise.resolve(false);
+      if (failed.generation !== generation) {
+        return Promise.reject(surfaceError(
+          "ELECTRON_ROLE_SURFACE_STALE_GENERATION",
+          "The failed creation belongs to another Chromium surface generation."
+        ));
+      }
+      return this.#retireFailedCreation(roleId, failed);
+    }
     if (record.generation !== generation) {
       return Promise.reject(surfaceError(
         "ELECTRON_ROLE_SURFACE_STALE_GENERATION",
@@ -1014,15 +1092,22 @@ export class ChromiumRoleSurfaceRegistry {
     if (this.#disposePromise) return this.#disposePromise;
     if (this.#state === "disposed") return Promise.resolve();
     this.#state = "draining";
-    const closes = [...this.#recordsByRole.values()].map((record) =>
-      this.closeRole(record.roleId, record.generation)
-    );
+    const closes = [
+      ...[...this.#recordsByRole.values()].map((record) =>
+        this.closeRole(record.roleId, record.generation)),
+      ...[...this.#failedCreations.entries()].map(([roleId, failed]) =>
+        this.closeRole(roleId, failed.generation))
+    ];
     const operation = Promise.allSettled(closes)
       .then((results) => {
         const failure = results.find(
-          (result): result is PromiseRejectedResult => result.status === "rejected"
+          (result) => result.status === "rejected" || result.value !== true
         );
-        if (failure) throw failure.reason;
+        if (failure) {
+          if (failure.status === "rejected") throw failure.reason;
+          throw surfaceError("ELECTRON_ROLE_SURFACE_CLOSE_NOT_OBSERVED",
+            "A Chromium role creation could not prove its exact native release.");
+        }
         return this.#sessions.dispose();
       })
       .then(() => {
@@ -1602,42 +1687,98 @@ export class ChromiumRoleSurfaceRegistry {
     return operation;
   }
 
-  #rejectAfterSessionRelease(
+  async #rejectFailedCreation(
+    input: CreateChromiumRoleSurfaceInput,
     sessionHandle: ChromiumRoleSessionHandle,
-    error: RionBridgeError
+    phase: RoleCreationFailurePhase,
+    error: RionBridgeError,
+    contents?: ChromiumRoleSurfaceWebContentsPort,
+    view?: ChromiumRoleWebContentsViewPort,
+    unsafeAlias = false
   ): Promise<never> {
-    return this.#sessions.releaseRole(
-      sessionHandle.roleId,
-      sessionHandle.chromiumUserDataDir
-    ).then(
-      () => Promise.reject(error),
-      () => Promise.reject(error)
-    );
+    const failed: FailedRoleCreation = {
+      generation: input.generation,
+      sessionHandle,
+      ...(view ? { view } : {}),
+      ...(contents ? { contents } : {}),
+      ...(unsafeAlias ? { unsafeAlias } : {}),
+      destroyed: !contents
+    };
+    this.#failedCreations.set(input.roleId, failed);
+    try {
+      this.#onCreationFailure?.({
+        roleId: input.roleId, tabId: input.tabId, generation: input.generation,
+        phase, cleanupOutcome: "pending", errorCode: error.code
+      });
+    } catch { /* Diagnostic failure cannot change native terminality. */ }
+    let cleanupOutcome: RoleCreationFailureDiagnostic["cleanupOutcome"] = "confirmed";
+    try {
+      const retired = await this.#retireFailedCreation(input.roleId, failed);
+      if (!retired) cleanupOutcome = "indeterminate";
+    } catch {
+      cleanupOutcome = "indeterminate";
+    }
+    try {
+      this.#onCreationFailure?.({
+        roleId: input.roleId,
+        tabId: input.tabId,
+        generation: input.generation,
+        phase,
+        cleanupOutcome,
+        errorCode: error.code
+      });
+    } catch { /* Diagnostic failure cannot change native terminality. */ }
+    if (cleanupOutcome === "indeterminate") {
+      throw surfaceError(
+        "ELECTRON_ROLE_SURFACE_CREATE_CLEANUP_INDETERMINATE",
+        "The failed Chromium role creation still owns an unverified native resource."
+      );
+    }
+    throw error;
   }
 
-  #rejectAfterUnattachedViewDestroy(
-    contents: ChromiumRoleSurfaceWebContentsPort,
-    sessionHandle: ChromiumRoleSessionHandle,
-    error: RionBridgeError
-  ): Promise<never> {
-    if (contents.isDestroyed()) {
-      return this.#rejectAfterSessionRelease(sessionHandle, error);
-    }
-    const destruction = deferred<void>();
-    const onDestroyed = (): void => {
-      contents.removeListener("destroyed", onDestroyed);
-      destruction.resolve();
-    };
-    contents.on("destroyed", onDestroyed);
+  async #retireFailedCreation(
+    roleId: string,
+    failed: FailedRoleCreation
+  ): Promise<boolean> {
+    if (failed.release) return failed.release;
+    if (failed.unsafeAlias) return false;
+    const release = (async () => {
+      const contents = failed.contents;
+      if (contents && !failed.destroyed) {
+        if (!failed.destruction) {
+          const destroyed = deferred<void>();
+          const onDestroyed = (): void => {
+            contents.removeListener("destroyed", onDestroyed);
+            failed.destroyed = true;
+            destroyed.resolve();
+          };
+          contents.on("destroyed", onDestroyed);
+          failed.destruction = destroyed.promise;
+          if (contents.isDestroyed()) onDestroyed();
+        }
+        if (!failed.destroyed) contents.close({ waitForBeforeUnload: false });
+        await failed.destruction;
+      }
+      if (!await this.#sessions.releaseRole(
+        roleId,
+        failed.sessionHandle.chromiumUserDataDir
+      )) {
+        return false;
+      }
+      if (this.#failedCreations.get(roleId) === failed) {
+        this.#failedCreations.delete(roleId);
+        this.#retiredGenerations.set(roleId, failed.generation);
+      }
+      return true;
+    })();
+    failed.release = release;
     try {
-      contents.close({ waitForBeforeUnload: false });
-    } catch {
-      contents.removeListener("destroyed", onDestroyed);
-      return Promise.reject(error);
+      const retired = await release;
+      if (!retired) failed.release = undefined;
+      return retired;
     }
-    return destruction.promise.then(() =>
-      this.#rejectAfterSessionRelease(sessionHandle, error)
-    );
+    catch (error) { failed.release = undefined; throw error; }
   }
 
   #removeLoadListeners(record: SurfaceRecord): void {

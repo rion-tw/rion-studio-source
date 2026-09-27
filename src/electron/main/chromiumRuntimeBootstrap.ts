@@ -325,6 +325,8 @@ export interface ChromiumRuntimeBootstrapInput {
   readonly onRolePlaceholderError?: ChromiumRuntimeBootstrapInput["onError"];
   readonly onWorkspaceWebError?: ChromiumRuntimeBootstrapInput["onError"];
   readonly onWorkspaceWebDiagnostic?: (context: Readonly<Record<string, unknown>>) => void;
+  readonly onRoleSurfaceCreationFailure?:
+    ConstructorParameters<typeof ChromiumRoleSurfaceRegistry>[6];
   readonly onManagedShortcutDiagnostic?: (
     context: Readonly<Record<string, unknown>>
   ) => void;
@@ -790,7 +792,8 @@ export class ChromiumRuntimeBootstrap {
       roleNativeAttachments,
       popupCoordinator,
       quickAccessShortcut,
-      navigationFailureReporter
+      navigationFailureReporter,
+      input.onRoleSurfaceCreationFailure
     );
     const contentWebSurfaces = new ChromiumGlobalWebSurfaceRegistry(
       globalWebSessions,

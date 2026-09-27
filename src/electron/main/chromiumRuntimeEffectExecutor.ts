@@ -1270,16 +1270,17 @@ export class ChromiumRuntimeEffectExecutor {
     if (!role) return false;
     this.#closingRoleGenerations.set(role.roleId, role.generation);
     const closed = await this.#retireInputAndCloseRole(role);
-    if (closed) {
-      this.#input.overlays?.retire(roleId, role.generation);
-      if (this.#roles.get(roleId) === role) this.#roles.delete(roleId);
-      if (this.#attachedRoles.get(roleId) === role) this.#attachedRoles.delete(roleId);
-      if (this.#openingRoles.get(roleId) === role) this.#openingRoles.delete(roleId);
-      if (this.#closingRoleGenerations.get(roleId) === role.generation) {
-        this.#closingRoleGenerations.delete(roleId);
-      }
+    const retired = closed || this.#input.surfaces.wasRetired?.(role.roleId, role.generation);
+    if (!retired) throw runtimeError("ELECTRON_CHROMIUM_SURFACE_CLOSE_NOT_OBSERVED",
+      "The Role did not acknowledge its exact native close.");
+    this.#input.overlays?.retire(roleId, role.generation);
+    if (this.#roles.get(roleId) === role) this.#roles.delete(roleId);
+    if (this.#attachedRoles.get(roleId) === role) this.#attachedRoles.delete(roleId);
+    if (this.#openingRoles.get(roleId) === role) this.#openingRoles.delete(roleId);
+    if (this.#closingRoleGenerations.get(roleId) === role.generation) {
+      this.#closingRoleGenerations.delete(roleId);
     }
-    return closed;
+    return true;
   }
 
   async #claimRoleSlot(
@@ -1418,8 +1419,7 @@ export class ChromiumRuntimeEffectExecutor {
       this.#admittedTabWindows.delete(tabId);
       if (index >= 0) windowRecord.tabIds.splice(index, 1);
       this.#scheduleRolePlaceholders();
-      // Logical membership is terminal even if the native host cannot prove release.
-      // Keep the exact host record quarantined; never restore the closed tab.
+      // Keep an unverified host quarantined; never restore the closed tab.
       await windowRecord.host.close();
       if (this.#windows.get(tab.windowId) === windowRecord) this.#windows.delete(tab.windowId);
       this.#retiringWindows.delete(tab.windowId);
@@ -1428,8 +1428,7 @@ export class ChromiumRuntimeEffectExecutor {
     this.#tabs.delete(tabId);
     this.#admittedTabWindows.delete(tabId);
     if (index >= 0) windowRecord.tabIds.splice(index, 1);
-    // Closing a background tab must preserve the surviving Core-selected tab.
-    // An explicit successor remains authoritative for an active-tab close.
+    // Preserve the Core-selected successor after closing the active tab.
     if (windowRecord.activeTabId === tabId) {
       windowRecord.activeTabId = nextActiveTabId ??
         windowRecord.tabIds[Math.min(Math.max(index, 0), windowRecord.tabIds.length - 1)] ?? "";

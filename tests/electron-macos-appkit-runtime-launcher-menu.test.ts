@@ -490,3 +490,41 @@ describe("macOS retained AppKit scoped launcher menu", () => {
     expect(launchRole).not.toHaveBeenCalled();
   });
 });
+
+
+describe("Windows scoped runtime launcher", () => {
+  function windowsHarness() {
+    const { core, display, native } = fixtures();
+    const { appKitIdentity: _identity, ...window } = native.windows[0]!;
+    const snapshot: ChromiumRuntimeExecutorSnapshot = { ...native, windows: [window] };
+    const actions = { activateTab: vi.fn(async () => undefined), launchRole: vi.fn(async () => undefined),
+      launchWorkspace: vi.fn(async () => undefined), saveWindow: vi.fn(async () => undefined) };
+    const popup = vi.fn(); const onError = vi.fn();
+    const controller = new MacosAppKitRuntimeLauncherMenuController({ platform: "win32", actions,
+      language: () => "zh-TW", lifecycleEpoch: () => 12, nativeMenu: { popup }, onError,
+      readCoreSnapshot: async () => core, readDisplayTopology: () => display, readNativeSnapshot: () => snapshot });
+    return { core, snapshot, actions, popup, onError, controller };
+  }
+  it("opens on the exact Windows host, launches into it and saves a transient window", async () => {
+    const h = windowsHarness();
+    await h.controller.openWindows("window-transient", 41);
+    const items = h.popup.mock.calls[0]![0].items as readonly MacosAppKitRuntimeTabMenuItem[];
+    menuItem(items, "runtime-launcher-role-role-1").click!();
+    await vi.waitFor(() => expect(h.actions.launchRole).toHaveBeenCalledWith("role-1", "window-transient"));
+    menuItem(items, "runtime-launcher-workspace-workspace-1").click!();
+    await vi.waitFor(() => expect(h.actions.launchWorkspace).toHaveBeenCalledWith("workspace-1", "window-transient"));
+    menuItem(items, "runtime-launcher-save-window").click!();
+    await vi.waitFor(() => expect(h.actions.saveWindow).toHaveBeenCalledWith(expect.objectContaining({ windowId: "window-transient", name: "遊戲視窗 1" }), undefined));
+    expect(h.onError).not.toHaveBeenCalled();
+  });
+  it("rejects wrong parents and replacement generations before selection can launch", async () => {
+    const h = windowsHarness();
+    await expect(h.controller.openWindows("window-transient", 42)).rejects.toThrow();
+    expect(h.popup).not.toHaveBeenCalled();
+    await h.controller.openWindows("window-transient", 41);
+    h.core.logicalWindows[0]!.windowGeneration += 1;
+    menuItem(h.popup.mock.calls[0]![0].items, "runtime-launcher-role-role-1").click!();
+    await vi.waitFor(() => expect(h.onError).toHaveBeenCalledOnce());
+    expect(h.actions.launchRole).not.toHaveBeenCalled();
+  });
+});

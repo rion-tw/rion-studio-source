@@ -1,10 +1,11 @@
 import { exerciseWindowLaunchReuse } from "./chromium-window-launch-reuse";
+import { exerciseWindowsTabOverflow } from "./chromium-windows-tab-overflow";
 import { exerciseRoleFirstPaint, expectRolePaint } from "./chromium-role-first-paint";
 // [journey:CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-TEAROUT-046]
 // [journey:CHROMIUM-WINDOWS-RUNTIME-TAB-TEAROUT-046]
 import { exerciseMixedWorkspaceTearout } from "./chromium-tab-tearout-workspace";
 import { exerciseVisibleTabTearout } from "./chromium-tab-tearout";
-import { exerciseMacosLauncherDuringLoading } from "./chromium-launcher-loading";
+import { exerciseLauncherDuringLoading } from "./chromium-launcher-loading";
 import { runMacosTabFocusRegression } from "./chromium-tab-content-focus-setup";
 import { expectLoadingTabPresentation, expectReadyTabAboveLoadingSibling } from "./chromium-loading-tab-evidence";
 import { resizeWorkspaceWindow } from "../support/workspace-window-resize";
@@ -1165,12 +1166,12 @@ async function seedPhase(input: Readonly<{
   await fixtureRequest("/api/reset", {});
   const { gameWindow, roles, targetWindow } = await createEntitiesThroughVisibleUi();
   await exerciseFailedRoleCreationCleanup(input, roles);
-  await exerciseRoleFirstPaint({ ...input, roles,
-    createWindow: createGameWindowThroughVisibleUi, launchRole: launchRoleIntoWindow });
-  if (input.platform === "macos") await exerciseMacosLauncherDuringLoading({
+  await exerciseLauncherDuringLoading({
     ...input, window: await createGameWindowThroughVisibleUi("Native Launcher Loading Window"), roles,
     launchRole: (role, window, afterSubmit) => launchRoleIntoWindow(role, window, undefined, afterSubmit)
   });
+  await exerciseRoleFirstPaint({ ...input, roles,
+    createWindow: createGameWindowThroughVisibleUi, launchRole: launchRoleIntoWindow });
   await exerciseWindowLaunchReuse({ ...input, roles,
     window: await createGameWindowThroughVisibleUi("Window Launch Reuse"),
     launchRole: (role, window) => launchRoleIntoWindow(role, window) });
@@ -1223,6 +1224,7 @@ async function seedPhase(input: Readonly<{
   });
 
   if (input.platform === "windows") {
+    await exerciseWindowsTabOverflow({ mainWindowHandle: input.mainWindowHandle, windowId: gameWindow.id, tabId: tabIds[2]! });
     expect(await readVisibleWindowsRuntimeControlBar({
       mainWindowHandle: input.mainWindowHandle,
       tabId: tabIds[0]!,

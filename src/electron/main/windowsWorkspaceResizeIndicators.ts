@@ -1,5 +1,6 @@
 import type { BrowserWindow, BrowserWindowConstructorOptions } from "electron";
 import type { WorkspaceResizeIndicatorRecord } from "../../shared/generated";
+import { bindWindowsRuntimeChrome } from "./windowsRuntimeChromeServices";
 
 export interface WorkspaceResizeIndicatorPort {
   update: (indicators: readonly WorkspaceResizeIndicatorRecord[]) => void;
@@ -73,9 +74,13 @@ export function createWindowsWorkspaceResizeIndicators(
 export function createWindowsRuntimeWindows(
   Window: new (options: BrowserWindowConstructorOptions) => BrowserWindow,
   icon: string | undefined,
-  onError: (error: unknown) => void
+  onError: (error: unknown) => void,
+  chromeServices?: Pick<Parameters<typeof bindWindowsRuntimeChrome>[0], "menu" | "openLauncher">
 ): import("./windowsRuntimeHostNativePorts").WindowsBrowserWindowFactoryPort {
   return {
+    ...(chromeServices ? { bindChrome: (parent, chrome, windowId) => bindWindowsRuntimeChrome({
+      ...chromeServices, parent: parent as unknown as BrowserWindow, chrome, windowId
+    }) } : {}),
     create: (options) => new Window({ ...options, ...(icon ? { icon } : {}) }) as unknown as
       import("./windowsRuntimeHostNativePorts").WindowsRuntimeHostWindowPort,
     createResizeIndicators: (parent) => createWindowsWorkspaceResizeIndicators(

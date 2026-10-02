@@ -118,6 +118,69 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
 }
 
 describe("Windows runtime-host chrome controller", () => {
+  it("restores close-button preferences and appearance on every host-document load", async () => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    subject.controller.applyAppearance({ language: "zh-TW", theme: "dark" });
+    await subject.controller.applyPreferences({ alwaysHideTabCloseButton: true,
+      alwaysShowToolbarInFullScreen: false, restoreGameWindowsOnStartup: false });
+    subject.controller.documentLoaded(documentUrl);
+    expect(subject.send).toHaveBeenLastCalledWith(WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL,
+      expect.objectContaining({ alwaysHideTabCloseButton: true, appearance: { language: "zh-TW", theme: "dark" } }));
+    const published = subject.send.mock.calls.at(-1)![1];
+    expect(isWindowsRuntimeHostProjection(published)).toBe(true);
+    expect(isWindowsRuntimeHostProjection({ ...published, appearance: { language: "xx", theme: "dark" } })).toBe(false);
+    expect(isWindowsRuntimeHostProjection({ ...published, appearance: { language: { toString: "en" }, theme: "dark" } })).toBe(false);
+    await subject.controller.applyPreferences({ alwaysHideTabCloseButton: false,
+      alwaysShowToolbarInFullScreen: false, restoreGameWindowsOnStartup: false });
+    expect(subject.send.mock.calls.at(-1)![1].alwaysHideTabCloseButton).toBe(false);
+  });
+
+  it("opens native menus and dispatches their captured commands through the exact projection fence", async () => {
+    const subject = harness();
+    const popup = vi.fn();
+    const launcher = vi.fn(async () => undefined);
+    subject.controller.bindTabMenu(popup);
+    subject.controller.bindLauncher(launcher);
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    const revision = subject.controller.readObservation().projectionRevision;
+    await subject.controller.handleCommand(documentUrl, { type: "openLauncher", windowId, projectionRevision: revision });
+    expect(launcher).toHaveBeenCalledOnce();
+    await subject.controller.handleCommand(documentUrl, { type: "openTabMenu", windowId, tabId, projectionRevision: revision });
+    const items = popup.mock.calls[0]![0] as import("electron").MenuItemConstructorOptions[];
+    expect(items.find(item => item.id === "hideTab")!.enabled).toBe(false);
+    const command = vi.spyOn(subject.controller, "handleCommand");
+    items.find(item => item.id === "reloadTab")!.click!({} as never, null!, {} as never);
+    await vi.waitFor(() => expect(subject.requestTabReload).toHaveBeenCalledOnce());
+    expect(command).toHaveBeenCalledWith(documentUrl, expect.objectContaining({
+      type: "reloadTab", tabId, windowId, projectionRevision: revision, lifecycleEpoch: 3,
+      windowGeneration: 1, topologyRevision: 1
+    }));
+    await subject.controller.applyCoreProjection(projection());
+    items.find(item => item.id === "closeTab")!.click!({} as never, null!, {} as never);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(subject.requestTabControl).not.toHaveBeenCalled();
+  });
+  it("holds fullscreen chrome while its native menu is open and releases it on native close", async () => {
+    const subject = harness(() => ({ x: 200, y: 300 }));
+    subject.controller.bindTabMenu(vi.fn());
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    subject.state.fullscreen = true;
+    const send = (type: "revealToolbar" | "hideToolbar" | "openTabMenu") => subject.controller.handleCommand(documentUrl, {
+      type, windowId, ...(type === "openTabMenu" ? { tabId } : {}),
+      projectionRevision: subject.controller.readObservation().projectionRevision
+    });
+    await send("revealToolbar");
+    await send("openTabMenu");
+    const before = subject.controller.readObservation().projectionRevision;
+    await send("hideToolbar");
+    expect(subject.controller.readObservation()).toMatchObject({ toolbarVisible: true, projectionRevision: before });
+    subject.controller.nativeMenuClosed();
+    await vi.waitFor(() => expect(subject.controller.readObservation().toolbarVisible).toBe(false));
+  });
   for (const background of ["black", "material"] as const) it(`retains initial ${background} when the first ownership projection omits appearance`, async () => {
     const subject = harness(undefined, background);
     await subject.controller.applyCoreProjection(projection());
@@ -1400,7 +1463,7 @@ describe("Windows runtime-host chrome controller", () => {
     expect(subject.relayout).toHaveBeenCalledTimes(2);
     expect(placement).toHaveBeenCalledOnce();
   });
-  it("cancels queued hover presentation when its exact native window closes", async () => {
+  it("cancels queued hover and drag geometry presentation when its exact native window closes", async () => {
     const subject = harness();
     await subject.controller.applyCoreProjection(projection());
     subject.controller.documentLoaded(documentUrl);
@@ -1408,10 +1471,17 @@ describe("Windows runtime-host chrome controller", () => {
     const pending = subject.controller.handleCommand(documentUrl, {
       type: "hideToolbar", windowId, projectionRevision: revision
     });
+    const geometry = subject.controller.handleCommand(documentUrl, {
+      type: "tabDragGeometry", windowId, projectionRevision: revision,
+      row: { x: 0, y: 0, width: 500, height: 40 }, tabs: []
+    });
+    const sends = subject.send.mock.calls.length;
     subject.state.destroyed = true;
     subject.native.isFullScreen = () => { throw new Error("Object has been destroyed"); };
     subject.controller.close();
     await expect(pending).resolves.toBeUndefined();
+    await expect(geometry).resolves.toBeUndefined();
+    expect(subject.send).toHaveBeenCalledTimes(sends);
   });
   it("does not select a dragged tab after its native window retires", async () => {
     const subject = harness();

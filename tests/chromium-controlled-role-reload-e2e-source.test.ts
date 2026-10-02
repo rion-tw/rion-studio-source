@@ -72,11 +72,11 @@ describe("Chromium controlled Role Reload source contract", () => {
   });
 
   it("preserves captured source fences through both native menu implementations", async () => {
-    const [menu, windowsRenderer, windowsController, ingress, inspection,
+    const [menu, windowsMenu, windowsController, ingress, inspection,
       observer, docs] =
       await Promise.all([
         source("src/electron/main/macosAppKitRuntimeTabMenu.ts"),
-        source("src/renderer/src/runtime-windows-host.ts"),
+        source("src/electron/main/windowsRuntimeTabMenu.ts"),
         source("src/electron/main/windowsRuntimeHostChromeController.ts"),
         source("src/electron/main/controlledRuntimeTabReload.ts"),
         source("src/electron/e2e/runtimeTabReloadInspection.ts"),
@@ -86,8 +86,8 @@ describe("Chromium controlled Role Reload source contract", () => {
     expect(menu).toContain('type: "reload"');
     expect(menu).toContain("tabId: context.tabId");
     expect(menu).toContain("lifecycleEpoch");
-    expect(windowsRenderer).toContain('type: "reloadTab"');
-    expect(windowsRenderer).toContain("projectionRevision: projection.projectionRevision");
+    expect(windowsMenu).toContain('type: "reloadTab"');
+    expect(windowsMenu).toContain("projectionRevision: projection.projectionRevision");
     expect(windowsController).toContain("reloadTerminal = this.#applyTabCommand(candidate)");
     expect(windowsController).toContain("command.lifecycleEpoch");
     expect(ingress).toContain('type: "browserRuntimeTabReload"');

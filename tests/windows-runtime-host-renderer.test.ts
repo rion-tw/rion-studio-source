@@ -183,44 +183,10 @@ describe("Windows runtime-host renderer", () => {
       clientX: 20,
       clientY: 20
     }));
-    const mute = document.querySelector<HTMLButtonElement>(
-      "[data-runtime-tab-menu-action='setTabMuted']"
-    )!;
-    expect(mute.getAttribute("aria-checked")).toBe("false");
-    mute.click();
-    expect(submit).toHaveBeenLastCalledWith({
-      type: "setTabMuted", muted: true, projectionRevision: 5, tabId: firstTabId, windowId
-    });
-    items[0]!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-    const reload = document.querySelector<HTMLButtonElement>(
-      "[data-runtime-tab-menu-action='reloadTab']"
-    )!;
-    reload.click();
-    expect(submit).toHaveBeenLastCalledWith({
-      lifecycleEpoch: 4,
-      projectionRevision: 5,
-      tabId: firstTabId,
-      topologyRevision: 8,
-      type: "reloadTab",
-      windowGeneration: 2,
-      windowId
-    });
-    items[0]!.dispatchEvent(new MouseEvent("contextmenu", {
-      bubbles: true,
-      clientX: 20,
-      clientY: 20
-    }));
-    const move = document.querySelector<HTMLButtonElement>(
-      `[data-runtime-tab-menu-action='moveTab']` +
-      `[data-target-window-id='${targetWindowId}']`
-    )!;
-    move.click();
-    expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({
-      tabId: firstTabId,
-      targetWindowGeneration: 3,
-      targetWindowId,
-      type: "moveTab"
-    }));
+    expect(submit).toHaveBeenLastCalledWith({ type: "openTabMenu", projectionRevision: 5, tabId: firstTabId, windowId });
+    expect(document.querySelector("[data-runtime-tab-menu]")).toBeNull();
+    document.querySelector<HTMLButtonElement>("[data-runtime-toolbar-action='openLauncher']")!.click();
+    expect(submit).toHaveBeenLastCalledWith({ type: "openLauncher", projectionRevision: 5, windowId });
     expect(document.documentElement.dataset.runtimeLifecycleEpoch).toBe("4");
     expect(document.documentElement.dataset.runtimeResizeEventCount).toBe("0");
   });
@@ -322,6 +288,7 @@ describe("Windows runtime-host renderer", () => {
           <button type="button" data-window-command="minimizeWindow">
             <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 8.5h10" /></svg>
           </button>
+          <button type="button" data-window-command="toggleMaximizeWindow"></button>
         </div>
       </header>
       <div data-runtime-reveal-edge></div>
@@ -348,11 +315,24 @@ describe("Windows runtime-host renderer", () => {
 
     project(value);
     expect(name.textContent).toBe("Raid Window");
+    const maximize = document.querySelector<HTMLButtonElement>("[data-window-command='toggleMaximizeWindow']")!;
+    expect(maximize.getAttribute("aria-label")).toBe("Maximize window");
+    project({ ...value, fullscreen: true });
+    expect(maximize.getAttribute("aria-label")).toBe("Restore window");
+    maximize.click();
+    expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({ type: "toggleMaximizeWindow", windowId }));
     expect(name.hidden).toBe(false);
     expect(brand.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
     expect(name.compareDocumentPosition(tabRow) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
+    project({ ...value, appearance: { language: "zh-TW", theme: "dark" }, alwaysHideTabCloseButton: true,
+      tabs: [{ active: true, audioMuted: true, hidden: false, name: "Role", tabId: firstTabId, phase: "ready" }] });
+    expect(document.documentElement.lang).toBe("zh-TW");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.querySelector<HTMLButtonElement>("[data-runtime-tab-close]")!.hidden).toBe(true);
+    expect(document.querySelector("[data-runtime-toolbar-action='openLauncher']")!.getAttribute("aria-label")).toBe("開啟角色或工作區");
+    expect(document.querySelector(".runtime-tab-muted")!.getAttribute("aria-label")).toBe("分頁已靜音");
 
     // An unnamed window carries no label, so the bar must not reserve its row.
     project({ ...value, windowName: "", projectionRevision: 6 });

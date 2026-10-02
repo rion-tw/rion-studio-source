@@ -44,7 +44,8 @@ describe("Windows native application menu", () => {
     });
     expect(viewItems.map((item) => "accelerator" in item
       ? item.accelerator
-      : null)).toEqual(["Ctrl+0", "Ctrl+Plus", "Ctrl+-", null, "F11", null, "Ctrl+Tab", "Ctrl+Shift+Tab"]);
+      : null)).toEqual(["Ctrl+0", "Ctrl+Plus", "Ctrl+-", null, "F11", null, "Ctrl+Tab", "Ctrl+Shift+Tab",
+        "Ctrl+=", "Ctrl+numadd", "Ctrl+numsub", "Ctrl+num0"]);
     expect(fullscreen).toMatchObject({
       accelerator: "F11",
       label: "Toggle Full Screen",
@@ -77,5 +78,13 @@ describe("Windows native application menu", () => {
       ["quitApplication", undefined]
     ]);
     expect(setApplicationMenu).toHaveBeenCalledWith(nativeMenu);
+    executeShortcut.mockClear();
+    for (const alias of viewItems.slice(8) as MenuItemConstructorOptions[]) {
+      expect(alias.visible).toBe(false);
+      expect(alias.role).toBeUndefined();
+      alias.click!({} as never, focusedWindow as never, {} as never);
+    }
+    expect(executeShortcut.mock.calls).toEqual([["zoomIn", focusedWindow], ["zoomIn", focusedWindow],
+      ["zoomOut", focusedWindow], ["zoomReset", focusedWindow]]);
   });
 });

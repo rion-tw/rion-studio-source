@@ -197,6 +197,7 @@ export interface WindowsRuntimeHostDisplayResolverPort {
 }
 
 export interface WindowsBrowserWindowFactoryPort {
+  bindChrome?: (parent: WindowsRuntimeHostWindowPort, chrome: import("./windowsRuntimeHostChromeController").WindowsRuntimeHostChromeController, windowId: string) => void;
   createResizeIndicators?: (parent: WindowsRuntimeHostWindowPort) => import("./windowsWorkspaceResizeIndicators").WorkspaceResizeIndicatorPort;
   create: (options: BrowserWindowConstructorOptions) => WindowsRuntimeHostWindowPort;
 }

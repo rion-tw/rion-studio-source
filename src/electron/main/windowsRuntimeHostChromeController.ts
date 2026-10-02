@@ -1,6 +1,7 @@
 import { WindowsRuntimeTabDragGeometry } from "./windowsRuntimeTabDragGeometry";
 import type { RuntimeTabDragStart } from "./runtimeTabDragController";
 import { randomUUID } from "node:crypto";
+import { windowsRuntimeTabMenu } from "./windowsRuntimeTabMenu";
 
 import type {
   BrowserWorkspaceDividerPointerReceiptRecord,
@@ -127,6 +128,13 @@ export class WindowsRuntimeHostChromeController {
   readonly #nativeHostId: number;
   readonly #hostGeneration: number;
   #alwaysShow = false;
+  #alwaysHideClose = false;
+  #appearance: NonNullable<WindowsRuntimeHostProjection["appearance"]> = { language: "en", theme: "light" };
+  #lastProjection: WindowsRuntimeHostProjection | null = null;
+  #menuOpen = false;
+  #popupMenu: ((items: import("electron").MenuItemConstructorOptions[]) => void) | null = null;
+  #requestLauncher: (() => Promise<void>) | undefined;
+  readonly #onCommandError: (error: unknown) => void;
   #revealed = false;
   #documentReady = false;
   #windowGeneration = 0;
@@ -158,6 +166,7 @@ export class WindowsRuntimeHostChromeController {
   } | null = null;
 
   constructor(input: Readonly<{
+    onCommandError?: (error: unknown) => void;
     requestTabDrag?: (start: RuntimeTabDragStart) => void;
     documentUrl: string;
     initialWindowName?: string;
@@ -185,6 +194,7 @@ export class WindowsRuntimeHostChromeController {
     windowId: string;
     resizeIndicators?: import("./windowsWorkspaceResizeIndicators").WorkspaceResizeIndicatorPort;
   }>) {
+    this.#onCommandError = input.onCommandError ?? (() => undefined);
     this.#requestTabDrag = input.requestTabDrag;
     this.tabDragGeometry = new WindowsRuntimeTabDragGeometry(input.native.getContentBounds.bind(input.native));
     this.#windowId = input.windowId;
@@ -369,18 +379,22 @@ export class WindowsRuntimeHostChromeController {
   }
 
   async applyPreferences(preferences: RuntimeWindowPreferencesRecord): Promise<void> {
-    if (typeof preferences.alwaysShowToolbarInFullScreen !== "boolean") {
+    if (typeof preferences.alwaysShowToolbarInFullScreen !== "boolean" ||
+        typeof preferences.alwaysHideTabCloseButton !== "boolean") {
       throw chromeError(
         "ELECTRON_WINDOWS_RUNTIME_PREFERENCES_INVALID",
         "Core supplied invalid runtime-window preferences."
       );
     }
-    if (this.#alwaysShow === preferences.alwaysShowToolbarInFullScreen) return;
+    if (this.#alwaysShow === preferences.alwaysShowToolbarInFullScreen &&
+        this.#alwaysHideClose === preferences.alwaysHideTabCloseButton) return;
     const expectedWindowGeneration = this.#windowGeneration;
     const expectedTopologyRevision = this.#topologyRevision;
     const previousAlwaysShow = this.#alwaysShow;
+    const previousHideClose = this.#alwaysHideClose;
     const previousRevealed = this.#revealed;
     this.#alwaysShow = preferences.alwaysShowToolbarInFullScreen;
+    this.#alwaysHideClose = preferences.alwaysHideTabCloseButton;
     if (this.#alwaysShow) this.#revealed = false;
     try {
       await this.#relayout();
@@ -399,6 +413,7 @@ export class WindowsRuntimeHostChromeController {
       this.#publish();
     } catch (error) {
       this.#alwaysShow = previousAlwaysShow;
+      this.#alwaysHideClose = previousHideClose;
       this.#revealed = previousRevealed;
       try {
         await this.#relayout();
@@ -422,6 +437,30 @@ export class WindowsRuntimeHostChromeController {
       );
     }
     this.#documentReady = true;
+    this.#advanceProjection();
+    this.#publish();
+  }
+
+  bindLauncher(open: () => Promise<void>): void { this.#requestLauncher = open; }
+
+  nativeMenuClosed(): void {
+    this.#menuOpen = false;
+    void this.nativePointerLeft(() => {
+      if (this.#native.isDestroyed()) return false;
+      const point = this.#readCursorScreenPoint?.();
+      const bounds = this.#native.getContentBounds();
+      return !!point && (point.x < bounds.x || point.x >= bounds.x + bounds.width ||
+        point.y < bounds.y || point.y >= bounds.y + WINDOWS_RUNTIME_CHROME_INSET);
+    }).catch(this.#onCommandError);
+  }
+
+  bindTabMenu(popup: (items: import("electron").MenuItemConstructorOptions[]) => void): void {
+    this.#popupMenu = popup;
+  }
+
+  applyAppearance(appearance: NonNullable<WindowsRuntimeHostProjection["appearance"]>): void {
+    if (this.#appearance.language === appearance.language && this.#appearance.theme === appearance.theme) return;
+    this.#appearance = Object.freeze({ ...appearance });
     this.#advanceProjection();
     this.#publish();
   }
@@ -457,6 +496,9 @@ export class WindowsRuntimeHostChromeController {
     let reloadTerminal: Promise<void> | null = null;
     const operation = this.#commandLane.then(() => {
       const validCommand = validCandidate;
+      if (this.#native.isDestroyed() && validCommand && url === this.#documentUrl &&
+          candidate.windowId === this.#windowId &&
+          (candidate.type === "hideToolbar" || candidate.type === "revealToolbar" || candidate.type === "tabDragGeometry")) return;
       const activeDividerContinuation = validCommand &&
         candidate.type === "workspaceDividerPointer" &&
         candidate.phase !== "start" &&
@@ -468,7 +510,7 @@ export class WindowsRuntimeHostChromeController {
       const currentDragStart = validCommand && candidate.type === "tabDragStart" &&
         candidate.windowGeneration === this.#windowGeneration && candidate.projectionRevision <= this.#projectionRevision;
       if (
-        url !== this.#documentUrl || !validCommand ||
+        this.#native.isDestroyed() || url !== this.#documentUrl || !validCommand ||
         candidate.windowId !== this.#windowId ||
         (candidate.projectionRevision !== this.#projectionRevision &&
           !activeDividerContinuation && !currentDragStart)
@@ -502,6 +544,7 @@ export class WindowsRuntimeHostChromeController {
       if (candidate.type === "workspaceDividerPointer") {
         return this.#applyWorkspaceDividerCommand(candidate, observedDividerPosition);
       } else if (
+        candidate.type === "openTabMenu" ||
         candidate.type === "activateTab" || candidate.type === "closeTab" ||
         candidate.type === "hideTab" || candidate.type === "moveTab" ||
         candidate.type === "setTabMuted" ||
@@ -721,6 +764,15 @@ export class WindowsRuntimeHostChromeController {
   async #applyToolbarCommand(
     command: WindowsRuntimeHostToolbarCommand
   ): Promise<void> {
+    if (command.type === "openLauncher") {
+      if (this.#native.isDestroyed() || !this.#requestLauncher) {
+        throw chromeError("ELECTRON_WINDOWS_LAUNCHER_UNAVAILABLE", "The exact Windows launcher is unavailable.");
+      }
+      this.#menuOpen = true;
+      try { await this.#requestLauncher(); }
+      catch (error) { this.#menuOpen = false; throw error; }
+      return;
+    }
     if (command.type === "minimizeWindow") {
       if (this.#native.isMinimized()) return;
       if (this.#pendingMinimize) {
@@ -752,6 +804,7 @@ export class WindowsRuntimeHostChromeController {
     }
     // The exact native close cancels queued, non-authoritative hover presentation.
     if (this.#native.isDestroyed()) return;
+    if (command.type === "hideToolbar" && this.#menuOpen) return;
     if (!this.#native.isFullScreen() || this.#alwaysShow) return;
     const revealed = command.type === "revealToolbar";
     if (this.#revealed === revealed) return;
@@ -770,6 +823,17 @@ export class WindowsRuntimeHostChromeController {
       );
     }
     if (command.type === "activateTab" && command.tabId === this.#activeTabId) return;
+    if (command.type === "openTabMenu") {
+      if (!this.#popupMenu || !this.#lastProjection || this.#native.isDestroyed()) {
+        throw chromeError("ELECTRON_WINDOWS_TAB_MENU_UNAVAILABLE", "The exact Windows native tab menu is unavailable.");
+      }
+      this.#menuOpen = true;
+      try {
+        this.#popupMenu(windowsRuntimeTabMenu(this.#lastProjection, command.tabId, this.#appearance.language,
+          selected => { void this.handleCommand(this.#documentUrl, selected).catch(this.#onCommandError); }));
+      } catch (error) { this.#menuOpen = false; throw error; }
+      return;
+    }
     if (command.type === "reloadTab") {
       if (
         command.windowGeneration !== this.#windowGeneration ||
@@ -1133,6 +1197,8 @@ export class WindowsRuntimeHostChromeController {
     if (!this.#documentReady || !this.#contentBounds ||
         this.#windowGeneration < 1 || this.#topologyRevision < 1) return;
     const projection = Object.freeze({
+      appearance: this.#appearance,
+      alwaysHideTabCloseButton: this.#alwaysHideClose,
       activeTabId: this.#activeTabId,
       alwaysShowToolbarInFullScreen: this.#alwaysShow,
       contentBounds: this.#contentBounds,
@@ -1158,6 +1224,7 @@ export class WindowsRuntimeHostChromeController {
       );
     }
     this.tabDragGeometry.invalidate();
+    this.#lastProjection = projection;
     this.#send(WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL, projection);
     this.#paintResizeIndicators();
   }

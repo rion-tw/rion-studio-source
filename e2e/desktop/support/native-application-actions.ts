@@ -113,6 +113,7 @@ export async function cancelVisibleNativeDiagnosticsSaveDialog(input: Readonly<{
 }
 
 export type VisibleWindowsApplicationShortcut =
+  | "zoomInEqual" | "zoomInNumpad" | "zoomOutNumpad" | "zoomResetNumpad"
   | "altDown" | "altUp" | "altDigit1" | "altDigit1Tap"
   | "nextTab"
   | "previousTab"
@@ -620,6 +621,10 @@ switch ($command) {
   'quickAccess' { $key = [byte]0x4B }
   'toggleFullscreen' { $key = [byte]0x7A; $modifier = $false }
   'zoomIn' { $key = [byte]0xBB; $shiftModifier = $true }
+  'zoomInEqual' { $key = [byte]0xBB }
+  'zoomInNumpad' { $key = [byte]0x6B }
+  'zoomOutNumpad' { $key = [byte]0x6D }
+  'zoomResetNumpad' { $key = [byte]0x60 }
   'zoomReset' { $key = [byte]0x30 }
   default { throw 'unsupported Windows application shortcut' }
 }

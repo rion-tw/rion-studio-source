@@ -455,6 +455,22 @@ const invalidRequestCases: Array<[
 ];
 
 describe("Windows Electron Chromium runtime-host factory", () => {
+  it("rehydrates the complete unchanged chrome after an active host document reload", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32", browserWindows: browserWindows.port, displays, runtimeDocumentPath
+    });
+    const creation = factory.create(target(), tab(target()));
+    const window = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, window);
+    await applyWindowFence(host);
+    const before = window.webContents.sent.at(-1)![1] as import("../src/shared/windowsRuntimeHost").WindowsRuntimeHostProjection;
+    const count = window.webContents.sent.length;
+    window.webContents.emit("did-finish-load");
+    const after = window.webContents.sent.at(-1)![1] as typeof before;
+    expect(window.webContents.sent).toHaveLength(count + 1);
+    expect(after).toEqual({ ...before, projectionRevision: before.projectionRevision + 1 });
+  });
   it("cancels native page-title updates and removes that owner on retirement", async () => {
     const browserWindows = new FakeBrowserWindows();
     const factory = new ChromiumPlatformRuntimeHostFactory({

@@ -2,14 +2,18 @@ import { browser, expect } from "@wdio/globals";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { GameWindow, Role } from "../../../src/shared/types";
-import { electronDesktopE2eGameWindowRuntime } from "../support/electron-driver";
+import { electronDesktopE2eGameWindowRuntime, electronDesktopE2eProbe } from "../support/electron-driver";
+import { selectWindowsNativeMenuItem } from "../support/windows-native-menu";
+import { pressWindowsRuntimeWindowControl } from "../support/windows-runtime-window-control";
+import { readWindowsRuntimeTabLoadingEvidence } from "../support/windows-runtime-tab-close";
 import { fixtureRequest } from "../support/fixture";
 import { selectMacosVisibleRuntimeLauncherRole } from "../support/macos-appkit-ui";
 import { closeVisibleRuntimeTab, runtimeTabShellErrors } from "../support/native-runtime-tabs";
 import { rendererCall } from "../support/renderer-bridge";
 
-/** Holds the actual NSMenu across the sibling's authoritative navigation completion. */
-export async function exerciseMacosLauncherDuringLoading(input: {
+/** Holds the native menu across the sibling's authoritative navigation completion. */
+export async function exerciseLauncherDuringLoading(input: {
+  platform: "macos" | "windows";
   mainWindowHandle: string;
   window: GameWindow;
   roles: readonly Role[];
@@ -19,6 +23,17 @@ export async function exerciseMacosLauncherDuringLoading(input: {
   const second = input.roles[1]!;
   const fixtureId = new URL(first.launchUrl).pathname.split("/").at(-1)!;
   const evidence: unknown[] = [];
+  const launch = async (afterOpen?: () => Promise<void>) => {
+    if (input.platform === "macos") {
+      await selectMacosVisibleRuntimeLauncherRole({ windowId: input.window.id, roleName: second.name, afterOpen });
+    } else {
+      const processId = (await electronDesktopE2eProbe()).processId;
+      const owner = await readWindowsRuntimeTabLoadingEvidence({ processId, tabName: first.name });
+      await pressWindowsRuntimeWindowControl({ processId, nativeWindowHandle: owner.nativeHandle, command: "openLauncher" });
+      await afterOpen?.();
+      await selectWindowsNativeMenuItem({ processId, nativeWindowHandle: owner.nativeHandle, path: ["Roles", second.name] });
+    }
+  };
   const roleTab = async (role: Role) => (await rendererCall("getEmbeddedRuntimeState"))
     .tabs.find(tab => tab.sourceId === role.id && tab.windowId === input.window.id);
   const ready = async (role: Role) => (await rendererCall("listRoleStatuses"))
@@ -35,7 +50,7 @@ export async function exerciseMacosLauncherDuringLoading(input: {
     return tab.id;
   };
   const close = async (role: Role, tabId: string) => {
-    await closeVisibleRuntimeTab({ platform: "macos", mainWindowHandle: input.mainWindowHandle,
+    await closeVisibleRuntimeTab({ platform: input.platform, mainWindowHandle: input.mainWindowHandle,
       windowId: input.window.id, tabId, tabName: role.name });
     await browser.waitUntil(async () => !(await roleTab(role)), { timeout: 20_000 });
   };
@@ -45,12 +60,11 @@ export async function exerciseMacosLauncherDuringLoading(input: {
       const waiting = await fetch(`${process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN}/api/gates/${fixtureId}/waiting`,
         { signal: AbortSignal.timeout(30_000) });
       expect(waiting.ok).toBe(true);
-      await selectMacosVisibleRuntimeLauncherRole({ windowId: input.window.id, roleName: second.name });
+      await launch();
       const secondTabId = await waitForSecond();
       expect(await ready(first)).toBe(false);
       await close(second, secondTabId);
-      await selectMacosVisibleRuntimeLauncherRole({ windowId: input.window.id, roleName: second.name,
-        afterOpen: async () => {
+      await launch(async () => {
           const before = await electronDesktopE2eGameWindowRuntime(input.window.id);
           await fixtureRequest("/api/release", { roleId: fixtureId });
           await browser.waitUntil(async () => await ready(first), { timeout: 30_000 });
@@ -60,7 +74,7 @@ export async function exerciseMacosLauncherDuringLoading(input: {
           expect(after.currentRuntime!.windowGeneration).toBe(before.currentRuntime!.windowGeneration);
           expect(after.currentRuntime!.parentNativeHostId).toBe(before.currentRuntime!.parentNativeHostId);
           evidence.push({ stage: "navigation-completed-with-menu-open", before, after });
-        } });
+        });
       await waitForSecond();
     });
     await close(second, (await roleTab(second))!.id);

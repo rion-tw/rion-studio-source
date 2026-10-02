@@ -544,7 +544,7 @@ export class ChromiumRoleOverlayCoordinator {
           await this.install([roleId], () => matchingFrames[0]!.generation);
         }
       }
-      return this.#enqueueRefresh(roleId);
+      return this.#enqueueRefresh(liveFrames.find(identity => identity.roleId === roleId)!);
     })).then((receipts) => Object.freeze(receipts));
   }
 
@@ -594,13 +594,14 @@ export class ChromiumRoleOverlayCoordinator {
   }
 
   #enqueueRefresh(
-    roleId: string
+    expected: ChromiumRoleOverlayFrameIdentity
   ): Promise<ChromiumRoleOverlayRefreshReceipt> {
+    const roleId = expected.roleId;
     const previous = this.#refreshTailByRole.get(roleId);
     const operation = (previous
       ? previous.catch(() => undefined)
       : Promise.resolve())
-      .then(() => this.#beginRefresh(roleId));
+      .then(() => this.#beginRefresh(expected));
     this.#refreshTailByRole.set(roleId, operation);
     const cleanup = (): void => {
       if (this.#refreshTailByRole.get(roleId) === operation) {
@@ -611,27 +612,30 @@ export class ChromiumRoleOverlayCoordinator {
     return operation;
   }
 
-  #beginRefresh(roleId: string): Promise<ChromiumRoleOverlayRefreshReceipt> {
+  #beginRefresh(expected: ChromiumRoleOverlayFrameIdentity): Promise<ChromiumRoleOverlayRefreshReceipt> {
     if (this.#state !== "open") {
       return Promise.reject(overlayError(
         "ELECTRON_ROLE_OVERLAY_DISPOSED",
         "The Chromium role-overlay coordinator is disposed."
       ));
     }
+    const roleId = expected.roleId;
     const ready = this.#readyByRole.get(roleId);
-    if (!ready) {
+    // Admission already proved readiness. Retirement/navigation while queued
+    // cancels this document's work; it must never refresh a replacement document.
+    if (!ready || !sameFrame(ready, expected)) {
       return Promise.reject(overlayError(
-        "ELECTRON_ROLE_OVERLAY_NOT_READY",
-        "The Chromium role overlay is not ready for an exact refresh."
+        "ELECTRON_ROLE_OVERLAY_DOCUMENT_SUPERSEDED",
+        "The queued Chromium overlay refresh lost its admitted document."
       ));
     }
-    let expected: ChromiumRoleOverlayFrameIdentity;
+    let current: ChromiumRoleOverlayFrameIdentity;
     try {
-      expected = this.#surfaces.currentOverlayFrame(roleId, ready.generation);
+      current = this.#surfaces.currentOverlayFrame(roleId, expected.generation);
     } catch (error) {
       return Promise.reject(error);
     }
-    if (!sameFrame(ready, expected)) {
+    if (!sameFrame(expected, current)) {
       this.#readyByRole.delete(roleId);
       return Promise.reject(overlayError(
         "ELECTRON_ROLE_OVERLAY_DOCUMENT_SUPERSEDED",

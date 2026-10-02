@@ -24,6 +24,8 @@ export interface WindowsRuntimeHostMoveTargetProjection {
 }
 
 export interface WindowsRuntimeHostProjection {
+  readonly appearance?: Readonly<{ language: import("./types").AppLanguage; theme: "light" | "dark" }>;
+  readonly alwaysHideTabCloseButton?: boolean;
   readonly workspaceSlotLoads?: readonly WorkspaceSlotLoadPresentation[];
   readonly workspaceBackground?: "material" | "black";
   readonly activeTabId: string | null;
@@ -59,6 +61,7 @@ export type WindowsRuntimeHostToolbarCommand = Readonly<{
     | "closeWindow"
     | "hideToolbar"
     | "minimizeWindow"
+    | "openLauncher"
     | "revealToolbar"
     | "toggleMaximizeWindow";
   windowId: string;
@@ -71,6 +74,7 @@ type WindowsRuntimeHostTabCommandBase = Readonly<{
 }>;
 
 export type WindowsRuntimeHostTabCommand =
+  | WindowsRuntimeHostTabCommandBase & Readonly<{ type: "openTabMenu" }>
   | WindowsRuntimeHostTabCommandBase & Readonly<{ type: "activateTab" }>
   | WindowsRuntimeHostTabCommandBase & Readonly<{ type: "closeTab" }>
   | WindowsRuntimeHostTabCommandBase & Readonly<{ type: "hideTab" }>
@@ -163,7 +167,11 @@ function validUuid(value: unknown): value is string {
 export function isWindowsRuntimeHostProjection(
   value: unknown
 ): value is WindowsRuntimeHostProjection {
-  if (!isRecord(value) || Object.keys(value).length !== (value.workspaceBackground === undefined ? 15 : 16) + (value.workspaceSlotLoads === undefined ? 0 : 1) ||
+  if (!isRecord(value) || Object.keys(value).length !== (value.workspaceBackground === undefined ? 15 : 16) + (value.workspaceSlotLoads === undefined ? 0 : 1) + (value.appearance === undefined ? 0 : 1) + (value.alwaysHideTabCloseButton === undefined ? 0 : 1) ||
+      (value.appearance !== undefined && (!isRecord(value.appearance) || Object.keys(value.appearance).length !== 2 ||
+        typeof value.appearance.language !== "string" || !["en", "zh-TW", "zh-CN", "ja"].includes(value.appearance.language) ||
+        typeof value.appearance.theme !== "string" || !["light", "dark"].includes(value.appearance.theme))) ||
+      (value.alwaysHideTabCloseButton !== undefined && typeof value.alwaysHideTabCloseButton !== "boolean") ||
       (value.workspaceSlotLoads !== undefined && (!Array.isArray(value.workspaceSlotLoads) ||
         !value.workspaceSlotLoads.every(isWorkspaceSlotLoadPresentation))) ||
       (value.workspaceBackground !== undefined && value.workspaceBackground !== "material" && value.workspaceBackground !== "black") ||
@@ -286,6 +294,7 @@ export function isWindowsRuntimeHostCommand(
         Number(value.lifecycleEpoch) >= 1;
     }
     if ([
+      "openTabMenu",
       "activateTab",
       "closeTab",
       "hideTab",
@@ -314,6 +323,7 @@ export function isWindowsRuntimeHostCommand(
         value.orderedVisibleTabIds.includes(value.tabId);
     }
     return Object.keys(value).length === 3 && new Set([
+      "openLauncher",
       "closeWindow",
       "hideToolbar",
       "minimizeWindow",

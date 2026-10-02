@@ -1,3 +1,4 @@
+import { selectWindowsNativeMenuItem } from "./windows-native-menu";
 import { macosNativeWindowControl } from "./macos-native-window-controls";
 import { readMacosVisibleRuntimeTabPoint } from "./macos-appkit-ui";
 import { focusVisibleMacosAppKitRuntime, waitForFocusedMacosAppKitRuntime } from
@@ -7,7 +8,7 @@ import { readWindowsRuntimeTabCloseEvidence } from "./windows-runtime-tab-close"
 import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
 import { pressWindowsRuntimeWindowControl } from "./windows-runtime-window-control";
 
-import { $, browser, expect } from "@wdio/globals";
+import { $, browser } from "@wdio/globals";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
@@ -468,6 +469,7 @@ export async function selectVisibleWindowsRuntimeTabMenuAction(input: Readonly<{
   if ((input.action === "move") !== (input.targetWindowId !== undefined)) {
     throw new Error("A Windows move action requires one exact target window");
   }
+  const targetName = input.targetWindowId ? (await rendererCall("listGameWindows")).find(window => window.id === input.targetWindowId)?.name : undefined;
   const processId = (await electronDesktopE2eProbe()).processId;
   await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
     const point = await readVisibleWindowsRuntimeTabPoint(input.tabId);
@@ -487,36 +489,18 @@ export async function selectVisibleWindowsRuntimeTabMenuAction(input: Readonly<{
       .down("right")
       .up("right")
       .perform();
-    const action = input.action === "hide"
-      ? "hideTab"
-      : input.action === "move"
-        ? "moveTab"
-        : input.action === "mute" || input.action === "unmute"
-          ? "setTabMuted"
-          : input.action === "reload" ? "reloadTab" : "moveTabToNewWindow";
-    const target = input.targetWindowId === undefined
-      ? await $(`[data-runtime-tab-menu-action='${action}']`)
-      : await $(
-          `[data-runtime-tab-menu-action='${action}']` +
-          `[data-target-window-id='${input.targetWindowId}']`
-        );
-    try {
-      await target.waitForClickable({ timeout: 10_000 });
-    } catch (error) {
-      const menu = await browser.execute(() => ({
-        focused: document.hasFocus(),
-        projection: document.documentElement.dataset.runtimeProjectionRevision,
-        menu: document.querySelector("[data-runtime-tab-menu]")?.outerHTML,
-        tabs: [...document.querySelectorAll(".runtime-tab")].map(tab => ({
-          id: (tab as HTMLElement).dataset.tabId, phase: (tab as HTMLElement).dataset.phase
-        }))
-      }));
-      throw new Error(`Native tab menu did not expose its exact action: ${JSON.stringify(menu)}`, { cause: error });
+    const labels = {
+      hide: "Hide tab (keeps running)", move: "Move to Game Window", moveToNewWindow: "Move to New Game Window",
+      reload: "Reload", mute: "Mute Tab", unmute: "Unmute Tab"
+    };
+    const path = [labels[input.action]];
+    if (input.targetWindowId) {
+      if (!targetName) throw new Error("The native menu target has no saved window label");
+      path.push(targetName);
     }
-    if (input.action === "mute" || input.action === "unmute") {
-      expect(await target.getAttribute("aria-checked")).toBe(String(input.action === "unmute"));
-    }
-    await target.click();
+    await selectWindowsNativeMenuItem({ processId, nativeWindowHandle: evidence.nativeHandle, path,
+      ...(input.action === "mute" || input.action === "unmute" ? { checked: input.action === "unmute" } : {}) });
+
   });
 }
 

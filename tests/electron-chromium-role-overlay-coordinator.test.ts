@@ -464,6 +464,27 @@ describe("Chromium role overlay coordinator", () => {
     await expect(second).resolves.toMatchObject([{ refreshId: secondId }]);
   });
 
+  it.each([false, true])("cancels queued refreshes after the admitted document retires (replacement ready: %s)", async replacementReady => {
+    const state = harness();
+    await state.subject.receive(state.event(), state.envelope("ready"));
+    const first = state.subject.refresh(["role-1"]).catch(error => error);
+    const queued = state.subject.refresh(["role-1"]).catch(error => error);
+    await Promise.resolve();
+    expect(state.executeOverlayRefresh).toHaveBeenCalledOnce();
+    state.emitLifecycle({ roleId: "role-1", generation: 1,
+      reason: replacementReady ? "document-superseded" : "surface-retired" });
+    if (replacementReady) {
+      state.replaceFrame("replacement-frame");
+      await state.subject.receive(state.event(), state.envelope("ready"));
+    }
+    await expect(first).resolves.toMatchObject({ code: replacementReady
+      ? "ELECTRON_ROLE_OVERLAY_DOCUMENT_SUPERSEDED" : "ELECTRON_ROLE_OVERLAY_SURFACE_RETIRED" });
+    await Promise.resolve();
+    expect(state.executeOverlayRefresh).toHaveBeenCalledOnce();
+    await expect(queued).resolves.toMatchObject({ code: "ELECTRON_ROLE_OVERLAY_DOCUMENT_SUPERSEDED" });
+    state.subject.dispose();
+  });
+
   it("fences receipts and terminalizes navigation, failure, and dispose", async () => {
     const state = harness();
     await state.subject.receive(state.event(), state.envelope("ready"));

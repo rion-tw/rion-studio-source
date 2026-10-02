@@ -1,3 +1,4 @@
+import { dispatchRuntimeTabShortcut } from "./runtimeTabShortcutDispatch";
 import { readWindowsShortcutDiagnostic } from "./windowsRuntimeShortcutDiagnostics";
 import { startChromiumDrm } from "./chromiumDrmStartup";
 import { executeWindowsRuntimeTabShortcut } from "./windowsRuntimeTabShortcut";
@@ -5,7 +6,6 @@ import { createElectronApplicationMenuDispatch } from "./electronApplicationMenu
 import { capturePassiveAppKitHosts, closeAppKitInputHost } from "./macosAppKitRuntimeEventPorts";
 import { createRuntimeTabDragBootstrap } from "./runtimeTabDragBootstrap";
 import { requireChromiumRuntimeSnapshot } from "./chromiumRuntimeSnapshotCapture";
-import { createWindowsRuntimeWindows } from "./windowsWorkspaceResizeIndicators";
 import { coreRendererPublishers } from "./coreRendererPublishers";
 import "./startScheme";
 import { sharedUserDataDirectory } from "./electronUserDataDirectory";
@@ -89,6 +89,7 @@ import {
   type MacosAppKitRuntimeLauncherMenuOpenRequest
 } from "./macosAppKitRuntimeLauncherMenu";
 import { createMacosAppKitRuntimeMenus } from "./macosAppKitRuntimeMenus";
+import { createWindowsRuntimeUiFactory } from "./windowsRuntimeLauncher";
 import {
   macosRuntimeTabMenuLanguage,
   popupMacosRuntimeMenu, readRuntimeMenuSnapshot
@@ -813,26 +814,8 @@ async function bootstrapReadyPhase(
     ),
     onWorkspaceWebError: (err) => runtimeLogs.shellError(err),
     onWorkspaceWebDiagnostic: (context) => runtimeLogs.workspaceWebDiagnostic(context),
-    onRuntimeTabQuickAccess: (tabId) => {
-      const begin = beginRuntimeTabQuickAccess;
-      if (!begin) {
-        throw new RionBridgeError({
-          code: "ELECTRON_CHROMIUM_QUICK_ACCESS_NOT_READY",
-          message: "The managed Chromium Quick Access lane is not ready."
-        });
-      }
-      begin(tabId);
-    },
-    onRuntimeTabFullscreen: (tabId) => {
-      const begin = beginRuntimeTabFullscreen;
-      if (!begin) {
-        throw new RionBridgeError({
-          code: "ELECTRON_CHROMIUM_FULLSCREEN_NOT_READY",
-          message: "The managed Chromium fullscreen lane is not ready."
-        });
-      }
-      begin(tabId);
-    },
+    onRuntimeTabQuickAccess: tabId => dispatchRuntimeTabShortcut("QUICK_ACCESS", beginRuntimeTabQuickAccess, tabId),
+    onRuntimeTabFullscreen: tabId => dispatchRuntimeTabShortcut("FULLSCREEN", beginRuntimeTabFullscreen, tabId),
     shellEffects: overlayShellEffects,
     sessions: {
       prepareExtensions: extensionSessions.prepare,
@@ -870,8 +853,11 @@ async function bootstrapReadyPhase(
     ...(runtimePlatform === "win32"
       ? {
           windows: {
-            browserWindows: createWindowsRuntimeWindows(BrowserWindow, applicationIcon?.path,
-              (error) => revealShellError(normalizeRionBridgeError(error, "ELECTRON_WORKSPACE_RESIZE_PRESENTATION_FAILED"))),
+            browserWindows: createWindowsRuntimeUiFactory(BrowserWindow, Menu, applicationIcon?.path, {
+              core: activeCore, services: () => runtimeActionServices!, runtime: () => chromiumRuntime!,
+              launches: () => launchCoordinator, displays: () => activeDisplayTopology().snapshot(),
+              epoch: () => applicationLifecycle?.lifecycleEpoch ?? 1, onError: revealShellError
+            }),
         displays: { displayMatching },
             displayTopology: () => activeDisplayTopology().snapshot(),
             lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,

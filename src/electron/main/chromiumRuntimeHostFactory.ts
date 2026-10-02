@@ -800,6 +800,7 @@ implements ChromiumRuntimeHostFactoryPort {
       contentGeometry: new WindowsRuntimeContentGeometry()
     };
     record.chrome = new WindowsRuntimeHostChromeController({
+      onCommandError: this.#onCommandError,
       initialWindowName: target.persistedName ?? "",
       initialWorkspaceBackground: background,
       resizeIndicators: this.#windows.createResizeIndicators?.(native),
@@ -821,6 +822,7 @@ implements ChromiumRuntimeHostFactoryPort {
       send: (channel, projection) => record.contents.send(channel, projection),
       windowId: record.logicalWindowId
     });
+    this.#windows.bindChrome?.(native, record.chrome, record.logicalWindowId);
     record.windowState = new WindowsRuntimeWindowStateStream({
       lifecycleEpoch: this.#lifecycleEpoch,
       logicalWindowId: record.logicalWindowId,
@@ -1214,6 +1216,13 @@ implements ChromiumRuntimeHostFactoryPort {
   }
 
   #onDidFinishLoad(record: WindowsHostRecord): void {
+    if (record.state === "active") {
+      // A fresh renderer owns an empty DOM even when Core topology is unchanged.
+      // Rehydrate from the retained projection on this exact load event.
+      try { record.chrome.documentLoaded(record.contents.getURL()); }
+      catch (error) { this.#onCommandError(error); }
+      return;
+    }
     if (record.state !== "opening") return;
     if (record.contents.getURL() !== record.documentUrl) {
       this.#failCreation(
@@ -1430,11 +1439,11 @@ implements ChromiumRuntimeHostFactoryPort {
     const { contents, native, listeners } = record;
     native.removeListener("ready-to-show", listeners.readyToShow);
     contents.removeListener("did-fail-load", listeners.didFailLoad);
-    contents.removeListener("did-finish-load", listeners.didFinishLoad);
   }
 
   #removeAllListeners(record: WindowsHostRecord): void {
     this.#removeReadinessListeners(record);
+    record.contents.removeListener("did-finish-load", record.listeners.didFinishLoad);
     const { contents, native, listeners } = record;
     native.removeListener("blur", listeners.blurred);
     native.removeListener("page-title-updated", listeners.pageTitleUpdated);

@@ -20,6 +20,9 @@ export function installWindowsApplicationMenu(
   const commands = createElectronApplicationMenuCommands(
     "win32", "Rion Studio", executeShortcut
   );
+  // Preserve v8.4's Equal and numpad chords. Hidden native menu accelerators
+  // remain registered on Windows and share the exact focused-window callback.
+  const zoomAliases = [["=", 1], ["numadd", 1], ["numsub", 2], ["num0", 0]] as const;
   const applicationMenu = menu.buildFromTemplate([
     {
       label: "&File",
@@ -32,7 +35,9 @@ export function installWindowsApplicationMenu(
         { label: "Next Tab", accelerator: "Ctrl+Tab",
           click: (_item, focusedWindow) => activateAdjacent("next", focusedWindow) },
         { label: "Previous Tab", accelerator: "Ctrl+Shift+Tab",
-          click: (_item, focusedWindow) => activateAdjacent("previous", focusedWindow) }]
+          click: (_item, focusedWindow) => activateAdjacent("previous", focusedWindow) },
+        ...zoomAliases.map(([key, index]) => ({ ...commands.view[index],
+          accelerator: `Ctrl+${key}`, visible: false }))]
     },
     { role: "windowMenu" }
   ]);

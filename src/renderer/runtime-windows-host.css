@@ -67,12 +67,15 @@ body {
   gap: 6px;
   pointer-events: auto;
   flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .runtime-window-controls {
   position: relative;
   z-index: var(--runtime-host-layer-controls);
   display: flex;
+  flex: none;
   align-self: stretch;
   margin: -5px -12px -5px 8px;
   -webkit-app-region: no-drag;
@@ -102,11 +105,11 @@ body {
   display: none;
 }
 
-:root[data-window-maximized="true"] .runtime-window-controls [data-window-control-glyph="maximize"] {
+:root:is([data-window-maximized="true"], [data-fullscreen="true"]) .runtime-window-controls [data-window-control-glyph="maximize"] {
   display: none;
 }
 
-:root[data-window-maximized="true"] .runtime-window-controls [data-window-control-glyph="restore"] {
+:root:is([data-window-maximized="true"], [data-fullscreen="true"]) .runtime-window-controls [data-window-control-glyph="restore"] {
   display: block;
 }
 
@@ -120,6 +123,8 @@ body {
 
 .runtime-tab {
   box-sizing: border-box;
+  width: 180px;
+  flex: 0 0 auto;
   max-width: 240px;
   height: 30px;
   display: flex;
@@ -221,51 +226,6 @@ body {
   background: var(--runtime-host-drag-surface);
 }
 
-.runtime-tab-menu {
-  position: fixed;
-  z-index: var(--runtime-host-layer-menu);
-  box-sizing: border-box;
-  min-width: 176px;
-  max-width: 280px;
-  padding: 4px;
-  overflow: hidden;
-  border: 1px solid var(--runtime-host-menu-border);
-  border-radius: var(--radius-md);
-  color: var(--runtime-host-foreground);
-  background: color-mix(in srgb, var(--runtime-host-surface) 96%, transparent);
-  box-shadow: 0 12px 32px var(--runtime-host-shadow);
-  -webkit-app-region: no-drag;
-}
-
-.runtime-tab-menu[hidden] {
-  display: none;
-}
-
-.runtime-tab-menu button {
-  width: 100%;
-  min-height: 30px;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: inherit;
-  background: transparent;
-  font: 12px/18px system-ui, sans-serif;
-  overflow: hidden;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.runtime-tab-menu button:hover,
-.runtime-tab-menu button:focus-visible {
-  outline: 0;
-  background: var(--runtime-host-active);
-}
-
-.runtime-tab-menu button:disabled {
-  opacity: 0.45;
-}
-
 .runtime-reveal-edge {
   position: fixed;
   inset: 0 0 auto;
@@ -332,3 +292,10 @@ body {
 .workspace-slot-spinner { width: 24px; height: 24px; flex: none; }
 
 .workspace-slot-status button { min-height: var(--control-height); padding: 4px 12px; border: 1px solid var(--runtime-host-border); border-radius: var(--radius-sm); background: var(--runtime-host-surface); color: inherit; font: inherit; cursor: pointer; }
+
+.runtime-toolbar-button { position: relative; z-index: var(--runtime-host-layer-controls); flex: none; width: 30px; height: 30px; padding: 0; border: 0; border-radius: var(--radius-sm); color: inherit; background: transparent; -webkit-app-region: no-drag; }
+.runtime-toolbar-button:hover { background: var(--runtime-host-border); }
+.runtime-toolbar-button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.runtime-toolbar-button[hidden], .runtime-tab-close[hidden] { display: none; }
+.runtime-toolbar-button:disabled { opacity: 0.4; }
+.runtime-tab-muted { flex: none; }

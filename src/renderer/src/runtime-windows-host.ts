@@ -1,3 +1,5 @@
+import { runtimeTabStripLabels } from "./i18n";
+import { createRuntimeTabToolbar } from "./runtimeTabToolbar";
 import { createRuntimeTabDrag } from "./runtimeTabDrag";
 import type {
   WindowsRuntimeHostCommand,
@@ -53,12 +55,6 @@ const activePointers = new Map<number, {
   lastRequestedPosition: number;
   pointerSequence: number;
 }>();
-const tabMenu = document.createElement("div");
-tabMenu.className = "runtime-tab-menu";
-tabMenu.dataset.runtimeTabMenu = "";
-tabMenu.hidden = true;
-tabMenu.setAttribute("role", "menu");
-document.body.append(tabMenu);
 
 function submit(type: WindowsRuntimeHostToolbarCommand["type"]): void {
   if (!current) return;
@@ -85,104 +81,17 @@ function submitTab(
   });
 }
 
-function closeTabMenu(): void {
-  tabMenu.hidden = true;
-  tabMenu.replaceChildren();
-  delete tabMenu.dataset.tabId;
-}
-
-function menuButton(
-  label: string,
-  action: string,
-  activate: () => void
-): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.dataset.runtimeTabMenuAction = action;
-  button.setAttribute("role", "menuitem");
-  button.textContent = label;
-  button.addEventListener("click", () => {
-    closeTabMenu();
-    activate();
-  });
-  return button;
-}
-
-function openTabMenu(event: MouseEvent, tabId: string): void {
-  const projection = current;
-  const tab = projection?.tabs.find((candidate) =>
-    candidate.tabId === tabId && !candidate.hidden
-  );
-  if (!projection || !tab) return;
+function openTabMenu(event: MouseEvent | KeyboardEvent, tabId: string): void {
+  if (!current) return;
   event.preventDefault();
-  closeTabMenu();
-  const moveButtons = projection.moveTargets.map((target) => {
-    const button = menuButton(`Move to ${target.name}`, "moveTab", () => {
-      bridge!.submit({
-        projectionRevision: projection.projectionRevision,
-        tabId,
-        targetWindowGeneration: target.windowGeneration,
-        targetWindowId: target.windowId,
-        type: "moveTab",
-        windowId: projection.windowId
-      });
-    });
-    button.dataset.targetWindowId = target.windowId;
-    button.dataset.targetWindowGeneration = String(target.windowGeneration);
-    return button;
-  });
-  const reload = menuButton("Reload", "reloadTab", () => {
-    bridge!.submit({
-      lifecycleEpoch: projection.lifecycleEpoch,
-      projectionRevision: projection.projectionRevision,
-      tabId,
-      topologyRevision: projection.topologyRevision,
-      type: "reloadTab",
-      windowGeneration: projection.windowGeneration,
-      windowId: projection.windowId
-    });
-  });
-  const muteLabels = navigator.language.startsWith("ja")
-    ? ["タブをミュート", "タブのミュートを解除"]
-    : /zh-(?:TW|HK|Hant)/iu.test(navigator.language)
-      ? ["分頁靜音", "取消分頁靜音"]
-      : navigator.language.startsWith("zh")
-        ? ["标签页静音", "取消标签页静音"]
-        : ["Mute tab", "Unmute tab"];
-  const mute = menuButton(muteLabels[tab.audioMuted ? 1 : 0]!, "setTabMuted", () => {
-    bridge!.submit({
-      muted: !tab.audioMuted,
-      projectionRevision: projection.projectionRevision,
-      tabId,
-      type: "setTabMuted",
-      windowId: projection.windowId
-    });
-  });
-  mute.setAttribute("role", "menuitemcheckbox");
-  mute.setAttribute("aria-checked", String(tab.audioMuted));
-  const hide = menuButton("Hide tab", "hideTab", () => submitTab(tabId, "hideTab"));
-  hide.disabled = projection.tabs.filter((candidate) => !candidate.hidden).length <= 1;
-  tabMenu.append(
-    reload,
-    mute,
-    hide,
-    ...moveButtons,
-    menuButton("Move to new window", "moveTabToNewWindow", () =>
-      submitTab(tabId, "moveTabToNewWindow")
-    )
-  );
-  tabMenu.dataset.tabId = tabId;
-  tabMenu.hidden = false;
-  const bounds = tabMenu.getBoundingClientRect();
-  const left = Math.max(8, Math.min(event.clientX, window.innerWidth - bounds.width - 8));
-  const top = Math.max(8, Math.min(event.clientY, window.innerHeight - bounds.height - 8));
-  tabMenu.style.left = `${left}px`;
-  tabMenu.style.top = `${top}px`;
-  tabMenu.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  bridge!.submit({ type: "openTabMenu", tabId, windowId: current.windowId,
+    projectionRevision: current.projectionRevision });
 }
 
 const tabDrag = createRuntimeTabDrag({ toolbar, tabs, current: () => current,
-  submit: command => bridge!.submit(command), closeMenu: closeTabMenu });
+  submit: command => bridge!.submit(command), closeMenu: () => undefined });
+
+const tabToolbar = createRuntimeTabToolbar(tabs, () => submit("openLauncher"), () => tabDrag.geometry());
 
 function dividerKey(
   divider: Pick<WindowsRuntimeWorkspaceDividerProjection, "tabId" | "dividerIndex">
@@ -385,8 +294,17 @@ function renderSlotLoads(projection: WindowsRuntimeHostProjection): void {
 
 function render(projection: WindowsRuntimeHostProjection): void {
   renderSlotLoads(projection);
-  closeTabMenu();
+  const priorActiveTabId = current?.activeTabId;
   current = projection;
+  const labels = runtimeTabStripLabels(projection.appearance?.language ?? "en");
+  document.documentElement.lang = projection.appearance?.language ?? "en";
+  document.documentElement.dataset.theme = projection.appearance?.theme ?? "light";
+  document.documentElement.style.colorScheme = projection.appearance?.theme ?? "light";
+  for (const [command, label] of Object.entries({ minimizeWindow: labels.minimizeWindow, closeWindow: labels.closeWindow,
+    toggleMaximizeWindow: projection.windowMaximized || projection.fullscreen ? labels.restoreWindow : labels.maximizeWindow })) {
+    const button = windowControls!.querySelector<HTMLButtonElement>(`[data-window-command="${command}"]`);
+    if (button) { button.setAttribute("aria-label", label); button.title = label; }
+  }
   workspaceBackground.style.background = projection.workspaceBackground === "black" ? "#000" : "transparent";
   toolbar!.hidden = !projection.toolbarVisible;
   windowName!.textContent = projection.windowName;
@@ -404,7 +322,8 @@ function render(projection: WindowsRuntimeHostProjection): void {
     activate.className = "runtime-tab-activate";
     activate.dataset.runtimeTabActivate = "";
     activate.dataset.tabId = tab.tabId;
-    activate.setAttribute("aria-label", `Activate ${tab.name}`);
+    activate.setAttribute("aria-label", projection.appearance?.language && projection.appearance.language !== "en" ? tab.name : `Activate ${tab.name}`);
+    activate.title = tab.name;
     activate.setAttribute("aria-pressed", String(tab.active));
     tabDrag.bind(activate, tab.tabId);
     const label = document.createElement("span");
@@ -413,11 +332,12 @@ function render(projection: WindowsRuntimeHostProjection): void {
     const loading = new Set(["activating", "attaching", "loading"])
       .has(tab.phase);
     if (loading) {
-      activate.setAttribute("aria-label", `Activate ${tab.name}, loading`);
+      activate.setAttribute("aria-label", !projection.appearance || projection.appearance.language === "en"
+        ? `Activate ${tab.name}, loading` : `${tab.name}, ${labels.statusActivating}`);
       const progress = document.createElement("span");
       progress.className = "runtime-tab-loading";
       progress.dataset.runtimeTabLoading = "";
-      progress.setAttribute("aria-label", `${tab.name} loading`);
+      progress.setAttribute("aria-label", `${tab.name}, ${labels.statusActivating}`);
       progress.setAttribute("role", "status");
       activate.append(progress);
     } else if (tab.phase === "degraded" || tab.phase === "failed") {
@@ -426,22 +346,39 @@ function render(projection: WindowsRuntimeHostProjection): void {
       status.dataset.runtimeTabStatus = tab.phase;
       status.setAttribute("aria-label", `${tab.name} ${tab.phase}`);
       status.setAttribute("role", "status");
-      status.textContent = tab.phase === "failed" ? "Failed" : "Degraded";
+      status.textContent = "!";
+      status.title = tab.phase === "failed" ? labels.statusFailed : labels.statusDegraded;
       activate.append(status);
     }
     activate.addEventListener("click", () => submitTab(tab.tabId, "activateTab"));
+    activate.addEventListener("auxclick", event => {
+      if (event.button === 1) { event.preventDefault(); submitTab(tab.tabId, "closeTab"); }
+    });
+    activate.addEventListener("keydown", event => {
+      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openTabMenu(event, tab.tabId);
+    });
     const close = document.createElement("button");
     close.type = "button";
     close.className = "runtime-tab-close";
     close.dataset.runtimeTabClose = "";
     close.dataset.tabId = tab.tabId;
-    close.setAttribute("aria-label", `Stop and close ${tab.name}`);
+    close.setAttribute("aria-label", projection.appearance?.language && projection.appearance.language !== "en" ? `${labels.closeTab}: ${tab.name}` : `Stop and close ${tab.name}`);
+    close.hidden = projection.alwaysHideTabCloseButton === true;
     close.textContent = "\u00d7";
     close.addEventListener("click", () => submitTab(tab.tabId, "closeTab"));
+    if (tab.audioMuted) {
+      const muted = document.createElement("span");
+      muted.className = "runtime-tab-muted";
+      muted.textContent = "♪̸";
+      muted.setAttribute("aria-label", labels.tabMuted);
+      muted.title = labels.tabMuted;
+      activate.append(muted);
+    }
     item.append(activate, close);
     item.addEventListener("contextmenu", (event) => openTabMenu(event, tab.tabId));
     return item;
   }));
+  tabToolbar.render(labels, priorActiveTabId !== projection.activeTabId ? projection.activeTabId : null);
   renderDividers(projection);
   document.documentElement.dataset.fullscreen = String(projection.fullscreen);
   document.documentElement.dataset.windowMaximized =
@@ -482,20 +419,13 @@ windowControls.addEventListener("click", (event) => {
     submit(command);
   }
 });
-document.addEventListener("pointerdown", (event) => {
-  if (!tabMenu.hidden && !tabMenu.contains(event.target as Node)) closeTabMenu();
-}, { capture: true });
 document.addEventListener("pointerup", (event) => {
   submitDividerMove(event, true);
   finishDividerPointer(event.pointerId, "end");
 }, { capture: true });
 document.addEventListener("pointercancel", (event) =>
   finishDividerPointer(event.pointerId, "cancel"), { capture: true });
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeTabMenu();
-});
 window.addEventListener("blur", () => {
-  closeTabMenu();
   cancelDividerPointers();
 });
 window.addEventListener("resize", () => {

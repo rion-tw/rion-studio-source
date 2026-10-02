@@ -216,7 +216,7 @@ function expectExactSurfaceZoomFactors(
 function expectExactZoomReceipt(
   before: ElectronDesktopE2eApplicationShortcutRuntimeInspection,
   current: ElectronDesktopE2eApplicationShortcutRuntimeInspection,
-  action: "in" | "reset",
+  action: "in" | "out" | "reset",
   priorSequence: number
 ): void {
   const observation = current.zoomJournal.observations.at(-1);
@@ -446,7 +446,7 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
     runtimeTabName: SHORTCUT_ROLE_NAME,
     targetMode: "focused-runtime"
   });
-  const reset = await waitApplicationShortcutRuntime(
+  let reset = await waitApplicationShortcutRuntime(
     windowId,
     (runtime) => runtime.zoomJournal.observations.at(-1)?.sequence ===
         zoomedSequence + 1 && runtime.nativeWindow.windowZoomFactor === 1,
@@ -456,6 +456,23 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
   expectLauncherMainWindowUnchanged(reset, initial);
   expectExactSurfaceZoomFactors(reset);
   expectExactZoomReceipt(zoomed, reset, "reset", zoomedSequence);
+
+  if (input.platform === "windows") {
+    for (const [command, action] of [["zoomInEqual", "in"], ["zoomInNumpad", "in"],
+      ["zoomOutNumpad", "out"], ["zoomResetNumpad", "reset"]] as const) {
+      const previous = reset;
+      const sequence = previous.zoomJournal.observations.at(-1)!.sequence;
+      await pressVisibleWindowsApplicationShortcut({ command, processId: input.processId, targetMode: "focused-runtime" });
+      reset = await waitApplicationShortcutRuntime(windowId,
+        runtime => runtime.zoomJournal.observations.at(-1)?.sequence === sequence + 1,
+        `The v8.4 Windows ${command} chord did not reach Core window zoom`);
+      expectStableShortcutOwners(reset, initial, input.platform);
+      expectLauncherMainWindowUnchanged(reset, initial);
+      expectExactSurfaceZoomFactors(reset);
+      expectExactZoomReceipt(previous, reset, action, sequence);
+    }
+    expect(reset.nativeWindow.windowZoomFactor).toBe(1);
+  }
 
   const resetSequence = reset.zoomJournal.observations.at(-1)!.sequence;
   await restoreMacosShortcutFocus({ ...input, windowId });

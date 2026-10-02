@@ -1,5 +1,116 @@
 # Electron Chromium Regression Audit
 
+## 2026-10-02 Windows toolbar follow-up
+
+This follow-up compares the Windows host at `299fb6c1` with `v8.4.2`
+(`0b6e42f0`) and the retained macOS implementation. The tab-strip and shortcut
+sources are unchanged between `v8.4.0` and `v8.4.2`. The older v32 report below
+records its own baseline; its historical parity labels are not current Windows
+desktop acceptance evidence.
+
+| Feature | Finding and disposition |
+| --- | --- |
+| Tab `+` launcher | Missing from the Windows renderer. Restore the scoped native Roles/Workspaces menu, checked live owners and save-transient-window action using the existing Core launch/save lanes. The macOS launcher implementation is shared without changing its AppKit host fence. |
+| Tab context menu | HTML menus were underneath child WebContentsViews. Use an Electron native popup parented to the exact game window. Reload, mute, hide, move, detach and Stop retain captured projection/generation/lifecycle fences. |
+| Crowded tab row | Tabs could become unreachable with no overflow controls. Add visible left/right controls and wheel scrolling; keep `+` and window controls outside the scrolling row. Reveal a newly active tab and report updated native drag geometry. |
+| Close-button preference | Windows ignored `alwaysHideTabCloseButton`. Apply it to every tab and retain native-menu Stop, middle-click close and keyboard context-menu access. |
+| Language/theme | Windows chrome and menus did not follow acknowledged application appearance. Project the existing four locales and light/dark theme; unsubscribe with the exact native owner. |
+| Toolbar document reload | The host discarded its load listener after initial readiness. Retain it and republish the complete current projection after an authenticated local-document reload. |
+| Queued Role overlay refresh | Final Windows tab testing exposed two spurious `ELECTRON_ROLE_OVERLAY_NOT_READY` errors. Refresh requests were queued by Role ID and could outlive their admitted document. Capture that document before queueing and cancel on replacement/retirement, preserving the established superseded outcome instead of refreshing the next document. Event-driven unit tests cover both replacement-ready and retired states. |
+| Retired toolbar presentation | Restart/consolidation exposed late drag-geometry reports from a closed host. Cancel authenticated presentation-only geometry/hover reports when that exact host retires, without relaxing generation/revision checks for tab actions. |
+| Content zoom | Reproduced: `Ctrl+Shift+=` worked, while the v8.4 `Ctrl+=` chord produced no Core zoom receipt. Restore Equal and numpad native accelerator aliases through the same focused-window callback. Retain Core's window multiplier, per-surface base zoom, native readback and compensation. |
+| Window resize, maximize, minimize, fullscreen | Restore the correct Restore glyph/label in fullscreen; the existing Core action already returns to normal. Retain native DIP geometry, authoritative Windows events and revision-fenced placement. Native journeys check resize and minimize/restore; desktop results remain distinct from mock-based geometry tests. |
+| Tab order, hide/reveal, move, tearout, close/reopen | Retain Core ownership and saved dormant topology. Native menu selection now runs through UI Automation on the exact HWND, outside any Role document; DOM menu presence is no longer visibility evidence. |
+| Workspace Role/Web slots, navigation, dividers | Retain current slot identities, managed Chromium surfaces and native resize indicators. No old System WebView or external-browser path is restored. |
+| Role/session data, CRUD, recovery, import/export | Retain current Rust stores, SQLite and bounded consented legacy import. The broad Rust/Vitest regression suites cover these unchanged paths; this follow-up does not claim new live desktop acceptance for every data journey. |
+| Macro/input, extensions, updater | Retain the later owner-authorized Canvas-compatible default, trusted CDP allowlist, extension policy, updater signatures and SHA-256 checks. No intentional retirement or distribution decision is reversed. |
+
+Authoritative inputs remain Core topology/preferences and existing acknowledged
+appearance events. Electron owns native menus and non-serializable handles;
+the renderer publishes only typed requests and presentation geometry. Opening
+a menu does not change content bounds or hide game surfaces. Selection re-enters
+the same ordered controller; stale/retired targets fail without replay. Menu
+close releases the fullscreen toolbar hold. No production polling or timeout
+reconciliation is added.
+
+The overlay coordinator likewise retains its single per-Role FIFO owner. Its
+authoritative ready/lifecycle callbacks admit and invalidate the exact frame;
+queued refreshes now keep that frame fence through submission. No retry or
+replacement-document fallback is introduced. This shared correction is covered
+by Windows native tab lifecycle and focused coordinator tests; macOS execution
+remains pending.
+
+Affected Windows journeys: `RUNTIME-LAUNCH-DESTINATIONS-008`,
+`RUNTIME-TAB-TOPOLOGY-009`, `SETTINGS-PERSIST-006`, `RUNTIME-TAB-RELOAD-031`,
+`RUNTIME-TAB-AUDIO-032`, `FULLSCREEN-TOOLBAR-012` and `APPLICATION-SHORTCUTS-030`
+(all prefixed `CHROMIUM-WINDOWS-`). Adjacent E2E
+checks use visible launcher/menu/scroll controls, native border resize and saved
+preferences. Document reload is `lower-layer-covered`: the focused host-factory
+test emits the actual `did-finish-load` callback and checks complete rehydration
+without changing Core topology. macOS native execution remains pending on a
+macOS host; shared launcher and menu unit tests preserve AppKit behavior.
+
+Local validation logs and desktop evidence are kept under
+`.desktop-e2e-artifacts/windows-v84-audit` and the dated Windows run directories.
+An initial Windows Update dialog dimmed/occluded the desktop: foreground and
+first-paint checks from that interval are failures, not product acceptance.
+Observed validation on this Windows host:
+
+- Native Rust formatting/Clippy passed; Rust tests passed (1,231 tests, four
+  ignored). Typecheck, lint and repository hygiene passed. Lint retains 23
+  existing React refresh warnings.
+- Final production `pnpm run build` passed, including renderer/extension bundle
+  verification. `check:desktop-e2e-isolation` passed against that production
+  output; the workspace is left with a production build, not the E2E build.
+  Documentation/context checks and coverage validation passed (P0 54/54,
+  P1 76/76, P2 4/4; paired cutover journeys 41/41 on each platform).
+- The full Vitest run after the overlay fix passed 4,909 tests in 533 files; 48 tests in nine
+  files were skipped by their existing platform/configuration guards. The
+  native Windows foreground test also passed after the update dialog closed.
+  The final retired-host geometry guard then passed all 39 focused controller,
+  renderer and native-menu binding tests.
+- Native Windows tab seed passed in
+  `2026-10-02T07-27-58-131Z-win32` (one Windows test passed, one macOS-only test
+  skipped): scoped launch while another tab loads, first paint, tab activation,
+  native context-menu hide/move/detach, close/reopen and resize/minimize/restore.
+- Native Windows shell passed all three tests in
+  `2026-10-02T07-37-26-634Z-win32`: tray restoration, owned-window actions and
+  Core-authorized zoom/fullscreen, including Equal and all restored numpad aliases.
+- Final native fullscreen seed/restart passed in
+  `2026-10-02T08-49-32-346Z-win32`, including the visible Restore label/glyph.
+  Native tab tearout and cross-window attachment passed in
+  `2026-10-02T08-51-36-098Z-win32` (one Windows test passed, one macOS-only test
+  skipped).
+- Final native tab seed/restart passed in
+  `2026-10-02T08-53-30-680Z-win32` (one Windows test passed per phase, one
+  macOS-only test skipped per phase). This run includes real narrow-window
+  overflow arrows and `+`, scoped launch during sibling loading, native menu
+  actions, close/reopen and restored topology, with an empty shell-error journal
+  after both phases. It validates the overlay-document and retired-geometry fixes.
+- The `full` alias resolves to `chromium-windows-smoke` on Windows (as does
+  `smoke`). Its run `2026-10-02T07-39-02-830Z-win32` passed 35 phases, including
+  the complete gap/resize/first-paint matrix, workspace recovery, toolbar
+  preferences/restart, native mute/reload/failure recovery, background Macro,
+  standby recovery and input recovery. It stopped at
+  `chromium-macro-cutover-keyboard`; later phases were not executed by this run.
+  The consumer assertions proved one Alt release and correct subsequent output,
+  but `chromium-macro-modifier-reconciliation.ts:53` still expects detailed
+  `compatibleModifierEvidence` in successful operational logs. The existing
+  `compactAppliedTrustedInputContext` deliberately removes that field (predates
+  this task). Preserve that logging contract; report this unrelated stale test
+  assertion separately instead of treating the aggregate as passing.
+
+Native profile outcomes must be read from their report, never inferred from the
+presence of an automated journey in the manifest. This machine uses 200% display
+scaling; mixed-DPI/multiple-monitor hardware and macOS execution remain pending.
+Remote Windows/macOS CI has not been run by this local task; local Windows results
+do not substitute for those CI jobs.
+
+The native accelerator aliases use Electron's documented
+[Windows hidden-item behavior](https://www.electronjs.org/docs/latest/api/menu-item)
+and [Equal/numpad key names](https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts).
+They add no duplicate visible menu entries or global shortcuts.
+
 ## Scope and decision
 
 This is the single v32 execution report for the Electron Chromium cutover. It

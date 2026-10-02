@@ -39,6 +39,7 @@ import {
 import { pressVisibleMacosApplicationShortcut } from
   "../support/native-application-actions";
 import { rendererCall } from "../support/renderer-bridge";
+import { withWindowsRuntimeHost } from "../support/native-runtime-tabs";
 import {
   acceptLegalAndSkipFirstRun,
   ensureEnglishUi,
@@ -460,6 +461,13 @@ async function seedPhase(input: Readonly<{
   "Always-show did not pin the live native toolbar");
   if (input.platform === "windows") {
     expect(roleSurface(pinned, input.role.id).bounds.y).toBe(40);
+    await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
+      const restore = await $("[data-window-command='toggleMaximizeWindow']");
+      await expect(restore).toBeDisplayed();
+      await expect(restore).toHaveAttribute("aria-label", "Restore window");
+      await expect(restore.$("[data-window-control-glyph='restore']")).toBeDisplayed();
+      await expect(restore.$("[data-window-control-glyph='maximize']")).not.toBeDisplayed();
+    }, input.windowId);
   } else {
     await movePointerToMacosRuntimeContent(input.windowId);
     await waitForToolbar(input.windowId, (inspection) =>

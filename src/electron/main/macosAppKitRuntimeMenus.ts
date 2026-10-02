@@ -110,7 +110,7 @@ export function createMacosAppKitRuntimeMenus(
       saveWindow: (request, identity) => saveWindow(
         input.core,
         request,
-        identity,
+        identity!,
         input.applyWindowName
       )
     },

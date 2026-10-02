@@ -7,6 +7,7 @@ import {
 } from "../support/electron-driver";
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import { rendererCall } from "../support/renderer-bridge";
+import { withWindowsRuntimeHost } from "../support/native-runtime-tabs";
 import {
   acceptLegalAndSkipFirstRun,
   ensureEnglishUi,
@@ -239,6 +240,16 @@ async function openRoleThroughVisibleUi(role: Role): Promise<void> {
     expect(runtime?.appKitIdentity).not.toBeNull();
   } else {
     expect(runtime?.appKitIdentity).toBeNull();
+    const tab = (await rendererCall("getEmbeddedRuntimeState")).tabs.find(candidate => candidate.sourceId === role.id)!;
+    await withWindowsRuntimeHost(await browser.getWindowHandle(), tab.id, async () => {
+      await browser.waitUntil(async () => browser.execute(() => {
+        const buttons = [...document.querySelectorAll<HTMLButtonElement>("[data-runtime-tab-close]")];
+        return document.documentElement.dataset.theme === "light" &&
+          document.documentElement.lang === "en" && buttons.length > 0 &&
+          buttons.every(button => button.hidden && button.getClientRects().length === 0);
+      }), { timeout: 10_000, timeoutMsg: "The Windows game toolbar did not apply the saved theme and hidden close buttons" });
+      await expect($("[data-runtime-toolbar-action='openLauncher']")).toBeDisplayed();
+    }, tab.windowId);
   }
 }
 

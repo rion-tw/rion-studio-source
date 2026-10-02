@@ -176,7 +176,7 @@ describe("Chromium native tab exact replacements", () => {
         source("src/electron/main/chromiumRuntimeBootstrap.ts"),
         source("src/electron/main/index.ts"),
         source("src/electron/main/macosAppKitRuntimeTabMenu.ts"),
-        source("src/electron/main/macosAppKitRuntimeLauncherMenu.ts"),
+        source("src/electron/main/runtimeLauncherMenu.ts"),
         source("src/electron/main/macosAppKitRuntimeMenus.ts")
       ]);
     expect(shared).toContain('type: "activateTab"');

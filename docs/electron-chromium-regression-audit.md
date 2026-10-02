@@ -111,6 +111,21 @@ The native accelerator aliases use Electron's documented
 and [Equal/numpad key names](https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts).
 They add no duplicate visible menu entries or global shortcuts.
 
+### Release validation follow-up
+
+The release audit confirmed the same stale modifier-log assertion in both native
+jobs of the preceding CI run `36972724882`. The E2E-only observer now preserves a
+bounded copy of original terminal records containing physical reconciliation.
+The journey reads those records, requires the exact Role and an applied Digit1
+request absent from its precondition snapshot, and retains the physical-reconcile
+AltLeft dispatch assertion alongside the unchanged consumer/order/neutrality
+checks. Production logging and input behavior are unchanged; no release gate or
+coverage target is removed. This is an `internal-only` test-observation repair.
+
+The Windows `chromium-macro-cutover-keyboard` phase and its native-input
+prerequisite passed in `2026-10-02T09-38-09-903Z-win32`. The related compatible
+input, modifier reconciliation and terminal-journal suites passed all 98 tests.
+
 ## Scope and decision
 
 This is the single v32 execution report for the Electron Chromium cutover. It

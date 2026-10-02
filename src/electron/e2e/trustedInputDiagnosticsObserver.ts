@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { ChromiumCdpInputTransport } from "../main/chromiumCdpInputTransport";
 import { WindowsChromiumTrustedInputAdapter } from "../main/windowsChromiumTrustedInputAdapter";
+import { installModifierReconciliationObserver } from "./modifierReconciliationObserver";
 
 /** Observe original results; persist at shutdown or after a failed terminal result. */
 export function installElectronDesktopE2eTrustedInputDiagnostics(
@@ -9,6 +10,7 @@ export function installElectronDesktopE2eTrustedInputDiagnostics(
   onWillQuit: (listener: () => void) => void
 ): void {
   if (!artifactDirectory || !isAbsolute(artifactDirectory)) return;
+  onWillQuit(installModifierReconciliationObserver(artifactDirectory));
   const output = join(artifactDirectory, "electron-trusted-input-diagnostics.json");
   const records: Readonly<Record<string, unknown>>[] = [];
   const flush = (): void => writeFileSync(output, `${JSON.stringify(records, null, 2)}\n`);

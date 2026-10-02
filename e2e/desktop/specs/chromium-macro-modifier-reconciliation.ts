@@ -1,9 +1,12 @@
 import { browser, expect } from "@wdio/globals";
-import { electronDesktopE2eProbe } from "../support/electron-driver";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { TrustedInputTerminalEvidenceRecord } from "../../../src/shared/generated";
+import { electronDesktopE2eProbe, electronDesktopE2eTrustedInputRuntime } from "../support/electron-driver";
 import { fixtureCursor, fixtureEvents, fixtureState } from "../support/fixture";
-import { rendererCall } from "../support/renderer-bridge";
 import { modifierReleaseFault } from "../support/modifier-release-fault";
 import { pressVisibleMacosRoleKey, pressVisibleWindowsApplicationShortcut } from "../support/native-application-actions";
+import { requiredMacroEnvironment } from "./chromium-macro-cutover-support";
 
 export async function exerciseModifierReconciliation(input: Readonly<{
   platform: "macos" | "windows"; roleId: string; roleName: string; fixtureRoleId: string;
@@ -21,6 +24,8 @@ export async function exerciseModifierReconciliation(input: Readonly<{
     }
   };
   const afterSequence = await fixtureCursor();
+  const priorRequestIds = new Set((await electronDesktopE2eTrustedInputRuntime(input.roleId))
+    .map(observation => observation.request.requestId));
   try {
     await key("down");
     await browser.waitUntil(async () => (await fixtureEvents({ afterSequence,
@@ -51,13 +56,17 @@ export async function exerciseModifierReconciliation(input: Readonly<{
       expect(phases[0]!.consumerPressedCodes).not.toContain("AltLeft");
     }
     await browser.waitUntil(async () => {
-      const { entries } = await rendererCall("queryLogs", { levels: ["debug"], limit: 100, search: "trusted_input_terminal" });
+      const path = join(requiredMacroEnvironment("RION_STUDIO_E2E_ARTIFACT_DIR"),
+        "electron-modifier-reconciliation.json");
+      const raw = await readFile(path, "utf8").catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return "[]";
+        throw error;
+      });
+      const entries = JSON.parse(raw) as TrustedInputTerminalEvidenceRecord[];
       return entries.some(entry => {
-        if (entry.context?.roleId !== input.roleId || entry.context?.code !== "Digit1") return false;
-        const evidence = entry.context?.compatibleModifierEvidence as {
-          transitions?: Array<{ source: string; code: string; disposition: string }>;
-        } | undefined;
-        return evidence?.transitions?.some(transition => transition.source === "physical-reconcile" &&
+        if (entry.roleId !== input.roleId || entry.keyCode !== "Digit1" ||
+            entry.terminalCode !== "APPLIED" || priorRequestIds.has(entry.requestId)) return false;
+        return entry.compatibleModifierEvidence?.transitions.some(transition => transition.source === "physical-reconcile" &&
           transition.code === "AltLeft" && transition.disposition === "dispatch") === true;
       });
     }, { timeout: 10_000, timeoutMsg: "The release was not attributed to physical event reconciliation" });

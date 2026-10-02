@@ -138,6 +138,20 @@ it does not register an exception handler or change production failure behavior.
 Its two focused tests, Windows extensions seed
 `2026-10-02T10-07-06-338Z-win32`, and production isolation validation passed.
 
+The next Windows CI attempt `36994080574` passed extension install/restart.
+Its shell shortcut phase exposed an uncontrolled NumLock precondition: numeric
+keypad reset was delivered with NumLock off. The E2E fixture now enables NumLock
+through native input, reads back the OS state, retains it through the exact Core
+receipt, and restores/readbacks the original state in cleanup. Starting locally
+with NumLock off, all three shell tests passed in
+`2026-10-02T10-31-24-586Z-win32`, and NumLock was restored to off.
+The packaged Windows black-box close action also now uses the current English
+accessible label `Close window`; the old `Close Game Window` label was stale
+after toolbar localization. These are `internal-only` harness fixes. The native
+close fixture and adjacent shortcut suites passed all seven tests. Local package
+creation is unavailable on this Windows arm64 Node/Rust host because production
+distribution requires Windows x64; the x64 package black-box remains a CI gate.
+
 ## Scope and decision
 
 This is the single v32 execution report for the Electron Chromium cutover. It

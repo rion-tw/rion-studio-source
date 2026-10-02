@@ -58,7 +58,7 @@ public static class RionCloseFixture {
     thread.SetApartmentState(ApartmentState.STA); thread.Start();
   }
   static IntPtr Button(int id, int top) {
-    var handle = CreateWindowEx(0, "BUTTON", "Close Game Window", 0x50000000,
+    var handle = CreateWindowEx(0, "BUTTON", "Close window", 0x50000000,
       0, top, 180, 30, target.Handle, new IntPtr(id), IntPtr.Zero, IntPtr.Zero);
     if (handle == IntPtr.Zero) throw new Exception("native button creation failed: " + Marshal.GetLastWin32Error());
     return handle;
@@ -80,7 +80,7 @@ ${WINDOWS_PACKAGED_CLOSE_HANDLERS}
 function Rion-ButtonByName($window, [string]$name) {
   # Classified UIA-provider fixture: HWNDs, enabled/visible state and button
   # notifications are native. The packaged Chromium provider is checked in E2E.
-  if ($name -ne 'Close Game Window') { return @() }
+  if ($name -ne 'Close window') { return @() }
   foreach ($id in @(42, 43)) {
     $handle = [RionCloseFixture]::GetDlgItem([RionCloseFixture]::Handle, $id)
     if ($handle -eq [IntPtr]::Zero) { continue }

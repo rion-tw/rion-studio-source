@@ -22,6 +22,7 @@ import {
   "../support/native-application-actions";
 import { rendererCall } from "../support/renderer-bridge";
 import { focusWindowsLauncherForVisibleLaunch } from "../support/windows-launcher-foreground";
+import { withWindowsNumLock } from "../support/windows-numlock";
 import {
   installRuntimeTabShellErrorJournal,
   runtimeTabShellErrors,
@@ -458,20 +459,22 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
   expectExactZoomReceipt(zoomed, reset, "reset", zoomedSequence);
 
   if (input.platform === "windows") {
-    for (const [command, action] of [["zoomInEqual", "in"], ["zoomInNumpad", "in"],
-      ["zoomOutNumpad", "out"], ["zoomResetNumpad", "reset"]] as const) {
-      const previous = reset;
-      const sequence = previous.zoomJournal.observations.at(-1)!.sequence;
-      await pressVisibleWindowsApplicationShortcut({ command, processId: input.processId, targetMode: "focused-runtime" });
-      reset = await waitApplicationShortcutRuntime(windowId,
-        runtime => runtime.zoomJournal.observations.at(-1)?.sequence === sequence + 1,
-        `The v8.4 Windows ${command} chord did not reach Core window zoom`);
-      expectStableShortcutOwners(reset, initial, input.platform);
-      expectLauncherMainWindowUnchanged(reset, initial);
-      expectExactSurfaceZoomFactors(reset);
-      expectExactZoomReceipt(previous, reset, action, sequence);
-    }
-    expect(reset.nativeWindow.windowZoomFactor).toBe(1);
+    await withWindowsNumLock(async () => {
+      for (const [command, action] of [["zoomInEqual", "in"], ["zoomInNumpad", "in"],
+        ["zoomOutNumpad", "out"], ["zoomResetNumpad", "reset"]] as const) {
+        const previous = reset;
+        const sequence = previous.zoomJournal.observations.at(-1)!.sequence;
+        await pressVisibleWindowsApplicationShortcut({ command, processId: input.processId, targetMode: "focused-runtime" });
+        reset = await waitApplicationShortcutRuntime(windowId,
+          runtime => runtime.zoomJournal.observations.at(-1)?.sequence === sequence + 1,
+          `The v8.4 Windows ${command} chord did not reach Core window zoom`);
+        expectStableShortcutOwners(reset, initial, input.platform);
+        expectLauncherMainWindowUnchanged(reset, initial);
+        expectExactSurfaceZoomFactors(reset);
+        expectExactZoomReceipt(previous, reset, action, sequence);
+      }
+      expect(reset.nativeWindow.windowZoomFactor).toBe(1);
+    });
   }
 
   const resetSequence = reset.zoomJournal.observations.at(-1)!.sequence;

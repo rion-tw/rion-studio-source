@@ -4,7 +4,7 @@ function Rion-CloseRoleWindow($window, [uint32]$processId) {
       [int64]$window.Current.NativeWindowHandle -eq 0) {
     throw "exact native role close owner unavailable"
   }
-  $buttons = @(Rion-ButtonByName $window "Close Game Window")
+  $buttons = @(Rion-ButtonByName $window "Close window")
   if ($buttons.Count -ne 1) { throw "exact visible role close button unavailable" }
   $button = $buttons[0]
   if (-not $button.Current.IsEnabled -or $button.Current.IsOffscreen) {

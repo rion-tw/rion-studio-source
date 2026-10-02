@@ -34,6 +34,7 @@ export interface ChromiumRuntimeExecutorSnapshot {
   readonly roles: ReadonlyArray<Readonly<{
     roleId: string;
     tabId: string;
+    workspaceId?: string;
     windowId: string;
     generation: number;
     ownerGeneration: number;

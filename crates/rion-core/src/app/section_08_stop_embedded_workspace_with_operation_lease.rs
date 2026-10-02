@@ -467,6 +467,20 @@ impl AppCore {
             self.macro_runtime.request_stop_role(role_id)?;
         }
         let mut first_error = None;
+        // A zero-tab host has no last EmbeddedDestroyTab to close its native
+        // window. Require that exact EventBound close before removing topology.
+        if request.tab_ids.is_empty() {
+            self.run_embedded_runtime_effect(
+                window_id,
+                CoreEffectAction::EmbeddedRetireProvisionedWindow {
+                    window_id: request.window_id.clone(),
+                    window_generation: request.window_generation,
+                    topology_revision: request.topology_revision,
+                },
+                None,
+                Some(&request.parent_operation_id),
+            )?;
+        }
         for tab_id in &request.tab_ids {
             if let Err(error) = self.run_embedded_runtime_effect(
                 tab_id,

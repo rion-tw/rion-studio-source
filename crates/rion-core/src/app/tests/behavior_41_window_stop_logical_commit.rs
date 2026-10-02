@@ -1,4 +1,51 @@
 #[test]
+fn empty_window_stop_requires_native_retirement_before_logical_removal() {
+    for platform in ["win32", "darwin"] {
+        for fail_close in [false, true] {
+            let (_directory, core) = core_for_runtime_contract(platform, 23);
+            core.invoke(CoreCommand::BrowserRuntimeRegister {
+                registration: chromium_registration(platform, true),
+            }).unwrap();
+            core.apply_runtime_intent(crate::RuntimeIntent::CommitTopology(
+                crate::RuntimeTopologyCommitInput {
+                    commit_id: "empty-close-seed".to_owned(),
+                    source: "command".to_owned(),
+                    primary_window_id: "empty-window".to_owned(),
+                    windows: vec![crate::RuntimeWindowTopologyCommit {
+                        active_tab_id: None,
+                        hidden_tab_ids: HashSet::new(),
+                        tabs: vec![],
+                        ui_sequence: 1,
+                        window_generation: 1,
+                        window_id: "empty-window".to_owned(),
+                    }],
+                },
+            )).unwrap();
+            let before = core.browser_runtime.snapshot().unwrap();
+            let window = &before.windows["empty-window"];
+            let request = RuntimeWindowStopRequestRecord {
+                window_generation: window.window_generation,
+                topology_revision: window.revision,
+                ..test_window_stop_request("empty-window", vec![])
+            };
+            let (result, actions, _) = drive_async_command(
+                Arc::clone(&core), CoreCommand::BrowserWindowStop { request },
+                fail_close.then_some("other"),
+            );
+            assert!(actions.iter().any(|action| matches!(action,
+                CoreEffectAction::EmbeddedRetireProvisionedWindow {
+                    window_id, window_generation, topology_revision
+                } if window_id == "empty-window" && *window_generation == window.window_generation
+                    && *topology_revision == window.revision)), "{platform}: {actions:?}");
+            assert_eq!(result.is_err(), fail_close, "{platform}");
+            assert_eq!(core.browser_runtime.snapshot().unwrap().windows.contains_key("empty-window"),
+                fail_close, "{platform}");
+            core.shutdown();
+        }
+    }
+}
+
+#[test]
 fn successful_window_stop_removes_exact_logical_window_and_preserves_saved_configuration() {
     for platform in ["win32", "darwin"] {
         let (_directory, core) = core_for_runtime_contract(platform, 23);

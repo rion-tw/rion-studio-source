@@ -1397,6 +1397,10 @@ export class ChromiumRuntimeBootstrap {
     return this.#state === "open" ? this.#executor.attachedWebSurfaceObservations(windowId) : [];
   }
 
+  focusedRole() {
+    return this.#state === "open" ? this.#executor.focusedRole() : null;
+  }
+
   snapshot(): ChromiumRuntimeExecutorSnapshot {
     if (this.#state !== "open") {
       throw bootstrapError(

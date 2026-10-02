@@ -237,6 +237,7 @@ function mutatesRuntimeProjection(effect: CoreEffectRequest): boolean {
     case "embeddedSetRuntimeWindowVisibility":
     case "embeddedSetRuntimeWindowPresentation":
     case "embeddedSetRuntimeWindowZoom":
+    case "embeddedSetRuntimeRoleZoom":
       return true;
     default:
       return false;

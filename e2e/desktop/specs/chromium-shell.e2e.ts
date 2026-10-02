@@ -1,4 +1,5 @@
 import { $, browser, expect } from "@wdio/globals";
+import { verifyEmptyWindowClose } from "./chromium-empty-window-close";
 
 import type { AppSnapshot, Role } from "../../../src/shared/types";
 import {
@@ -613,6 +614,8 @@ describe("Chromium desktop shell", () => {
       ...context, processId: desktop.processId, role
     });
   });
+
+  it("closes and reopens a fresh empty game window without launching a workspace", verifyEmptyWindowClose);
 
   it("applies native new-window, zoom and fullscreen shortcuts to the exact runtime", async () => {
     const desktop = await electronDesktopE2eProbe();

@@ -10,6 +10,21 @@ import {
 const identity = { processId: 512, tabId: "tab-1", windowId: "window-1", controlName: "Stop and close Workspace" };
 
 describe("Windows pending-navigation native tab close", () => {
+  it.each(["Stop and close Workspace", "停止並關閉分頁: 工作區", "停止并关闭标签页: 工作区", "停止してタブを閉じる: ワークスペース"])(
+    "retains exact native identity for localized close label %s", async controlName => {
+      const run = vi.fn().mockResolvedValue(JSON.stringify({ nativeHandle: "123456", controlName }));
+      expect(await readWindowsRuntimeTabCloseEvidence({ ...identity, controlName }, { platform: "win32", run }))
+        .toEqual({ ...identity, controlName, nativeHandle: "123456" });
+    });
+
+  it.each(["", "Close window", "停止並關閉分頁: ", "Stop and close "])(
+    "rejects an incomplete or unrelated close label %s", async controlName => {
+      const run = vi.fn();
+      await expect(readWindowsRuntimeTabCloseEvidence({ ...identity, controlName }, { platform: "win32", run }))
+        .rejects.toThrow("exact Windows");
+      expect(run).not.toHaveBeenCalled();
+    });
+
   it("binds the observed exact control and sends its native handle on close", async () => {
     const run = vi.fn().mockResolvedValueOnce(JSON.stringify({
       nativeHandle: "123456", controlName: identity.controlName

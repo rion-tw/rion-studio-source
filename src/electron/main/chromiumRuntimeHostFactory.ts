@@ -939,6 +939,8 @@ implements ChromiumRuntimeHostFactoryPort {
       close: (event) => {
         if (record.state === "closing" || record.state === "closed") return;
         event.preventDefault();
+        // Alt+F4 and the OS system menu enter the same Core close lane as X.
+        void record.chrome.requestNativeClose().catch(this.#onCommandError);
       },
       closed: () => this.#onClosed(record),
       didFailLoad: (

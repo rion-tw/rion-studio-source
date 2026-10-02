@@ -79,6 +79,7 @@ function harness(
   const requestRuntimeTabQuickAccess = vi.fn();
   const toggleRuntimeWindowFullscreen = vi.fn(async () => applied);
   const zoomRuntimeWindow = vi.fn(async () => applied);
+  const zoomFocusedRuntimeRole = vi.fn(async () => false);
   const controller = new ElectronFocusedApplicationShortcutController({
     platform,
     executeMainWindowShortcut,
@@ -87,7 +88,8 @@ function harness(
     requestMainWindowQuickAccess,
     requestRuntimeTabQuickAccess,
     toggleRuntimeWindowFullscreen: toggleRuntimeWindowFullscreen as never,
-    zoomRuntimeWindow: zoomRuntimeWindow as never
+    zoomRuntimeWindow: zoomRuntimeWindow as never,
+    zoomFocusedRuntimeRole
   });
   return {
     controller,
@@ -98,11 +100,32 @@ function harness(
     runtimeWindow,
     snapshot,
     toggleRuntimeWindowFullscreen,
-    zoomRuntimeWindow
+    zoomRuntimeWindow,
+    zoomFocusedRuntimeRole
   };
 }
 
 describe("focused native application shortcut controller", () => {
+  it.each(["darwin", "win32"] as const)("routes %s focused workspace zoom without window fanout or failure fallback", async platform => {
+    const state = harness(platform);
+    state.zoomFocusedRuntimeRole.mockResolvedValue(true);
+    await state.controller.execute("zoomIn", state.runtimeWindow);
+    expect(state.zoomFocusedRuntimeRole).toHaveBeenCalledWith(expect.objectContaining({ windowId: "window-a", activeTabId: "tab-a" }), "in");
+    expect(state.zoomRuntimeWindow).not.toHaveBeenCalled();
+    state.zoomFocusedRuntimeRole.mockRejectedValue(new Error("exact Role retired"));
+    await expect(state.controller.execute("zoomOut", state.runtimeWindow)).rejects.toThrow("exact Role retired");
+    expect(state.zoomRuntimeWindow).not.toHaveBeenCalled();
+    expect(state.executeMainWindowShortcut).not.toHaveBeenCalled();
+  });
+
+  it("uses the same focused Role routing for the retained AppKit menu callback", async () => {
+    const state = harness("darwin");
+    state.zoomFocusedRuntimeRole.mockResolvedValue(true);
+    await state.controller.execute("zoomReset");
+    expect(state.zoomFocusedRuntimeRole).toHaveBeenCalledWith(expect.objectContaining({ windowId: "window-a" }), "reset");
+    expect(state.zoomRuntimeWindow).not.toHaveBeenCalled();
+  });
+
   it("keeps global New Window and Quit on the authenticated main lane", async () => {
     const state = harness();
 

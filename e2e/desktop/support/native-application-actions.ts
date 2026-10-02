@@ -113,6 +113,7 @@ export async function cancelVisibleNativeDiagnosticsSaveDialog(input: Readonly<{
 }
 
 export type VisibleWindowsApplicationShortcut =
+  | "closeWindow"
   | "zoomInEqual" | "zoomInNumpad" | "zoomOutNumpad" | "zoomResetNumpad"
   | "altDown" | "altUp" | "altDigit1" | "altDigit1Tap"
   | "nextTab"
@@ -131,6 +132,7 @@ export type VisibleWindowsApplicationShortcut =
   | "newGameWindow"
   | "toggleFullscreen"
   | "zoomIn"
+  | "zoomOut"
   | "zoomReset";
 
 export type VisibleMacosApplicationShortcut =
@@ -141,6 +143,7 @@ export type VisibleMacosApplicationShortcut =
   | "quickAccess"
   | "toggleFullscreen"
   | "zoomIn"
+  | "zoomOut"
   | "zoomReset";
 
 export type VisibleApplicationShortcutTargetMode =
@@ -323,6 +326,8 @@ on run argv
       keystroke "+" using command down
     else if commandName is "zoomReset" then
       keystroke "0" using command down
+    else if commandName is "zoomOut" then
+      keystroke "-" using command down
     else
       error "unsupported macOS application shortcut"
     end if
@@ -602,9 +607,12 @@ if (-not [RionNativeShortcutInput]::IsWindowVisible($foregroundWindow)) {
 }
 $CTRL = [byte]0x11
 $SHIFT = [byte]0x10
+$ALT = [byte]0x12
 $modifier = $true
 $shiftModifier = $false
+$altModifier = $false
 switch ($command) {
+  'closeWindow' { $key = [byte]0x73; $modifier = $false; $altModifier = $true }
   { $_ -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap') } { $key = [byte]0x31; $modifier = $false }
   'nextTab' { $key = [byte]0x09 }
   'previousTab' { $key = [byte]0x09; $shiftModifier = $true }
@@ -621,6 +629,7 @@ switch ($command) {
   'quickAccess' { $key = [byte]0x4B }
   'toggleFullscreen' { $key = [byte]0x7A; $modifier = $false }
   'zoomIn' { $key = [byte]0xBB; $shiftModifier = $true }
+  'zoomOut' { $key = [byte]0xBD }
   'zoomInEqual' { $key = [byte]0xBB }
   'zoomInNumpad' { $key = [byte]0x6B }
   'zoomOutNumpad' { $key = [byte]0x6D }
@@ -631,12 +640,15 @@ switch ($command) {
 $keyScan = [uint16][RionNativeShortcutInput]::MapVirtualKey($key, 0)
 $ctrlScan = [uint16][RionNativeShortcutInput]::MapVirtualKey($CTRL, 0)
 $shiftScan = [uint16][RionNativeShortcutInput]::MapVirtualKey($SHIFT, 0)
+$altScan = [uint16][RionNativeShortcutInput]::MapVirtualKey($ALT, 0)
 if ($keyScan -eq 0) { throw 'Windows shortcut has no physical scan code' }
 if ($modifier -and $ctrlScan -eq 0) { throw 'Windows Control has no physical scan code' }
 if ($shiftModifier -and $shiftScan -eq 0) { throw 'Windows Shift has no physical scan code' }
+if ($altModifier -and $altScan -eq 0) { throw 'Windows Alt has no physical scan code' }
 $scanCodes = [System.Collections.Generic.List[System.UInt16]]::new()
 if ($modifier) { $scanCodes.Add($ctrlScan) }
 if ($shiftModifier) { $scanCodes.Add($shiftScan) }
+if ($altModifier) { $scanCodes.Add($altScan) }
 $scanCodes.Add($keyScan)
 [Console]::WriteLine([RionNativeShortcutInput]::FocusEvidence($foregroundWindow))
 [Console]::Error.WriteLine('shortcut-stage: submit-native-chord')

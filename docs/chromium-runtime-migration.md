@@ -849,6 +849,24 @@ indeterminate and never success.
 
 ## Event topology and lifecycle
 
+Focused Workspace Role zoom starts from the exact native Chromium content
+responder. Electron captures its Role/tab/window, owner generation and surface
+generation; Core checks current membership and revision, computes the slot
+factor and commits `SetRoleZoom` only after the exact EventBound native
+readback. The effect changes one Role's base factor composed with the existing
+window multiplier. Sibling Roles, Web slots, other windows and launcher zoom
+remain unchanged. Native write failure restores the old factor; an unverified
+rollback or post-commit projection is indeterminate. A queued shortcut never
+switches to a newly focused Role. Standalone Role tabs and window chrome retain
+the existing window multiplier and its receipts. The existing slot persistence,
+identity fences and terminal statuses are unchanged.
+
+A Windows zero-tab close requires an exact empty-host native retirement effect
+before Core removes the logical window. Populated windows still retire through
+their last tab. The visible X and native OS close events enter Core's close
+lane; merely suppressing `close` or removing Core topology is never evidence
+of native destruction.
+
 Runtime work remains event-bound unless an external API is explicitly declared
 deadline-bound. Window creation, view attachment, navigation, close, crash,
 download, permission, macro input, and application shutdown terminalize from an

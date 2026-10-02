@@ -1,5 +1,61 @@
 # Electron Chromium Regression Audit
 
+## 2026-10-03 Windows 9.1.1 follow-up
+
+Baseline: released `v9.1.1` / `51f6dd0c`. This audit compares executable
+scenarios and platform branches, not just paired journey IDs.
+
+| Finding | Repair and regression evidence |
+| --- | --- |
+| Closing a newly created, zero-tab Windows host removed Core topology without closing its native window | Require the existing generation/revision-fenced empty-host retirement effect before logical removal. The Rust regression failed with an empty effect list before the repair; it now covers success and rejected native close on both platform branches. The shell journey closes and recreates an empty window before loading any content. |
+| Zooming a focused workspace Role used the whole-window multiplier | Resolve the exact focused Chromium Role, capture its owner/surface/window generations, let Core calculate and commit its slot factor, and verify native readback. Keep sibling Roles, other windows, window multiplier and launcher unchanged. Preserve standalone Role/window zoom and its existing shortcut aliases. Cover both Roles, plus/minus/reset, stale ownership, queued focus change, native rollback and duplicate operation replay. |
+| Windows native OS close was suppressed without entering Core | Route native close events through the same divider-draining Core close lane as the visible X, coalescing repeated native requests. Native destruction remains authoritative; no timer or forced destroy substitutes for it. |
+| A shared Role journey changed locale only on macOS | Exercise Traditional Chinese native mute/unmute on Windows too, then restore English. This tests the actual platform menu adapter after a live preference change. |
+
+The ordinary macOS profile has **71 phases / 35 specs**; Windows includes all
+of them and adds physical Windows input and Windows session-end coverage
+(**73 phases / 37 specs**). All **41 shared coverage groups** have paired
+journeys. Hardware profiles each contain one native-display phase; DRM profiles
+each contain four phases / two specs. These counts describe coverage, not a
+claim that the new code has passed on macOS hardware.
+
+| Scenario family examined | Windows comparison |
+| --- | --- |
+| Shell, launch destinations, Quick Access, Dock/Tray, native shortcuts | Shared semantic assertions; native entry points differ. Added the previously absent zero-tab close case. |
+| Role/workspace CRUD, saved layout, Web slots, gaps/dividers, loading siblings | Same specs and seed/restart phases. Added focused multi-Role zoom isolation and bilingual menu checks. |
+| Tabs, overflow, selection, reorder, tear-out, hide, audio, reload | Shared ordinary journeys with platform-specific visible native input and host identity checks. The additional macOS-only tab-retirement diagnostic is AppKit-specific; Windows has its own loading-close and visible tab tests. |
+| Fullscreen, resize, minimize/restore, popup lifecycle | Shared scenarios with HWND/UIA and AppKit/AX adapters. AppKit responder/rehosting assertions remain macOS-specific. |
+| Macro keyboard/pointer, background targets, held modifiers, recovery and cleanup | Shared semantic phases; Windows additionally exercises physical input. macOS host identity/focus evidence uses the retained AppKit adapter. |
+| Cookies/LocalStorage, isolation/reset, upgrade/import, restart and crash recovery | Shared persistence and recovery scenarios; legacy decoder source engines differ intentionally. |
+| Settings, graphics, fonts, extensions, quit guards, forced termination | Shared ordinary phases; Windows additionally covers native session end. Hardware/mixed-DPI and DRM profiles remain separate gates. |
+
+Local Windows ARM64 desktop evidence for this working tree:
+
+- `chromium-workspace-shared-role`: PASS, including real OS clicks into each
+  Role followed by Ctrl+Plus/Minus/0, unchanged siblings and the other window,
+  translated native menus, and the existing exact shared-Role ownership journey.
+  Artifact: `.desktop-e2e-artifacts/2026-10-02T16-54-57-664Z-win32`.
+- `chromium-shell-smoke`: 4 tests PASS, including two fresh-window X closes,
+  a third fresh-window Alt+F4 close, then existing window zoom aliases and
+  fullscreen entry/exit. Artifact:
+  `.desktop-e2e-artifacts/2026-10-02T16-59-02-646Z-win32`.
+- Full Vitest: 535 files / 4,935 tests PASS, 9 files / 48 tests intentionally
+  skipped. The final focused Role zoom, surface lifecycle and effect coordinator
+  run passes 105 tests, including two additional standalone/chrome preservation
+  cases. No desktop test uses a debug command as its primary action.
+- Windows native Rust lint and the final full workspace test run: PASS,
+  1,234 tests passed / 4 intentionally ignored. A preceding concurrent run hit
+  the existing two-second macro test receive timeout; that unchanged test passed
+  alone and the subsequent full run passed without a timeout increase.
+- Source hygiene, typecheck, lint, documentation, coverage manifest, production
+  Electron build, renderer/extension verification and desktop-E2E production
+  isolation: PASS. Lint retains the existing 23 React-refresh warnings.
+
+The full macOS AppKit and Windows x64 profiles and packaged checks remain
+hosted-CI gates for the exact source commit. This ARM64 host does not establish
+macOS or Windows x64 installer acceptance. Historical v9.1.1 CI below is baseline
+evidence only.
+
 ## 2026-10-02 Windows toolbar follow-up
 
 This follow-up compares the Windows host at `299fb6c1` with `v8.4.2`

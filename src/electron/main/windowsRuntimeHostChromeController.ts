@@ -102,6 +102,7 @@ function nativePresentation(
  * lane. It never commits Core state; only the requesting Rust effect may do so.
  */
 export class WindowsRuntimeHostChromeController {
+  #nativeClose: Promise<void> | null = null;
   readonly tabDragGeometry: WindowsRuntimeTabDragGeometry;
   readonly #requestTabDrag: ((start: RuntimeTabDragStart) => void) | undefined;
   readonly #resizeIndicators: import("./windowsWorkspaceResizeIndicators").WorkspaceResizeIndicatorPort | undefined;
@@ -713,6 +714,19 @@ export class WindowsRuntimeHostChromeController {
     );
     this.#commandLane = operation.catch(() => undefined);
     return operation;
+  }
+
+  requestNativeClose(): Promise<void> {
+    if (this.#nativeClose) return this.#nativeClose;
+    const operation = this.#commandLane.then(async () => {
+      if (this.#native.isDestroyed()) return;
+      await this.#drainWorkspaceDividerGesturesNow();
+      await this.#requestWindowControl("closeWindow");
+    });
+    this.#commandLane = operation.catch(() => undefined);
+    const terminal = operation.finally(() => { this.#nativeClose = null; });
+    this.#nativeClose = terminal;
+    return terminal;
   }
 
   nativePointerLeft(isCurrent: () => boolean): Promise<void> {

@@ -47,3 +47,24 @@ pub struct RuntimeWindowZoomReceiptRecord {
     #[ts(optional)]
     pub failure_code: Option<String>,
 }
+/// One physical shortcut targets the exact focused Role, never its siblings.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeRoleZoomRequestRecord {
+    pub operation_id: String,
+    pub window_id: String,
+    pub tab_id: String,
+    pub role_id: String,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    #[ts(type = "number")]
+    pub topology_revision: u64,
+    #[ts(type = "number")]
+    pub owner_generation: u64,
+    #[ts(type = "number")]
+    pub surface_generation: u64,
+    pub previous_zoom_factor: f64,
+    #[ts(type = "\"in\" | \"out\" | \"reset\"")]
+    pub action: String,
+}

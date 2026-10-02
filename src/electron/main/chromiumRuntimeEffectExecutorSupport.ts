@@ -10,6 +10,15 @@ export function runtimeError(code: string, message: string): RionBridgeError {
   return new RionBridgeError({ code, message });
 }
 
+export function nextChromiumSurfaceGeneration(generations: Map<string, number>, id: string, web = false): number {
+  const generation = (generations.get(id) ?? 0) + 1;
+  if (!Number.isSafeInteger(generation)) throw runtimeError(
+    web ? "ELECTRON_GLOBAL_WEB_GENERATION_EXHAUSTED" : "ELECTRON_CHROMIUM_GENERATION_EXHAUSTED",
+    web ? "The native global Web surface generation is exhausted." : "The native role-surface generation is exhausted.");
+  generations.set(id, generation);
+  return generation;
+}
+
 export function requireIdentifier(value: string, field: string): string {
   if (
     typeof value !== "string" ||

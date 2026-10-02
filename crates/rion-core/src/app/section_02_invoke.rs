@@ -944,6 +944,9 @@ impl AppCore {
                 presentation,
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::BrowserRuntimeRoleZoom { request } =>
+                serde_json::to_value(self.apply_runtime_role_zoom_action(request)?)
+                    .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserRuntimeWindowZoom {
                 operation_id,
                 window_id,

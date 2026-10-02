@@ -38,6 +38,7 @@ include!("app/section_23_managed_shortcut.rs");
 include!("app/section_24_windows_chromium_held_key_continuity.rs");
 include!("app/section_25_windows_runtime_window_placement.rs");
 include!("app/section_26_runtime_window_zoom.rs");
+include!("app/section_26_runtime_role_zoom.rs");
 include!("app/section_27_controlled_role_reload_state.rs");
 include!("app/section_28_controlled_role_reload_foundation.rs");
 include!("app/section_28_controlled_role_reload_effects.rs");

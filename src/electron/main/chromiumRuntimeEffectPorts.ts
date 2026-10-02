@@ -42,6 +42,7 @@ import type { ChromiumTrustedInputDocumentReplacementLease } from
   "./chromiumTrustedInputCoordinator";
 
 export interface ChromiumRuntimeSurfacePort {
+  isFocused?: (roleId: string, generation: number) => boolean;
   wasRetired?: (id: string, generation: number) => boolean;
   focusVisible: (roleId: string, generation: number) => void;
   audioMuted: (roleId: string, generation: number) => boolean;

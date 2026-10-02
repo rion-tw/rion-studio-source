@@ -39,6 +39,10 @@ export interface ElectronFocusedApplicationShortcutControllerInput {
     target: ElectronFocusedRuntimeShortcutTarget,
     action: "in" | "out" | "reset"
   ) => Promise<RuntimeWindowZoomReceiptRecord>;
+  readonly zoomFocusedRuntimeRole?: (
+    target: ElectronFocusedRuntimeShortcutTarget,
+    action: "in" | "out" | "reset"
+  ) => Promise<boolean>;
 }
 
 function shortcutError(code: string, message: string): RionBridgeError {
@@ -192,6 +196,8 @@ export class ElectronFocusedApplicationShortcutController {
       ? focusedAppKitRuntimeTarget(this.#input)
       : null;
     if (appKitTarget !== null) {
+      if (command !== "toggleFullscreen" && await this.#input.zoomFocusedRuntimeRole?.(
+        appKitTarget, runtimeZoomAction(command))) return;
       const receipt = command === "toggleFullscreen"
         ? await this.#input.toggleRuntimeWindowFullscreen(appKitTarget)
         : await this.#input.zoomRuntimeWindow(
@@ -217,6 +223,8 @@ export class ElectronFocusedApplicationShortcutController {
       );
     }
     const target = exactRuntimeTarget(this.#input, focusedWindow);
+    if (command !== "toggleFullscreen" && await this.#input.zoomFocusedRuntimeRole?.(
+      target, runtimeZoomAction(command))) return;
     if (command === "toggleFullscreen" && this.#input.platform === "darwin") {
       // A windowed retained AppKit host still has an exact Electron BaseWindow.
       // Start its visible native action there so the AppKit placement event is

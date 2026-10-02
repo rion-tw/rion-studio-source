@@ -13,6 +13,15 @@ interface SnapshotInput {
   closingWebSurfaceGenerations: ReadonlyMap<string, number>;
   ports: ChromiumRuntimeEffectExecutorInput;
 }
+export function focusedChromiumRuntimeRole(snapshot: ChromiumRuntimeExecutorSnapshot,
+  surfaces: ChromiumRuntimeEffectExecutorInput["surfaces"], closing: ReadonlyMap<string, number>) {
+  const roles = snapshot.roles.filter(role => !closing.has(role.roleId) &&
+    surfaces.isFocused?.(role.roleId, role.generation));
+  if (roles.length > 1) throw new RionBridgeError({ code: "ELECTRON_RUNTIME_ROLE_FOCUS_AMBIGUOUS",
+    message: "Chromium reported multiple focused Role surfaces." });
+  return roles[0] ?? null;
+}
+
 export function captureChromiumRuntimeSnapshot(input: SnapshotInput): ChromiumRuntimeExecutorSnapshot {
     return Object.freeze({
       windows: Object.freeze(sortedSnapshot([...input.windows.entries()].map(
@@ -69,6 +78,8 @@ export function captureChromiumRuntimeSnapshot(input: SnapshotInput): ChromiumRu
         Object.freeze({
           roleId: record.roleId,
           tabId: record.tabId,
+          ...(input.tabs.get(record.tabId)?.specification.workspaceId
+            ? { workspaceId: input.tabs.get(record.tabId)!.specification.workspaceId } : {}),
           windowId: record.windowId,
           generation: record.generation,
           ownerGeneration: record.ownerGeneration,

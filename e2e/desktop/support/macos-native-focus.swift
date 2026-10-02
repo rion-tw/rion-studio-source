@@ -146,6 +146,7 @@ if mode == "shortcut" || mode == "roleKey" {
   case "quickAccess": key = 40; flags = [.maskCommand]
   case "toggleFullscreen": key = 3; flags = [.maskCommand, .maskControl]
   case "zoomIn": key = 24; flags = [.maskCommand, .maskShift]
+  case "zoomOut": key = 27; flags = [.maskCommand]
   case "zoomReset": key = 29; flags = [.maskCommand]
   default: fail("unsupported native shortcut")
   }

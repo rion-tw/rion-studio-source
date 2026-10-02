@@ -571,6 +571,7 @@ pub enum CoreCommand {
         #[ts(type = "\"in\" | \"out\" | \"reset\"")]
         action: String,
     },
+    BrowserRuntimeRoleZoom { request: RuntimeRoleZoomRequestRecord },
     RuntimeTabDrag {
         event: RuntimeTabDragEventRecord,
     },

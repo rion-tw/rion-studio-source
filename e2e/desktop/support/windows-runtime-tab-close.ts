@@ -43,9 +43,10 @@ function FindCloseButton($window) {
 function validateIdentity(input: Readonly<{
   processId: number; tabId: string; windowId: string; controlName: string;
 }>, platform: NodeJS.Platform): void {
+  const closePrefixes = ["Stop and close ", "停止並關閉分頁: ", "停止并关闭标签页: ", "停止してタブを閉じる: "];
   if (platform !== "win32" || !Number.isSafeInteger(input.processId) ||
       input.processId <= 1 || !input.tabId || !input.windowId ||
-      !input.controlName.startsWith("Stop and close ")) {
+      !closePrefixes.some(prefix => input.controlName.startsWith(prefix) && input.controlName.length > prefix.length)) {
     throw new Error("Native tab close requires exact Windows process and control evidence");
   }
 }

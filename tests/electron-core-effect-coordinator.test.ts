@@ -242,17 +242,19 @@ describe("Electron Core effect coordinator", () => {
     await expect(test.coordinator.settleWindowProjection("window-a")).rejects.toMatchObject({ code: "ELECTRON_CORE_EFFECT_ACTOR_STOPPED" });
   });
 
-  it("settles a projection fence only after current native work and its Core acknowledgement", async () => {
+  it.each(["destroyRole", "roleZoom"])("settles a %s projection fence only after current native work and its Core acknowledgement", async kind => {
     const native = deferred<unknown>();
     const postDispatch = deferred<void>();
     const test = harness(
       async () => native.promise,
       async () => postDispatch.promise
     );
-    test.emit({
-      type: "coreEffects",
-      effects: [effect("effect-1", "tab-1", "deadlineBound", "app")]
-    });
+    const request = effect("effect-1", "window-1", "eventBound", "app");
+    if (kind === "roleZoom") request.action = { type: "embeddedSetRuntimeRoleZoom", zoomFactor: 1.05, windowZoomFactor: 1,
+      request: { operationId: "zoom", roleId: "role-1", tabId: "tab-1", windowId: "window-1",
+        windowGeneration: 1, topologyRevision: 1, surfaceGeneration: 1, ownerGeneration: 1,
+        previousZoomFactor: 1, action: "in" } };
+    test.emit({ type: "coreEffects", effects: [request] });
 
     let settled = false;
     const fence = test.coordinator.settleCurrentProjectionEffects().then(() => {

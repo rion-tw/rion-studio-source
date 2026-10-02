@@ -1,3 +1,4 @@
+import { createChromiumRoleZoomShortcut } from "./chromiumRoleZoomShortcutController";
 import { dispatchRuntimeTabShortcut } from "./runtimeTabShortcutDispatch";
 import { readWindowsShortcutDiagnostic } from "./windowsRuntimeShortcutDiagnostics";
 import { startChromiumDrm } from "./chromiumDrmStartup";
@@ -1305,7 +1306,8 @@ async function bootstrapReadyPhase(
       toggleRuntimeWindowFullscreen: (target) =>
         runtimeActionServices.toggleRuntimeWindowFullscreen(target),
       zoomRuntimeWindow: (target, action) =>
-        runtimeActionServices.zoomRuntimeWindow(target, action)
+        runtimeActionServices.zoomRuntimeWindow(target, action),
+      zoomFocusedRuntimeRole: createChromiumRoleZoomShortcut(activeCore(), () => chromiumRuntime)
     });
   const { executeShortcut: executeNativeApplicationShortcut, executeQuickAccess: executeNativeQuickAccessShortcut } =
     createElectronApplicationMenuDispatch(focusedApplicationShortcuts, revealShellError);

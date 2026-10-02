@@ -374,6 +374,7 @@ const actionTypes = new Set<ActionType>([
   "embeddedSetRuntimeWindowVisibility",
   "embeddedSetRuntimeWindowPresentation",
   "embeddedSetRuntimeWindowZoom",
+  "embeddedSetRuntimeRoleZoom",
   "embeddedPrepareTabRoleReload",
   "embeddedCommitTabRoleReload",
   "embeddedSupersedeTabRoleReload",
@@ -501,6 +502,14 @@ function isClosedKnownCoreEffectAction(value: unknown, type: ActionType): boolea
         topologyRevision: nonnegativeInteger,
         presentation: oneOf("normal", "maximized", "fullscreen")
       });
+    case "embeddedSetRuntimeRoleZoom":
+      return closed(value, { type: oneOf(type), zoomFactor: finite, windowZoomFactor: finite,
+        request: candidate => closed(candidate, {
+          operationId: identity, windowId: identity, tabId: identity, roleId: identity,
+          windowGeneration: nonnegativeInteger, topologyRevision: nonnegativeInteger,
+          ownerGeneration: nonnegativeInteger, surfaceGeneration: nonnegativeInteger,
+          previousZoomFactor: finite, action: oneOf("in", "out", "reset")
+        }) });
     case "embeddedSetRuntimeWindowZoom":
       return closed(value, {
         type: oneOf(type), windowId: identity, windowGeneration: nonnegativeInteger,

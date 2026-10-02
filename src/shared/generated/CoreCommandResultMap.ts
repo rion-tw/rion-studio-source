@@ -197,6 +197,7 @@ type TypedCoreCommandResultMap = {
   embeddedWindowVisibility: SystemRuntimeOperationSummaryRecord;
   embeddedWindowPresentation: SystemRuntimeOperationSummaryRecord;
   browserRuntimeWindowZoom: RuntimeWindowZoomReceiptRecord;
+  browserRuntimeRoleZoom: SystemRuntimeOperationSummaryRecord;
   runtimeTabDrag: RuntimeTabDragReceiptRecord;
   embeddedWindowProvisionForTabMove: RuntimeWindowProvisionReceiptRecord;
   embeddedWindowProvisionResume: RuntimeWindowProvisionReceiptRecord | null;

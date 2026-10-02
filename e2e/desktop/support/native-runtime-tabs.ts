@@ -1,4 +1,6 @@
 import { selectWindowsNativeMenuItem } from "./windows-native-menu";
+import { runtimeTabMenuLabels } from "../../../src/shared/runtimeTabMenuLabels";
+import type { AppLanguage } from "../../../src/shared/types";
 import { revealWindowsRuntimeTab } from "./windows-runtime-tab-scroll";
 import { macosNativeWindowControl } from "./macos-native-window-controls";
 import { readMacosVisibleRuntimeTabPoint } from "./macos-appkit-ui";
@@ -463,6 +465,7 @@ export async function dragVisibleWindowsRuntimeTab(input: Readonly<{
 
 export async function selectVisibleWindowsRuntimeTabMenuAction(input: Readonly<{
   action: "hide" | "move" | "moveToNewWindow" | "reload" | "mute" | "unmute";
+  language?: AppLanguage;
   mainWindowHandle: string;
   tabId: string;
   targetWindowId?: string;
@@ -494,11 +497,8 @@ export async function selectVisibleWindowsRuntimeTabMenuAction(input: Readonly<{
       .down("right")
       .up("right")
       .perform();
-    const labels = {
-      hide: "Hide tab (keeps running)", move: "Move to Game Window", moveToNewWindow: "Move to New Game Window",
-      reload: "Reload", mute: "Mute Tab", unmute: "Unmute Tab"
-    };
-    const path = [labels[input.action]];
+    const labels = runtimeTabMenuLabels[input.language ?? "en"];
+    const path = [labels[input.action === "move" ? "moveToWindow" : input.action]];
     if (input.targetWindowId) {
       if (!targetName) throw new Error("The native menu target has no saved window label");
       path.push(targetName);

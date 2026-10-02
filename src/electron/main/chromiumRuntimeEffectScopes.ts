@@ -9,6 +9,7 @@ export function chromiumRuntimeEffectScopes(effect: CoreEffectRequest,
       admittedTabWindows.set(action.tab.tabId, action.tab.target.windowId);
       return [`window:${action.tab.target.windowId}`];
     }
+    if (action.type === "embeddedSetRuntimeRoleZoom") return [`window:${action.request.windowId}`];
     if (action.type === "embeddedProvisionWindowForTabMove") {
       return [`window:${action.sourceWindowId}`, `window:${action.target.windowId}`];
     }

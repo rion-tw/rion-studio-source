@@ -118,6 +118,18 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
 }
 
 describe("Windows runtime-host chrome controller", () => {
+  it("routes and coalesces OS close events even before a workspace is loaded", async () => {
+    const subject = harness();
+    let release!: () => void;
+    subject.requestWindowControl.mockImplementation(() => new Promise<void>(resolve => { release = resolve; }).then(() => undefined));
+    const first = subject.controller.requestNativeClose();
+    const second = subject.controller.requestNativeClose();
+    expect(second).toBe(first);
+    await vi.waitFor(() => expect(subject.requestWindowControl).toHaveBeenCalledExactlyOnceWith("closeWindow"));
+    release();
+    await first;
+  });
+
   it("restores close-button preferences and appearance on every host-document load", async () => {
     const subject = harness();
     await subject.controller.applyCoreProjection(projection());

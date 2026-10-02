@@ -412,6 +412,11 @@ pub enum CoreEffectAction {
         #[ts(type = "\"normal\" | \"maximized\" | \"fullscreen\"")]
         presentation: String,
     },
+    EmbeddedSetRuntimeRoleZoom {
+        request: RuntimeRoleZoomRequestRecord,
+        zoom_factor: f64,
+        window_zoom_factor: f64,
+    },
     EmbeddedSetRuntimeWindowZoom {
         window_id: String,
         #[ts(type = "number")]
@@ -503,6 +508,7 @@ impl CoreEffectAction {
             | Self::EmbeddedRetireProvisionedWindow { .. }
             | Self::EmbeddedSetRuntimeWindowPresentation { .. }
             | Self::EmbeddedSetRuntimeWindowZoom { .. }
+            | Self::EmbeddedSetRuntimeRoleZoom { .. }
             | Self::EmbeddedPrepareTabRoleReload { .. }
             | Self::EmbeddedCommitTabRoleReload { .. }
             | Self::EmbeddedSupersedeTabRoleReload { .. }

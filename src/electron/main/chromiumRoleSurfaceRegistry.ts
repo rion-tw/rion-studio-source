@@ -892,6 +892,13 @@ export class ChromiumRoleSurfaceRegistry {
     this.#syncNativePresentation(record);
   }
 
+  isFocused(roleId: string, generation: number): boolean {
+    const record = this.#recordsByRole.get(roleId);
+    return !!record && record.generation === generation && record.state === "active" &&
+      !record.destroyed && !record.contents.isDestroyed() && !record.parent.isDestroyed() && record.view.getVisible() &&
+      record.contents.isFocused?.() === true;
+  }
+
   readProjection(
     roleId: string,
     generation: number

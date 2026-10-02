@@ -299,6 +299,7 @@ export type { RuntimeWindowProvisionReceiptRecord } from "./RuntimeWindowProvisi
 export type { RuntimeWindowProvisionTargetRecord } from "./RuntimeWindowProvisionTargetRecord";
 export type { RuntimeWindowZoomNativeReceiptRecord } from "./RuntimeWindowZoomNativeReceiptRecord";
 export type { RuntimeWindowZoomReceiptRecord } from "./RuntimeWindowZoomReceiptRecord";
+export type { RuntimeRoleZoomRequestRecord } from "./RuntimeRoleZoomRequestRecord";
 export type { RuntimeWindowVisibilityNativeObservationRecord } from "./RuntimeWindowVisibilityNativeObservationRecord";
 export type { RuntimeWindowVisibilityNativeReceiptRecord } from "./RuntimeWindowVisibilityNativeReceiptRecord";
 export type { StateCollection } from "./StateCollection";

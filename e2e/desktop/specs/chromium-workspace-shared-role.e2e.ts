@@ -1,4 +1,5 @@
 import { $, browser, expect } from "@wdio/globals";
+import { verifyWorkspaceRoleZoom } from "./chromium-workspace-role-zoom";
 
 import {
   electronDesktopE2eRolePlaceholderRuntime,
@@ -150,17 +151,15 @@ describe("Chromium shared Workspace Role exact replacement", () => {
     expect((await rendererCall("listGameWindows")).some(
       (window) => window.id === tabA.windowId
     )).toBe(false);
-    if (input.platform === "macos") {
-      await browser.switchToWindow(input.mainWindowHandle);
-      await openVisibleLanguagePreferences();
-      await selectVisibleApplicationLanguage({
-        optionLabel: "繁體中文",
-        resultTriggerLabel: "語言",
-        triggerLabel: "Language"
-      });
-    }
+    await browser.switchToWindow(input.mainWindowHandle);
+    await openVisibleLanguagePreferences();
+    await selectVisibleApplicationLanguage({
+      optionLabel: "繁體中文",
+      resultTriggerLabel: "語言",
+      triggerLabel: "Language"
+    });
     await verifyVisibleChromiumTabAudio({
-      ...(input.platform === "macos" ? { language: "zh-TW" as const } : {}),
+      language: "zh-TW",
       mainWindowHandle: input.mainWindowHandle,
       muted: true,
       platform: input.platform,
@@ -169,7 +168,7 @@ describe("Chromium shared Workspace Role exact replacement", () => {
       windowId: tabA.windowId
     });
     await verifyVisibleChromiumTabAudio({
-      ...(input.platform === "macos" ? { language: "zh-TW" as const } : {}),
+      language: "zh-TW",
       mainWindowHandle: input.mainWindowHandle,
       muted: false,
       platform: input.platform,
@@ -183,17 +182,17 @@ describe("Chromium shared Workspace Role exact replacement", () => {
         roleName: uniqueA.name,
         windowId: tabA.windowId
       });
-      await browser.switchToWindow(input.mainWindowHandle);
-      await selectVisibleApplicationLanguage({
-        optionLabel: "English",
-        resultTriggerLabel: "Language",
-        triggerLabel: "語言"
-      });
-      const back = await $("button=Back to app");
-      await back.waitForClickable({ timeout: 10_000 });
-      await back.click();
-      await waitForRoute("/dashboard");
     }
+    await browser.switchToWindow(input.mainWindowHandle);
+    await selectVisibleApplicationLanguage({
+      optionLabel: "English",
+      resultTriggerLabel: "Language",
+      triggerLabel: "語言"
+    });
+    const back = await $("button=Back to app");
+    await back.waitForClickable({ timeout: 10_000 });
+    await back.click();
+    await waitForRoute("/dashboard");
     expect(await runtimeTabShellErrors()).toEqual([]);
     await openCutoverWorkspace(workspaceB, "new-window");
     const tabB = await waitCutoverWorkspaceTab(workspaceB, [
@@ -202,6 +201,8 @@ describe("Chromium shared Workspace Role exact replacement", () => {
     ]);
     expect(tabB.windowId).not.toBe(tabA.windowId);
     expect((await rendererCall("getEmbeddedRuntimeState")).windows).toHaveLength(2);
+    await verifyWorkspaceRoleZoom({ ...input, windowId: tabA.windowId,
+      tabName: tabA.name, roles: [shared, uniqueA], otherWindowId: tabB.windowId });
 
     const before = await waitPlaceholderOwner(shared.id, tabA.id);
     const targetPlaceholder = before.placeholders[0]!;

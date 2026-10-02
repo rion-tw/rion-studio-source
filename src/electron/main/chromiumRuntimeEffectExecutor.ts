@@ -1,8 +1,9 @@
+import { applyChromiumRuntimeRoleZoom } from "./chromiumRuntimeRoleZoom";
 import { setChromiumRuntimeTabAudioMuted } from "./chromiumRuntimeTabAudioEffect";
 import { ChromiumRuntimePlaceholderFollower } from "./chromiumRuntimePlaceholderFollower";
 import { chromiumRuntimeEffectScopes } from "./chromiumRuntimeEffectScopes";
 import { loadChromiumWorkspaceSlots } from "./chromiumWorkspaceSlotLoadExecutor";
-import { captureChromiumRuntimeSnapshot } from "./chromiumRuntimeSnapshotCapture";
+import { captureChromiumRuntimeSnapshot, focusedChromiumRuntimeRole } from "./chromiumRuntimeSnapshotCapture";
 import { workspaceWebLaunchUrl } from "../../shared/workspaceStartPage";
 import { observeAppKitWorkspaceAppearance } from
   "./appKitWorkspaceAppearanceObservation";
@@ -72,6 +73,7 @@ import {
 } from "./chromiumRuntimeRolePlaceholderProjection";
 import {
   expectedEngineIsChromium,
+  nextChromiumSurfaceGeneration,
   requireAppTarget,
   requireIdentifier,
   runtimeError,
@@ -172,6 +174,10 @@ export class ChromiumRuntimeEffectExecutor {
   #projectableRoles(): Map<string, RuntimeRoleRecord> {
     return new Map([...this.#attachedRoles, ...this.#roles].filter(
       ([id, role]) => this.#closingRoleGenerations.get(id) !== role.generation));
+  }
+
+  focusedRole(): ChromiumRuntimeExecutorSnapshot["roles"][number] | null {
+    return focusedChromiumRuntimeRole(this.snapshot(), this.#input.surfaces, this.#closingRoleGenerations);
   }
 
   snapshot(): ChromiumRuntimeExecutorSnapshot {
@@ -489,6 +495,9 @@ export class ChromiumRuntimeEffectExecutor {
           action,
           windows: this.#windows
         });
+      case "embeddedSetRuntimeRoleZoom":
+        return applyChromiumRuntimeRoleZoom({ effect, action, ports: this.#input,
+          windows: this.#windows, roles: this.#roles });
       case "embeddedSetRuntimeWindowZoom":
         return applyChromiumRuntimeWindowZoomEffect({
           effect,
@@ -1621,26 +1630,10 @@ export class ChromiumRuntimeEffectExecutor {
   }
 
   #nextGeneration(roleId: string): number {
-    const generation = (this.#lastGenerationByRole.get(roleId) ?? 0) + 1;
-    if (!Number.isSafeInteger(generation)) {
-      throw runtimeError(
-        "ELECTRON_CHROMIUM_GENERATION_EXHAUSTED",
-        "The native role-surface generation is exhausted."
-      );
-    }
-    this.#lastGenerationByRole.set(roleId, generation);
-    return generation;
+    return nextChromiumSurfaceGeneration(this.#lastGenerationByRole, roleId);
   }
 
   #nextWebSurfaceGeneration(surfaceId: string): number {
-    const generation = (this.#lastGenerationByWebSurface.get(surfaceId) ?? 0) + 1;
-    if (!Number.isSafeInteger(generation)) {
-      throw runtimeError(
-        "ELECTRON_GLOBAL_WEB_GENERATION_EXHAUSTED",
-        "The native global Web surface generation is exhausted."
-      );
-    }
-    this.#lastGenerationByWebSurface.set(surfaceId, generation);
-    return generation;
+    return nextChromiumSurfaceGeneration(this.#lastGenerationByWebSurface, surfaceId, true);
   }
 }

@@ -345,6 +345,32 @@ describe("Windows runtime-host renderer", () => {
       type: "minimizeWindow", windowId
     }));
   });
+  it("retains the active tab across unchanged projections for a later native resize", async () => {
+    let project!: (projection: WindowsRuntimeHostProjection) => void;
+    Object.assign(window, { rionStudioWindowsRuntimeHost: {
+      onProjection: (listener: typeof project) => { project = listener; return () => undefined; },
+      submit: vi.fn()
+    } });
+    await import("../src/renderer/src/runtime-windows-host");
+    const value: WindowsRuntimeHostProjection = {
+      windowId, windowMaximized: false, windowName: "", activeTabId: firstTabId,
+      alwaysShowToolbarInFullScreen: false,
+      contentBounds: { height: 600, width: 900, x: 0, y: 40 },
+      fullscreen: false, lifecycleEpoch: 4, moveTargets: [], projectionRevision: 5,
+      tabs: [{ tabId: firstTabId, name: "Selected", active: true, hidden: false,
+        audioMuted: false, phase: "ready" }],
+      toolbarVisible: true, topologyRevision: 8, windowGeneration: 2, workspaceDividers: []
+    };
+    project(value);
+    project({ ...value, projectionRevision: 6 });
+    const tabs = document.querySelector<HTMLElement>("[data-runtime-tabs]")!;
+    Object.defineProperties(tabs, { clientWidth: { value: 300 }, scrollWidth: { value: 600 } });
+    tabs.getBoundingClientRect = () => new DOMRect(0, 0, 300, 30);
+    (tabs.firstElementChild as HTMLElement).getBoundingClientRect = () => new DOMRect(400 - tabs.scrollLeft, 0, 200, 30);
+    window.dispatchEvent(new Event("resize"));
+    expect(tabs.scrollLeft).toBe(300);
+  });
+
   it("submits hover chrome only when fullscreen presentation can change", async () => {
     const submit = vi.fn();
     let project!: (projection: WindowsRuntimeHostProjection) => void;

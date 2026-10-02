@@ -1,5 +1,5 @@
 import { exerciseWindowLaunchReuse } from "./chromium-window-launch-reuse";
-import { exerciseWindowsTabOverflow } from "./chromium-windows-tab-overflow";
+import { exerciseWindowsTabOverflow, prepareNarrowWindowsTabHost } from "./chromium-windows-tab-overflow";
 import { exerciseRoleFirstPaint, expectRolePaint } from "./chromium-role-first-paint";
 // [journey:CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-TEAROUT-046]
 // [journey:CHROMIUM-WINDOWS-RUNTIME-TAB-TEAROUT-046]
@@ -1287,6 +1287,9 @@ async function seedPhase(input: Readonly<{
     platform: input.platform,
     roles: sourceRoles
   });
+  if (input.platform === "windows") {
+    await prepareNarrowWindowsTabHost({ ...input, windowId: gameWindow.id, tabId: tabIds[2]! });
+  }
   await recordTopology({
     platform: input.platform,
     roles,

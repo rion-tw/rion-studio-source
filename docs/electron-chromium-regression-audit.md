@@ -165,6 +165,38 @@ phase). The affected existing journeys are Windows `TABS-VISIBLE-ACTIVATION-019`
 `GAME-WINDOWS-TABS-020`, `RUNTIME-LAUNCH-DESTINATIONS-008` and
 `RUNTIME-TAB-TOPOLOGY-009`; their coverage targets are unchanged.
 
+An explicit 864px Windows host reproduced a separate presentation defect in
+`2026-10-02T11-45-14-200Z-win32`: shrinking the native window left its selected
+third tab outside the scrolling viewport. The toolbar now retains the last
+accepted Core selection and reveals it on native window/row resize events.
+Scroll and wheel events still update affordances without undoing manual scrolling;
+there is no new timer, topology authority or retry. Windows journey
+`CHROMIUM-WINDOWS-RUNTIME-TAB-TOPOLOGY-009` now fixes the native host width at
+864px and requires the entire selected tab to be visible before tearout/reorder.
+Both resize event sources and subsequent manual scrolling pass focused tests.
+The host passes the actual selection on every projection; unchanged projections
+must not clear the toolbar's remembered selection or reset manual scrolling.
+The first narrow-host rerun then passed resize, tearout and reorder and reached
+an offscreen inactive-tab menu target. Click/menu/close fixtures now reveal that
+exact tab with visible overflow-arrow input before retaining the existing pointer
+hit-test and native ownership checks. They never assign scroll positions or
+invoke a debug tab action.
+Native Windows seed/restart passed in `2026-10-02T12-10-36-305Z-win32`
+(one pass and one macOS-only skip per phase), including the fixed narrow host,
+native menu moves and persisted topology. All 14 adjacent toolbar/host/source
+tests passed, as did hygiene, typecheck, lint (23 existing warnings), production
+Electron build and production E2E isolation.
+The complete Windows Vitest run passed 4,914 tests in 534 files, with the existing
+48 tests in nine files skipped by platform/configuration guards.
+
+CI `36996315108` also completed all 67 macOS desktop phases and four expected
+forced-exit recovery phases. Its Windows x64 installer payload, packaged updater
+transactions and packaged Role black-box checks passed. CI `37001938361` passed
+both native Rust jobs and preflight; its macOS desktop run stopped on a native
+resize frame mismatch (896px requested, 935px observed), before any changed
+Windows toolbar code. That failure remains distinct from the prior full pass
+and is not relaxed or counted as acceptance.
+
 ## Scope and decision
 
 This is the single v32 execution report for the Electron Chromium cutover. It

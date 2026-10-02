@@ -3,6 +3,25 @@ import { electronDesktopE2eFullscreenToolbarRuntime } from "../support/electron-
 import { readVisibleWindowsRuntimeHostLayout, withWindowsRuntimeHost } from "../support/native-runtime-tabs";
 import { resizeWorkspaceWindow } from "../support/workspace-window-resize";
 
+/** Match the CI host width before subsequent visible tearout and reorder actions. */
+export async function prepareNarrowWindowsTabHost(input: {
+  mainWindowHandle: string; windowId: string; tabId: string;
+}): Promise<void> {
+  const layout = await readVisibleWindowsRuntimeHostLayout(input);
+  if (layout.viewport.width !== 864) await resizeWorkspaceWindow({
+    inspection: await electronDesktopE2eFullscreenToolbarRuntime(input.windowId),
+    edge: "right", moves: [{ x: 864 - layout.viewport.width, y: 0 }],
+    requireRequestedFrame: true, whileHeld: async () => undefined
+  });
+  await browser.waitUntil(() => withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, () =>
+    browser.execute(id => {
+      const tab = document.querySelector<HTMLElement>(`.runtime-tab[data-tab-id='${id}']`)!;
+      const rect = tab.getBoundingClientRect(); const row = tab.parentElement!.getBoundingClientRect();
+      return rect.left >= row.left - 1 && rect.right <= row.right + 1;
+    }, input.tabId), input.windowId),
+  { timeout: 10_000, timeoutMsg: "Resizing the host clipped its selected tab" });
+}
+
 /** Real border resize and visible arrow clicks keep both ends of a crowded tab row reachable. */
 export async function exerciseWindowsTabOverflow(input: {
   mainWindowHandle: string; windowId: string; tabId: string;

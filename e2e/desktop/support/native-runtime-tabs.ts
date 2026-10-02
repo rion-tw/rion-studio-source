@@ -1,4 +1,5 @@
 import { selectWindowsNativeMenuItem } from "./windows-native-menu";
+import { revealWindowsRuntimeTab } from "./windows-runtime-tab-scroll";
 import { macosNativeWindowControl } from "./macos-native-window-controls";
 import { readMacosVisibleRuntimeTabPoint } from "./macos-appkit-ui";
 import { focusVisibleMacosAppKitRuntime, waitForFocusedMacosAppKitRuntime } from
@@ -350,6 +351,7 @@ export async function clickVisibleRuntimeTab(input: Readonly<{
   }
   const processId = (await electronDesktopE2eProbe()).processId;
   await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
+    await revealWindowsRuntimeTab(input.tabId);
     const activate = await $(
       `[data-runtime-tab-activate][data-tab-id='${input.tabId}']`
     );
@@ -387,6 +389,7 @@ export async function readVisibleWindowsRuntimeTabCloseEvidence(input: Readonly<
   windowId: string;
 }>) {
   return withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
+    await revealWindowsRuntimeTab(input.tabId);
     // Inactive tabs reveal their close control only on hover or focus-within.
     const tab = await $(`[data-runtime-tab-activate][data-tab-id='${input.tabId}']`);
     await tab.waitForDisplayed({ timeout: 10_000 });
@@ -423,6 +426,7 @@ export async function closeVisibleRuntimeTab(input: Readonly<{
     return;
   }
   await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
+    await revealWindowsRuntimeTab(input.tabId);
     // Inactive tabs reveal their close control only on hover or focus-within.
     const tab = await $(`[data-runtime-tab-activate][data-tab-id='${input.tabId}']`);
     await tab.waitForDisplayed({ timeout: 10_000 });
@@ -472,6 +476,7 @@ export async function selectVisibleWindowsRuntimeTabMenuAction(input: Readonly<{
   const targetName = input.targetWindowId ? (await rendererCall("listGameWindows")).find(window => window.id === input.targetWindowId)?.name : undefined;
   const processId = (await electronDesktopE2eProbe()).processId;
   await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
+    await revealWindowsRuntimeTab(input.tabId);
     const point = await readVisibleWindowsRuntimeTabPoint(input.tabId);
     const close = await $(`[data-runtime-tab-close][data-tab-id='${input.tabId}']`);
     const controlName = await close.getAttribute("aria-label");

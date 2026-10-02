@@ -294,7 +294,6 @@ function renderSlotLoads(projection: WindowsRuntimeHostProjection): void {
 
 function render(projection: WindowsRuntimeHostProjection): void {
   renderSlotLoads(projection);
-  const priorActiveTabId = current?.activeTabId;
   current = projection;
   const labels = runtimeTabStripLabels(projection.appearance?.language ?? "en");
   document.documentElement.lang = projection.appearance?.language ?? "en";
@@ -378,7 +377,7 @@ function render(projection: WindowsRuntimeHostProjection): void {
     item.addEventListener("contextmenu", (event) => openTabMenu(event, tab.tabId));
     return item;
   }));
-  tabToolbar.render(labels, priorActiveTabId !== projection.activeTabId ? projection.activeTabId : null);
+  tabToolbar.render(labels, projection.activeTabId);
   renderDividers(projection);
   document.documentElement.dataset.fullscreen = String(projection.fullscreen);
   document.documentElement.dataset.windowMaximized =

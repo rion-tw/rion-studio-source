@@ -3,6 +3,7 @@ import type { runtimeTabStripLabels } from "./i18n";
 /** Overflow is presentation-only: scroll/resize events update affordances and
  * native drag geometry; the Core projection remains the sole tab-order owner. */
 export function createRuntimeTabToolbar(tabs: HTMLElement, open: () => void, geometry: () => void) {
+  let activeTabId: string | null = null;
   const button = (name: string, path: string, click: () => void) => {
     const control = document.createElement("button");
     control.type = "button";
@@ -36,14 +37,7 @@ export function createRuntimeTabToolbar(tabs: HTMLElement, open: () => void, geo
     tabs.scrollLeft += Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
     event.preventDefault();
   }, { passive: false });
-  const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-  observer?.observe(tabs);
-  window.addEventListener("resize", update);
-  return { render(labels: ReturnType<typeof runtimeTabStripLabels>, activeTabId: string | null) {
-    for (const [control, label] of [[left, labels.scrollLeft], [right, labels.scrollRight], [add, labels.openLauncher]] as const) {
-      control.setAttribute("aria-label", label);
-      control.title = label;
-    }
+  function refresh() {
     update();
     const active = [...tabs.children].find(child => (child as HTMLElement).dataset.tabId === activeTabId) as HTMLElement | undefined;
     if (active) {
@@ -53,5 +47,17 @@ export function createRuntimeTabToolbar(tabs: HTMLElement, open: () => void, geo
       else if (rect.right > row.right) tabs.scrollLeft += rect.right - row.right;
     }
     update();
+  }
+  const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(refresh);
+  observer?.observe(tabs);
+  window.addEventListener("resize", refresh);
+  return { render(labels: ReturnType<typeof runtimeTabStripLabels>, selectedTabId: string | null) {
+    const selectionChanged = activeTabId !== selectedTabId;
+    activeTabId = selectedTabId;
+    for (const [control, label] of [[left, labels.scrollLeft], [right, labels.scrollRight], [add, labels.openLauncher]] as const) {
+      control.setAttribute("aria-label", label);
+      control.title = label;
+    }
+    if (selectionChanged) refresh(); else update();
   } };
 }

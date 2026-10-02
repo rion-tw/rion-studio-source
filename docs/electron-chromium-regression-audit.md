@@ -152,6 +152,19 @@ close fixture and adjacent shortcut suites passed all seven tests. Local package
 creation is unavailable on this Windows arm64 Node/Rust host because production
 distribution requires Windows x64; the x64 package black-box remains a CI gate.
 
+CI `36996315108` passed 62 Windows desktop phases plus four expected forced-exit
+recovery phases, then rejected a tab-reorder pointer endpoint outside the
+scrolling strip on its 1024px desktop. The reorder fixture now uses the visible
+maximize control to expose both endpoints together and restores the original
+normal window afterward. Actual pointer hit-testing, native drag, exact topology
+assertions and separate overflow checks remain intact. Occlusion errors also
+include the tab/row bounds and hit element. This `internal-only` fixture repair
+passed the five adjacent source checks and both native Windows tabs seed/restart
+phases in `2026-10-02T11-23-22-032Z-win32` (one pass and one macOS-only skip per
+phase). The affected existing journeys are Windows `TABS-VISIBLE-ACTIVATION-019`,
+`GAME-WINDOWS-TABS-020`, `RUNTIME-LAUNCH-DESTINATIONS-008` and
+`RUNTIME-TAB-TOPOLOGY-009`; their coverage targets are unchanged.
+
 ## Scope and decision
 
 This is the single v32 execution report for the Electron Chromium cutover. It

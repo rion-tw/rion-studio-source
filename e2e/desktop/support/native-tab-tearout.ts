@@ -25,7 +25,9 @@ export async function nativeTabPoint(input: { platform: "macos" | "windows"; mai
       const r = tab.querySelector<HTMLElement>(".runtime-tab-activate")!.getBoundingClientRect();
       const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
       if (document.elementFromPoint(point.x, point.y)?.closest(".runtime-tab") !== tab) {
-        throw new Error("The exact drag tab is occluded.");
+        throw new Error(`The exact drag tab is occluded: ${JSON.stringify({ tabId: id,
+          point, tab: r.toJSON(), row: tab.parentElement?.getBoundingClientRect().toJSON(),
+          hit: document.elementFromPoint(point.x, point.y)?.className })}`);
       }
       const evidence = window as unknown as { __rionTabPointerEvidence?: unknown[] };
       if (!evidence.__rionTabPointerEvidence) {

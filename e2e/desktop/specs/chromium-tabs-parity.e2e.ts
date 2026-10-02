@@ -620,11 +620,27 @@ async function dragVisibleTabBefore(input: Readonly<{
     });
     return;
   }
-  await dragVisibleWindowsRuntimeTab({
-    beforeTabId: input.beforeTabId,
-    mainWindowHandle: input.mainWindowHandle,
-    tabId: input.tabId
-  });
+  // A small CI desktop leaves the first of three tabs partly outside the
+  // scrolling strip. Use the visible maximize control so both drag endpoints
+  // are actionable together; overflow itself has its own visible-UI checks.
+  const enlarge = (await electronDesktopE2eGameWindowRuntime(input.windowId))
+    .currentRuntime?.nativeDisplay.presentation === "normal";
+  const toggleSize = async (presentation: "maximized" | "normal") => {
+    await clickVisibleRuntimeWindowControl({ ...input, command: "maximize" });
+    await browser.waitUntil(async () => (await electronDesktopE2eGameWindowRuntime(input.windowId))
+      .currentRuntime?.nativeDisplay.presentation === presentation,
+    { timeout: 10_000, timeoutMsg: `Tab reorder host did not become ${presentation}` });
+  };
+  try {
+    if (enlarge) await toggleSize("maximized");
+    await dragVisibleWindowsRuntimeTab({
+      beforeTabId: input.beforeTabId,
+      mainWindowHandle: input.mainWindowHandle,
+      tabId: input.tabId
+    });
+  } finally {
+    if (enlarge) await toggleSize("normal");
+  }
 }
 
 async function revealRoleThroughVisibleUi(role: Role, tabId: string): Promise<void> {

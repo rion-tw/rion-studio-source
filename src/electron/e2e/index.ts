@@ -1,4 +1,5 @@
 import { readDrmPolicy } from "./workspaceWebDrmPolicy";
+import { installMainProcessFailureObserver } from "./mainProcessFailureObserver";
 import { installFixtureKeyboardCloseObserver } from "./fixtureKeyboardCloseObserver";
 import { ElectronDesktopE2eRoleCreationFailureObserver } from "./roleCreationFailureObserver";
 import { observeRuntimeEffectCompletion } from "./runtimeEffectCompletionObservation";
@@ -122,6 +123,7 @@ app.commandLine.appendSwitch("force-renderer-accessibility");
 const ROLE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const artifactDirectory = process.env.RION_STUDIO_E2E_ARTIFACT_DIR;
+app.once("will-quit", installMainProcessFailureObserver(artifactDirectory));
 const phase = process.env.RION_STUDIO_E2E_PHASE;
 const clearReceiptsByRole = new Map<
   string,

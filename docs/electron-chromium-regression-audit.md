@@ -103,8 +103,9 @@ Observed validation on this Windows host:
 Native profile outcomes must be read from their report, never inferred from the
 presence of an automated journey in the manifest. This machine uses 200% display
 scaling; mixed-DPI/multiple-monitor hardware and macOS execution remain pending.
-Remote Windows/macOS CI has not been run by this local task; local Windows results
-do not substitute for those CI jobs.
+At the initial local handoff, remote Windows/macOS CI had not been run; local
+Windows results do not substitute for those CI jobs. Later CI outcomes are
+recorded in the release follow-up below.
 
 The native accelerator aliases use Electron's documented
 [Windows hidden-item behavior](https://www.electronjs.org/docs/latest/api/menu-item)
@@ -125,6 +126,17 @@ coverage target is removed. This is an `internal-only` test-observation repair.
 The Windows `chromium-macro-cutover-keyboard` phase and its native-input
 prerequisite passed in `2026-10-02T09-38-09-903Z-win32`. The related compatible
 input, modifier reconciliation and terminal-journal suites passed all 98 tests.
+
+CI `36991243487` passed both native Rust/integration jobs and all portable checks;
+preflight `36991244300` built both signed-updater candidates and the manifest.
+Its desktop E2E attempts stopped in the extensions seed: Windows waited after
+Role teardown, while the macOS process sample showed a native error dialog.
+The same Windows seed/restart passed locally in
+`2026-10-02T09-55-59-923Z-win32`. An E2E-only uncaught-exception monitor now
+persists the original error before Electron's dialog can block diagnostics;
+it does not register an exception handler or change production failure behavior.
+Its two focused tests, Windows extensions seed
+`2026-10-02T10-07-06-338Z-win32`, and production isolation validation passed.
 
 ## Scope and decision
 

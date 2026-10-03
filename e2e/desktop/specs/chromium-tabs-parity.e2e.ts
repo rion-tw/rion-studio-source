@@ -1,4 +1,5 @@
 import { exerciseWindowLaunchReuse } from "./chromium-window-launch-reuse";
+import { retryFailedRolePlaceholder } from "./chromium-failed-role-retry";
 import { exerciseWindowsTabOverflow, prepareNarrowWindowsTabHost } from "./chromium-windows-tab-overflow";
 import { exerciseRoleFirstPaint, expectRolePaint } from "./chromium-role-first-paint";
 // [journey:CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-TEAROUT-046]
@@ -1138,6 +1139,8 @@ async function exerciseFailedRoleCreationCleanup(input: Readonly<{
         native.currentRuntime?.nativeTabIds.includes(failedTabId) === true;
     } catch { return false; }
   }, { timeout: 45_000, timeoutMsg: "Injected Role creation did not reach failed presentation" });
+  await retryFailedRolePlaceholder({ ...input, windowId: window.id,
+    tabId: failedTabId!, role: roles[1]! });
   await closeVisibleRuntimeTab({ ...input, windowId: window.id,
     tabId: failedTabId!, tabName: roles[1]!.name });
   await waitForExactWindowTopology({ windowId: window.id,

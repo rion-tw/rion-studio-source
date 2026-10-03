@@ -388,6 +388,22 @@ function fakeNativeAttachments(
 }
 
 describe("Electron Chromium global Web surface registry", () => {
+  it("applies initial zoom only after the main frame exists and preserves later loading zoom", async () => {
+    const subject = harness();
+    const creation = subject.surfaces.create(subject.input("web-zoom", { zoomFactor: 1.1 }));
+    const contents = subject.views[0]!.webContents;
+    expect(contents.zoomFactors).toEqual([]);
+    contents.emit("did-navigate", {}, "https://web-zoom.example.test/start", 200, "OK");
+    expect(contents.zoomFactor).toBe(1.1);
+    subject.surfaces.setZoomFactor("web-zoom", 1, 1.2);
+    contents.finish("https://web-zoom.example.test/start");
+    await creation;
+    expect(subject.surfaces.readProjection("web-zoom", 1).zoomFactor).toBe(1.2);
+    const closing = subject.surfaces.closeSurface("web-zoom", 1);
+    contents.destroy();
+    await closing;
+  });
+
   it("owns Windows F11 on a focused Website slot without taking Quick Access", async () => {
     const requestFullscreen = vi.fn();
     const request = vi.fn();

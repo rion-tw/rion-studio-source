@@ -748,6 +748,7 @@ impl AppCore {
         })?;
         let mut preserves_active_macro = false;
         let mut ownership_transfer = None;
+        let mut retrying_failed_tab = false;
         let result = (|| -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
             let role = self
                 .read_typed_state_collection::<StateRoleRecord>("roles")?
@@ -762,6 +763,24 @@ impl AppCore {
                 "game browser settings are missing",
             )?;
             let game = self.state_game(&role.game_id)?;
+            if expected_owner_generation.is_none() {
+                let _sequence = self.embedded_runtime_sequence.acquire()?;
+                let current = self.browser_runtime.snapshot()?.browser_runtime;
+                let retryable = current.tabs.iter().any(|tab| {
+                    tab.id == tab_id && tab.slots.iter().any(|slot| {
+                        slot.slot_id == slot_id && slot.role_id == role_id && slot.owner.is_none()
+                    })
+                }) && !current.roles.iter().any(|owner| owner.role_id == role_id);
+                if !retryable {
+                    return Err(CoreError::Domain {
+                        code: "RUNTIME_ROLE_OWNER_STALE",
+                        message: "The released role slot changed before retry admission.".to_owned(),
+                    });
+                }
+                // A proved release permits a new attempt, just like launcher retry.
+                // Capability/session failures remain authoritative in preflight.
+                self.reset_browser_launch_retry_state(std::slice::from_ref(&role))?;
+            }
             let resolution = self.resolve_role_browser_engine(&role, &game, &settings)?;
             require_browser_runtime_resolution(&resolution)?;
             self.mark_role_session_launch_admitted(std::slice::from_ref(&role_id))?;
@@ -835,6 +854,27 @@ impl AppCore {
 
             let claimed = {
                 let _sequence = self.embedded_runtime_sequence.acquire()?;
+                let current = self.browser_runtime.snapshot()?;
+                if current.tab_activations.get(tab_id).is_some_and(|activation| {
+                    activation.phase == crate::model::RuntimeTabActivationPhaseRecord::Failed
+                }) {
+                    let window = current.windows.get(&target_tab.window_id).ok_or_else(|| {
+                        CoreError::Domain { code: "RUNTIME_TAB_NOT_FOUND",
+                            message: "The retry window closed before role claim.".to_owned() }
+                    })?;
+                    let commit = self.apply_runtime_intent(crate::RuntimeIntent::ActivateTab {
+                        expected_revision: Some(window.revision),
+                        operation_id: crate::OperationId::new(uuid::Uuid::new_v4().to_string())
+                            .map_err(CoreError::InvalidInput)?,
+                        tab_id: crate::RuntimeTabId::new(tab_id.to_owned()).map_err(CoreError::InvalidInput)?,
+                        window_id: target_tab.window_id.clone(),
+                    })?;
+                    if commit.status == crate::RuntimeCommitStatus::Superseded {
+                        return Err(CoreError::Domain { code: "RUNTIME_ROLE_OWNER_STALE",
+                            message: "The failed tab changed before retry activation.".to_owned() });
+                    }
+                    retrying_failed_tab = true;
+                }
                 let claim_result =
                     self.invoke_browser_runtime(BrowserRuntimeCommand::ClaimRoleSlot {
                         role_id: role_id.clone(),
@@ -1032,6 +1072,10 @@ impl AppCore {
                 Ok(snapshot)
             }
             (Err(error), _) | (Ok(_), Err(error)) => {
+                if retrying_failed_tab {
+                    self.retain_failed_chromium_tab(tab_id, target_tab.attempt_generation.as_deref().unwrap_or(""));
+                    self.publish_embedded_runtime_snapshot_best_effort();
+                }
                 if preserves_active_macro {
                     let _ = self.macro_runtime.request_stop_role(&role_id);
                     self.emit_browser_statuses();

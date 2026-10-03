@@ -861,6 +861,15 @@ switches to a newly focused Role. Standalone Role tabs and window chrome retain
 the existing window multiplier and its receipts. The existing slot persistence,
 identity fences and terminal statuses are unchanged.
 
+Initial Role and Website zoom is applied and read back at the first main-frame
+navigation commit; Chromium ignores the write before that document exists.
+Readiness preserves any newer zoom applied while the document is loading.
+Live launch targets retain authoritative native placement even outside a display
+work area; only new and saved-window targets require work-area fitting.
+A released failed Role placeholder clears retryable creation/crash evidence,
+restarts its failed Core activation and remains retryable after another failure.
+Session and capability failures continue to block admission.
+
 A Windows zero-tab close requires an exact empty-host native retirement effect
 before Core removes the logical window. Populated windows still retire through
 their last tab. The visible X and native OS close events enter Core's close

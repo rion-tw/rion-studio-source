@@ -1,4 +1,52 @@
 #[test]
+fn failed_standalone_role_can_retry_from_its_released_placeholder() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = chromium_web_core(platform);
+        let game_id = first_game_id(&core);
+        let role_id = create_role(&core, &game_id, 1);
+        let (failed, _, _) = drive_async_command(
+            Arc::clone(&core),
+            command(json!({
+                "type": "embeddedRoleLaunch", "roleId": role_id,
+                "target": { "windowId": "retry-window", "displayId": 1,
+                    "workArea": { "x": 0, "y": 0, "width": 1200, "height": 800 } }
+            })),
+            Some("embeddedLoadRoles"),
+        );
+        assert!(failed.is_err(), "{platform}");
+        let before = core.browser_runtime.snapshot().unwrap().browser_runtime;
+        assert!(before.roles.is_empty(), "{platform}");
+        let tab = before.tabs.iter().find(|tab| tab.source_id == role_id).unwrap();
+        assert!(tab.slots[0].owner.is_none(), "{platform}");
+        assert_eq!(core.browser_runtime_issues.read().unwrap().get(&role_id),
+            Some(&crate::model::BrowserRuntimeFailureReason::RuntimeCreationFailed));
+        let retry = CoreCommand::BrowserRoleSlotClaim {
+            tab_id: tab.id.clone(), slot_id: tab.slots[0].slot_id.clone(),
+            expected_owner_generation: None,
+        };
+        let (failed_retry, _, _) = drive_async_command(
+            Arc::clone(&core), retry.clone(), Some("embeddedLoadRoles"),
+        );
+        assert!(failed_retry.is_err(), "{platform}");
+        let retained = core.browser_runtime.snapshot().unwrap();
+        assert!(retained.browser_runtime.roles.is_empty(), "{platform}");
+        assert_eq!(retained.tab_activations[&tab.id].phase,
+            crate::model::RuntimeTabActivationPhaseRecord::Failed, "{platform}");
+        let (retried, actions, _) = drive_async_command(Arc::clone(&core), retry, None);
+        assert!(retried.is_ok(), "{platform}: {retried:?}");
+        assert!(actions.iter().any(|action| matches!(action,
+            CoreEffectAction::EmbeddedLoadRoles { roles } if roles[0].role_id == role_id)));
+        let after = core.browser_runtime.snapshot().unwrap().browser_runtime;
+        assert_eq!(after.tabs.len(), before.tabs.len(), "{platform}");
+        assert_eq!(after.roles[0].owner.tab_id, tab.id, "{platform}");
+        assert_eq!(after.roles[0].state, "running", "{platform}");
+        assert_eq!(core.browser_runtime.snapshot().unwrap().tab_activations[&tab.id].phase,
+            crate::model::RuntimeTabActivationPhaseRecord::Ready, "{platform}");
+        core.shutdown();
+    }
+}
+
+#[test]
 fn shared_workspace_role_is_blocked_then_moves_without_stopping_unique_roles() {
     let (_directory, core) = chromium_web_core("darwin");
     let game_id = first_game_id(&core);

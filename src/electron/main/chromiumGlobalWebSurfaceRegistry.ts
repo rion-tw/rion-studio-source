@@ -214,6 +214,7 @@ interface SurfaceRecord {
   attached: boolean;
   destroyed: boolean;
   loadSettled: boolean;
+  pendingZoomFactor: number | null;
   nativeAttachmentSettlement: Promise<void> | null;
   nativeRetirement: Promise<void> | null;
   closePromise: Promise<boolean> | null;
@@ -557,13 +558,6 @@ export class ChromiumGlobalWebSurfaceRegistry {
           "The global Web surface did not retain its initial audio state."
         );
       }
-      contents.setZoomFactor(input.zoomFactor);
-      if (contents.getZoomFactor() !== input.zoomFactor) {
-        fail(
-          "ELECTRON_GLOBAL_WEB_ZOOM_READBACK_FAILED",
-          "The global Web surface did not retain its initial zoom factor."
-        );
-      }
     } catch {
       this.#removeAllListeners(record);
       return this.#rejectAfterUnattachedViewDestroy(
@@ -668,7 +662,8 @@ export class ChromiumGlobalWebSurfaceRegistry {
 
   setZoomFactor(surfaceId: string, generation: number, zoomFactor: number): void {
     validateZoomFactor(zoomFactor);
-    const contents = this.#projectableRecord(surfaceId, generation).contents;
+    const record = this.#projectableRecord(surfaceId, generation);
+    const contents = record.contents;
     contents.setZoomFactor(zoomFactor);
     if (contents.getZoomFactor() !== zoomFactor) {
       fail(
@@ -676,6 +671,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
         "The global Web surface did not acknowledge its requested zoom factor."
       );
     }
+    record.pendingZoomFactor = null;
   }
 
   runtimeEvidence(
@@ -982,6 +978,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
       attached: false,
       destroyed: contents.isDestroyed(),
       loadSettled: false,
+      pendingZoomFactor: input.zoomFactor,
       nativeAttachmentSettlement: null,
       nativeRetirement: null,
       closePromise: null,
@@ -1038,6 +1035,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
         record.navigation.finished();
       },
       didNavigate: (_event, url) => {
+        this.#applyInitialZoom(record);
         if (record.navigation.committed(url)) this.#commitNavigation(record, input, url);
       },
       didNavigateInPage: (_event, url, isMainFrame) => {
@@ -1149,10 +1147,22 @@ export class ChromiumGlobalWebSurfaceRegistry {
     });
   }
 
+  #applyInitialZoom(record: SurfaceRecord): void {
+    if (record.state !== "opening" || record.destroyed ||
+        this.#records.get(record.surfaceId) !== record || record.pendingZoomFactor === null) return;
+    try {
+      this.setZoomFactor(record.surfaceId, record.generation, record.pendingZoomFactor);
+    } catch (error) {
+      this.#failInitialLoad(record, error);
+      this.#observeTerminalClose(record);
+    }
+  }
+
   #finishInitialLoad(
     record: SurfaceRecord,
     input: CreateChromiumGlobalWebSurfaceInput
   ): void {
+    this.#applyInitialZoom(record);
     if (record.state !== "opening" || record.loadSettled) return;
     let loadedUrl: string;
     try {
@@ -1206,11 +1216,11 @@ export class ChromiumGlobalWebSurfaceRegistry {
     this.#navigationCommits?.report(commit);
   }
 
-  #failInitialLoad(record: SurfaceRecord): void {
+  #failInitialLoad(record: SurfaceRecord, error?: unknown): void {
     if (record.state !== "opening" || record.loadSettled) return;
     record.state = "load-failed";
     record.loadSettled = true;
-    record.creation.reject(surfaceError(
+    record.creation.reject(error ?? surfaceError(
       "ELECTRON_GLOBAL_WEB_SURFACE_LOAD_FAILED",
       "The global Web surface did not finish its main-frame load."
     ));

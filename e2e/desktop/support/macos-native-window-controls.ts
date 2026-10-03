@@ -11,7 +11,8 @@ const script = fileURLToPath(new URL("./macos-native-window-controls.swift", imp
 /** Native UI input/readback, fenced to the exact retained AppKit window. */
 export async function macosNativeWindowControl(
   command: "drag" | "resize" | "minimize" | "minimized",
-  windowId: string | undefined
+  windowId: string | undefined,
+  dragDelta?: Readonly<{ x: number; y: number }>
 ): Promise<string> {
   if (process.platform !== "darwin" || !windowId?.trim()) {
     throw new Error("The native window control requires an exact macOS window ID");
@@ -21,7 +22,8 @@ export async function macosNativeWindowControl(
     await focusVisibleMacosAppKitRuntime({ processId, windowId });
   }
   const result = await executeFile("/usr/bin/xcrun", [
-    "swift", script, String(processId), windowId, command
+    "swift", script, String(processId), windowId, command,
+    ...(dragDelta ? [String(dragDelta.x), String(dragDelta.y)] : [])
   ], { encoding: "utf8", timeout: command === "drag" || command === "resize" ? 30_000 : 10_000 });
   return result.stdout.trim();
 }

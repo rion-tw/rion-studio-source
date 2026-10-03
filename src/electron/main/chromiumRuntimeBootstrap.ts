@@ -941,11 +941,12 @@ export class ChromiumRuntimeBootstrap {
             );
             if (
               !native || native.windowGeneration !== state.windowGeneration ||
-              native.topologyRevision !== state.topologyRevision
+              native.topologyRevision < state.topologyRevision ||
+              native.activeTabId !== state.tabId || !native.visible
             ) {
               throw bootstrapError(
                 "ELECTRON_ROLE_PLACEHOLDER_CLAIM_READBACK_FAILED",
-                "The native placeholder projection lost its exact window revision fence."
+                "The native placeholder lost its exact window revision fence."
               );
             }
             return Object.freeze({

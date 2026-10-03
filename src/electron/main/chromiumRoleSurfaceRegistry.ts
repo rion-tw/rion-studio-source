@@ -801,15 +801,6 @@ export class ChromiumRoleSurfaceRegistry {
           "The Chromium role surface did not retain its initial audio state."
         );
       }
-      configurationStep = "zoom-set";
-      contents.setZoomFactor(input.zoomFactor);
-      configurationStep = "zoom-readback";
-      if (contents.getZoomFactor() !== input.zoomFactor) {
-        fail(
-          "ELECTRON_ROLE_SURFACE_ZOOM_READBACK_FAILED",
-          "The Chromium role surface did not retain its initial zoom factor."
-        );
-      }
     } catch (cause) {
       this.#removeAllListeners(record);
       return this.#rejectFailedCreation(
@@ -1076,7 +1067,8 @@ export class ChromiumRoleSurfaceRegistry {
 
   setZoomFactor(roleId: string, generation: number, zoomFactor: number): void {
     validateZoomFactor(zoomFactor);
-    const contents = this.#activeRecord(roleId, generation, true).contents;
+    const record = this.#activeRecord(roleId, generation, true);
+    const contents = record.contents;
     contents.setZoomFactor(zoomFactor);
     if (contents.getZoomFactor() !== zoomFactor) {
       fail(
@@ -1084,6 +1076,7 @@ export class ChromiumRoleSurfaceRegistry {
         "The Chromium role surface did not acknowledge its requested zoom factor."
       );
     }
+    record.pendingZoomFactor = null;
   }
 
   closeRole(roleId: string, generation: number): Promise<boolean> {
@@ -1164,6 +1157,7 @@ export class ChromiumRoleSurfaceRegistry {
       attached: false,
       destroyed: contents.isDestroyed(),
       loadSettled: false,
+      pendingZoomFactor: input.zoomFactor,
       activeMainFrameFailureReported: false,
       closePromise: null,
       releasePromise: null,
@@ -1219,6 +1213,7 @@ export class ChromiumRoleSurfaceRegistry {
         this.#emitOverlayLifecycle(record, "document-superseded");
         record.navigation.documentStarted();
       },
+      didNavigate: () => this.#applyInitialZoom(record),
       didFinishLoad: () => {
         if (record.state === "opening") {
           this.#finishInitialLoad(record);
@@ -1307,6 +1302,7 @@ export class ChromiumRoleSurfaceRegistry {
     contents.on("before-input-event", record.listeners.beforeInputEvent);
     contents.on("did-create-window", record.listeners.didCreateWindow);
     contents.on("did-start-navigation", record.listeners.didStartNavigation);
+    contents.on("did-navigate", record.listeners.didNavigate);
     contents.on("will-attach-webview", record.listeners.willAttachWebview);
     contents.on("will-navigate", record.listeners.willNavigate);
     contents.on("will-redirect", record.listeners.willRedirect);
@@ -1349,7 +1345,20 @@ export class ChromiumRoleSurfaceRegistry {
     }));
   }
 
+  #applyInitialZoom(record: SurfaceRecord): void {
+    if (record.state !== "opening" || record.destroyed ||
+        this.#recordsByRole.get(record.roleId) !== record || record.pendingZoomFactor === null) return;
+    try {
+      // Chromium ignores setZoomFactor before the first main-frame commit.
+      this.setZoomFactor(record.roleId, record.generation, record.pendingZoomFactor);
+    } catch (error) {
+      this.#failInitialLoad(record, error);
+      this.#observeTerminalClose(record);
+    }
+  }
+
   #finishInitialLoad(record: SurfaceRecord): void {
+    this.#applyInitialZoom(record);
     if (record.state !== "opening" || record.loadSettled) return;
     let loadedUrl: string;
     try {
@@ -1420,12 +1429,12 @@ export class ChromiumRoleSurfaceRegistry {
     this.#observeTerminalClose(record);
   }
 
-  #failInitialLoad(record: SurfaceRecord): void {
+  #failInitialLoad(record: SurfaceRecord, error?: unknown): void {
     if (record.state !== "opening" || record.loadSettled) return;
     record.state = "load-failed";
     record.loadSettled = true;
     this.#removeLoadListeners(record);
-    record.creation.reject(surfaceError(
+    record.creation.reject(error ?? surfaceError(
       "ELECTRON_ROLE_SURFACE_LOAD_FAILED",
       "The Chromium role surface did not finish its main-frame load."
     ));
@@ -1807,6 +1816,7 @@ export class ChromiumRoleSurfaceRegistry {
   #removeLoadListeners(record: SurfaceRecord): void {
     const contents = record.contents;
     contents.removeListener("did-finish-load", record.listeners.didFinishLoad);
+    contents.removeListener("did-navigate", record.listeners.didNavigate);
     contents.removeListener("did-fail-provisional-load", record.listeners.didFailLoad);
     contents.removeListener("did-fail-load", record.listeners.didFailLoad);
   }

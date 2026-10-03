@@ -709,6 +709,21 @@ describe("Electron Chromium runtime launch coordinator", () => {
     });
   });
 
+  it.each([
+    { x: 262, y: -8, width: 1200, height: 720 },
+    { x: -80, y: 30, width: 1200, height: 720 },
+    { x: 1100, y: 750, width: 800, height: 600 },
+    { x: 30, y: 30, width: 600, height: 400 }
+  ])("reuses authoritative live placement beyond the work area: %j", async bounds => {
+    const { coordinator, launchCommands, state } = launchHarness();
+    await coordinator.launchRole(ROLE_ID, { kind: "new-window" });
+    advanceWindowTopology(state, 1, { bounds });
+    await expect(coordinator.launchWorkspace(WORKSPACE_ID, {
+      kind: "game-window", windowId: WINDOW_ID
+    })).resolves.toMatchObject({ windowId: WINDOW_ID });
+    expect(launchCommands[1]!.target.bounds).toEqual(bounds);
+  });
+
   it("materializes an exact live target after a reconciled cross-display move", async () => {
     const { coordinator, launchCommands, state } = launchHarness();
     await coordinator.launchRole(ROLE_ID, { kind: "new-window" });

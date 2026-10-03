@@ -78,6 +78,7 @@ export interface ChromiumRoleSurfaceListeners {
   readonly didStartNavigation: ChromiumRoleSurfaceEventMap[
     "did-start-navigation"
   ];
+  readonly didNavigate: ChromiumRoleSurfaceEventMap["did-navigate"];
   readonly didFinishLoad: () => void;
   readonly didFailLoad: (
     event: unknown,
@@ -121,6 +122,7 @@ export interface ChromiumRoleSurfaceRecord {
   attached: boolean;
   destroyed: boolean;
   loadSettled: boolean;
+  pendingZoomFactor: number | null;
   activeMainFrameFailureReported: boolean;
   closePromise: Promise<boolean> | null;
   releasePromise: Promise<boolean> | null;

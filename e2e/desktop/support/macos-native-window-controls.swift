@@ -6,7 +6,8 @@ func fail(_ message: String) -> Never {
   FileHandle.standardError.write(Data((message + "\n").utf8))
   exit(1)
 }
-guard CommandLine.arguments.count == 4,
+guard [4, 6].contains(CommandLine.arguments.count),
+      (CommandLine.arguments.count == 4 || CommandLine.arguments[3] == "drag"),
       let targetPid = Int32(CommandLine.arguments[1]), targetPid > 0,
       AXIsProcessTrusted() else { fail("native window input or Accessibility grant unavailable") }
 let identifier = "com.rionstudio.runtime.appkit-window.v1:" + CommandLine.arguments[2]
@@ -80,7 +81,12 @@ guard let source = CGEventSource(stateID: .hidSystemState) else {
 let start = command == "drag"
   ? CGPoint(x: point.x + extent.width / 2, y: point.y + 16)
   : CGPoint(x: point.x + extent.width - 2, y: point.y + extent.height - 2)
-let delta = command == "drag" ? CGPoint(x: 64, y: 38) : CGPoint(x: 72, y: 48)
+var delta = command == "drag" ? CGPoint(x: 64, y: 38) : CGPoint(x: 72, y: 48)
+if command == "drag" && CommandLine.arguments.count == 6 {
+  guard let x = Double(CommandLine.arguments[4]), let y = Double(CommandLine.arguments[5]),
+        x.isFinite, y.isFinite else { fail("native drag delta invalid") }
+  delta = CGPoint(x: x, y: y)
+}
 func post(_ type: CGEventType, _ point: CGPoint) {
   guard let event = CGEvent(mouseEventSource: source, mouseType: type,
                             mouseCursorPosition: point, mouseButton: .left) else {

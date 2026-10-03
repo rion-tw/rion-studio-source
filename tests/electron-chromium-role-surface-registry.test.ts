@@ -605,7 +605,7 @@ describe("Electron Chromium role-surface registry", () => {
     expect(subject.parent.added).toEqual([view]);
     expect(view.bounds).toEqual([{ x: 8, y: 12, width: 1280, height: 720 }]);
     expect(view.visibility).toEqual([true]);
-    expect(view.webContents.zoomFactors).toEqual([1.25]);
+    expect(view.webContents.zoomFactors).toEqual([]);
     expect(subject.preferences[0]).toMatchObject({
       session: subject.sessionStates[0].session,
       sandbox: true,

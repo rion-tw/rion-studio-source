@@ -1329,10 +1329,12 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
       bounds: { ...live.bounds },
       presentation: live.presentation
     };
-    if (!targetMatchesDisplay(target, topology)) {
+    // Native move/resize owns live placement, including windows spanning displays
+    // or overlapping the menu bar. Work-area fitting belongs to new/saved targets.
+    if (!validBounds(target.bounds)) {
       throw launchError(
         "ELECTRON_CHROMIUM_LIVE_WINDOW_GEOMETRY_INVALID",
-        "The current Chromium window geometry is outside its exact display work area."
+        "The current Chromium window geometry is invalid."
       );
     }
     return target;

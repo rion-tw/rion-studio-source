@@ -4,10 +4,19 @@ import { WINDOWS_PACKAGED_CLOSE_HANDLERS } from "../scripts/packagedElectronWind
 
 describe.runIf(process.platform === "win32")("packaged visible role close", () => {
   it("routes a modeled UIA button through a real guarded native window and preserves its survivor", async () => {
+    // Four native acknowledgements/cleanup joins can each use 2 seconds. Keep
+    // those bounds and allow PowerShell/.NET startup and compilation separately
+    // under hosted-runner contention. Elapsed time never makes the test pass.
     const result = await runEncodedPowerShellJson(String.raw`
+$fixtureClock = [System.Diagnostics.Stopwatch]::StartNew()
+function Trace-CloseFixture([string]$stage) {
+  [Console]::Error.WriteLine(('close-fixture {0}ms: {1}' -f $fixtureClock.ElapsedMilliseconds, $stage))
+}
+Trace-CloseFixture 'load assemblies'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms
+Trace-CloseFixture 'compile native fixture'
 Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing -TypeDefinition @'
 using System;
 using System.Threading;
@@ -98,13 +107,16 @@ function Rion-ButtonByName($window, [string]$name) {
     $button
   }
 }
+Trace-CloseFixture 'start native fixture'
 [RionCloseFixture]::Start()
 try {
   if (-not [RionCloseFixture]::Ready.Wait(2000)) { throw 'native fixture not ready' }
+  Trace-CloseFixture 'native ready; invoke guarded close'
   $window = [System.Windows.Automation.AutomationElement]::FromHandle([RionCloseFixture]::Handle)
   $pattern = $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
   $pattern.Close()
   if (-not [RionCloseFixture]::NativeRejected.Wait(2000)) { throw 'native close guard not reached' }
+  Trace-CloseFixture 'native close rejected; verify ownership and actionability'
   $oldBlocked = -not [RionCloseFixture]::Closed.IsSet
   $rejections = @()
   try { Rion-CloseRoleWindow $window ($PID + 1) } catch {
@@ -123,12 +135,24 @@ try {
   }
   if ([RionCloseFixture]::Closed.IsSet) { throw 'rejected action closed the window' }
   [RionCloseFixture]::Mode(0)
+  Trace-CloseFixture 'invoke exact visible close'
   Rion-CloseRoleWindow $window $PID
   if (-not [RionCloseFixture]::Closed.Wait(2000)) { throw 'visible close action did not close the native window' }
+  Trace-CloseFixture 'visible close acknowledged'
   @{ oldBlocked=$oldBlocked; closed=[RionCloseFixture]::Closed.IsSet;
      decoySurvived=[RionCloseFixture]::DecoySurvived; rejections=$rejections } | ConvertTo-Json -Compress
-} finally { [RionCloseFixture]::Stop() }
-`, {}, { timeoutMilliseconds: 8000 });
+} finally {
+  Trace-CloseFixture 'stop native fixture'
+  [RionCloseFixture]::Stop()
+  Trace-CloseFixture 'native fixture stopped'
+}
+`, {}, { timeoutMilliseconds: 20_000 }).catch((error: Error & {
+      killed?: boolean; signal?: string; code?: number; stderr?: string;
+    }) => {
+      throw new Error(`Guarded native close fixture failed: ${JSON.stringify({
+        killed: error.killed, signal: error.signal, code: error.code, stages: error.stderr
+      })}`, { cause: error });
+    });
     expect(JSON.parse(result)).toEqual({
       oldBlocked: true, closed: true, decoySurvived: true,
       rejections: ["owner", "duplicate", "disabled"]

@@ -56,6 +56,10 @@ separately from the ordered tab lifecycle. Both cases are mandatory in the same
 process and retain the existing per-action and per-case failure bounds. Only a
 successfully verified launch cohort can enter the lifecycle case; splitting the
 cases does not skip an outcome or infer completion from elapsed time.
+The macOS Workspace evidence helpers bound cold Swift SDK compilation separately
+from native execution (120 seconds and 30 seconds respectively). Both failures
+record their stage, elapsed time, exit code, signal, and compiler/native stderr;
+a failed compilation stays failed for the phase, and native input is never retried.
 
 The paired `chromium-workspace-gap-dividers-seed` / `restart` phases create a
 `main_left_stack_right` Workspace with two Roles and one Website, open it with a

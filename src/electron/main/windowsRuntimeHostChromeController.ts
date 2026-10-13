@@ -506,9 +506,11 @@ export class WindowsRuntimeHostChromeController {
         candidate.type === "workspaceDividerPointer" &&
         candidate.phase !== "start" &&
         this.#dividerGestures.has(candidate.gestureId);
-      // A superseded paint report is expected during rapid native projections.
-      // It must neither overwrite current geometry nor turn into a domain error.
-      if (validCommand && candidate.type === "tabDragGeometry" && url === this.#documentUrl &&
+      // Native layout/fullscreen projections can supersede queued hover and
+      // paint observations. Cancel those observations without overwriting the
+      // latest presentation or turning an expected supersede into a domain error.
+      if (validCommand && (candidate.type === "tabDragGeometry" ||
+          candidate.type === "hideToolbar" || candidate.type === "revealToolbar") && url === this.#documentUrl &&
           candidate.windowId === this.#windowId && candidate.projectionRevision < this.#projectionRevision) return;
       const currentDragStart = validCommand && candidate.type === "tabDragStart" &&
         candidate.windowGeneration === this.#windowGeneration && candidate.projectionRevision <= this.#projectionRevision;

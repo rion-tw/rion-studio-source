@@ -280,6 +280,47 @@ describe("Windows runtime-host chrome controller", () => {
     expect(subject.controller.readObservation().toolbarVisible).toBe(true);
   });
 
+  it.each(["hideToolbar", "revealToolbar"] as const)("cancels a superseded queued %s observation without changing current presentation", async type => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    subject.state.fullscreen = true;
+    if (type === "hideToolbar") await subject.controller.handleCommand(documentUrl, {
+      type: "revealToolbar", windowId,
+      projectionRevision: subject.controller.readObservation().projectionRevision
+    });
+    const pending = subject.controller.handleCommand(documentUrl, {
+      type, windowId, projectionRevision: subject.controller.readObservation().projectionRevision
+    });
+    subject.controller.applyWindowName("New native projection");
+    const before = subject.controller.readObservation();
+    const sends = subject.send.mock.calls.length;
+    await expect(pending).resolves.toBeUndefined();
+    expect(subject.controller.readObservation()).toEqual(before);
+    expect(subject.send).toHaveBeenCalledTimes(sends);
+    await subject.controller.handleCommand(documentUrl, {
+      type, windowId, projectionRevision: before.projectionRevision
+    });
+    expect(subject.controller.readObservation().revealed).toBe(type === "revealToolbar");
+  });
+
+  it("still rejects future, foreign and authoritative commands at the hover supersede boundary", async () => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    const stale = subject.controller.readObservation().projectionRevision;
+    subject.controller.applyWindowName("New native projection");
+    for (const [url, command] of [
+      [documentUrl, { type: "closeWindow", windowId, projectionRevision: stale }],
+      [documentUrl, { type: "hideToolbar", windowId: "foreign", projectionRevision: stale }],
+      ["file:///foreign.html", { type: "revealToolbar", windowId, projectionRevision: stale }],
+      [documentUrl, { type: "hideToolbar", windowId, projectionRevision: 1000 }]
+    ] as const) await expect(subject.controller.handleCommand(url, command)).rejects.toMatchObject({
+      code: "ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE"
+    });
+    expect(subject.requestWindowControl).not.toHaveBeenCalled();
+  });
+
   it("requires a boolean mute intent and rejects stale menu projections", async () => {
     const subject = harness();
     await subject.controller.applyCoreProjection(projection());

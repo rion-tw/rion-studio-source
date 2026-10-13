@@ -20,6 +20,19 @@ AXValueGetValue(position as! AXValue, .cgPoint, &origin)
 AXValueGetValue(size as! AXValue, .cgSize, &extent)
 let phase = input["phase"] as! String
 var point = CGPoint(x: (input["x"] as? NSNumber)?.doubleValue ?? 0, y: (input["y"] as? NSNumber)?.doubleValue ?? 0)
+var previousPoint = CGEvent(source: nil)!.location
+func postMouse(_ type: CGEventType, _ target: CGPoint) {
+  guard let event = CGEvent(mouseEventSource: source, mouseType: type,
+                            mouseCursorPosition: target, mouseButton: .left) else {
+    fatalError("resize event unavailable")
+  }
+  event.flags = []
+  event.setIntegerValueField(.mouseEventClickState, value: 1)
+  event.setIntegerValueField(.mouseEventDeltaX, value: Int64((target.x - previousPoint.x).rounded()))
+  event.setIntegerValueField(.mouseEventDeltaY, value: Int64((target.y - previousPoint.y).rounded()))
+  event.post(tap: .cghidEventTap)
+  previousPoint = target
+}
 if phase == "start" {
   let edge = input["edge"] as! String
   // The AppKit Workspace overlay owns a native 16-point corner resize grip.
@@ -30,31 +43,24 @@ if phase == "start" {
   if edge == "bottom" { point.x = origin.x + extent.width / 2 }
   if edge == "left" { point = CGPoint(x: origin.x + 1, y: origin.y + extent.height / 2) }
   if edge == "top" { point = CGPoint(x: origin.x + extent.width / 2, y: origin.y + 1) }
-  CGWarpMouseCursorPosition(point)
-  CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+  postMouse(.mouseMoved, point)
 }
 if phase == "move" {
-  let previous = CGEvent(source: nil)!.location
+  let previous = previousPoint
   let rapid = input["rapid"] as? Bool ?? false
   let fractions = rapid ? [0.25,0.9,0.4,1.0,0.25,1.0] : [1.0/6,2.0/6,3.0/6,4.0/6,5.0/6]
   for fraction in fractions {
     let sample = CGPoint(x: previous.x + (point.x-previous.x)*fraction,
                          y: previous.y + (point.y-previous.y)*fraction)
-    CGWarpMouseCursorPosition(sample)
-    let drag = CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged, mouseCursorPosition: sample, mouseButton: .left)!
-    drag.flags = []
-    drag.setIntegerValueField(.mouseEventClickState, value: 1)
-    drag.post(tap: .cghidEventTap)
+    // Keep cursor position and physical deltas in one input stream. Warping
+    // before each event can let AppKit consume a reversal without its movement.
+    postMouse(.leftMouseDragged, sample)
     usleep(rapid ? 8_000 : 30_000)
   }
 }
-CGWarpMouseCursorPosition(point)
 usleep(50_000) // Input pacing only; assertions use native geometry and actual pixels.
 let type: CGEventType = phase == "start" ? .leftMouseDown : phase == "end" ? .leftMouseUp : .leftMouseDragged
-guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left) else { fatalError("resize event unavailable") }
-event.flags = []
-event.setIntegerValueField(.mouseEventClickState, value: 1)
-event.post(tap: .cghidEventTap)
+postMouse(type, point)
 usleep(100_000)
 let expected = input["expected"] as? [String: NSNumber]
 let deadline = Date().addingTimeInterval(10)
@@ -76,13 +82,7 @@ while true {
   // its final sample is handled. Keep the real button-held stream at the exact
   // destination until the native window acknowledges the requested frame.
   if phase == "move" && Date().timeIntervalSince(lastDragAt) >= 0.15 {
-    guard let drag = CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged,
-                             mouseCursorPosition: point, mouseButton: .left) else {
-      fatalError("resize acknowledgement drag unavailable")
-    }
-    drag.flags = []
-    drag.setIntegerValueField(.mouseEventClickState, value: 1)
-    drag.post(tap: .cghidEventTap)
+    postMouse(.leftMouseDragged, point)
     lastDragAt = Date()
   }
   usleep(10_000)

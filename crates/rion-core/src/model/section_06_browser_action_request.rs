@@ -363,6 +363,10 @@ pub enum CoreEffectAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "focusTabId")]
         focus_tab_id: Option<String>,
+        // One content responder handoff for an explicit tab selection; never activates a window.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "contentFocusTabId")]
+        content_focus_tab_id: Option<String>,
     },
     EmbeddedObserveAppKitWorkspaceAppearance {
         window_ids: Vec<String>,

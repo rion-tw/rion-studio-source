@@ -171,6 +171,7 @@ class FakeCore {
 type Listener = (...arguments_: unknown[]) => unknown;
 
 class FakeContents implements ChromiumRoleSurfaceWebContentsPort {
+  setIgnoreMenuShortcuts = vi.fn();
   readonly listeners = new Map<keyof ChromiumRoleSurfaceEventMap, Set<Listener>>();
   readonly loadURL = vi.fn(async () => undefined);
   readonly reload = vi.fn();

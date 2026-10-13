@@ -61,8 +61,8 @@ describe("launch completion content focus", () => {
     expect(subject.focusVisible).not.toHaveBeenCalled();
   });
 
-  it("hands a foreground standalone Role its responder once without activating the host", async () => {
-    const subject = harness();
+  it.each(["macos", "windows"] as const)("hands a foreground standalone Role its responder once on %s without activating the host", async platform => {
+    const subject = harness(undefined, platform);
     await createTab(subject);
     await apply(subject, projection(false, true));
     await loadRoles(subject);

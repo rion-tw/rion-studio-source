@@ -50,6 +50,18 @@ function titlebarGeometry() {
 }
 
 describe("retained AppKit fullscreen-toolbar observation", () => {
+  it("omits an unavailable rehosted tab anchor without hiding native presentation", () => {
+    const observe = (error: Error) => readMacosAppKitFullscreenToolbar({
+      identity, nativeFullscreen: true, nativeProjectionRevision: 8,
+      read: state, readTitlebarGeometry: titlebarGeometry,
+      readTabAnchor: () => { throw error; }, tabIds: [tabId],
+      topologyRevision: 7, windowGeneration: 2
+    });
+    const observation = observe(new Error("The shared AppKit runtime-tabs controller failed: InvalidLayout."));
+    expect(observation.fullscreen).toBe(true);
+    expect(observation.appKit?.tabAnchors).toEqual({});
+    expect(() => observe(new Error("retired native identity"))).toThrow("retired native identity");
+  });
   it("derives revealed native controls only from the exact AppKit readback", () => {
     expect(readMacosAppKitFullscreenToolbar({
       identity,
@@ -115,7 +127,7 @@ describe("retained AppKit fullscreen-toolbar observation", () => {
       readTabAnchor: (expected, expectedTabId) => {
         expect(expected).toBe(identity);
         expect(expectedTabId).toBe(tabId);
-        return { x: 420, y: 18 };
+        return { x: 420, y: -20 };
       },
       tabIds: [tabId],
       topologyRevision: 7,
@@ -136,7 +148,7 @@ describe("retained AppKit fullscreen-toolbar observation", () => {
     });
     expect(Object.isFrozen(observation.appKit?.tabScreenBounds)).toBe(true);
     expect(observation.appKit?.tabAnchors).toEqual({
-      [tabId]: { x: 420, y: 18 }
+      [tabId]: { x: 420, y: -20 }
     });
     expect(Object.isFrozen(observation.appKit?.tabAnchors?.[tabId])).toBe(true);
   });

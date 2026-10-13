@@ -730,6 +730,8 @@ impl AppCore {
             None
         };
         let prior_window = window.clone();
+        let content_focus_tab_id = matches!(action, RuntimeUiTabAction::Activate)
+            .then(|| tab_id.clone());
         match action {
             RuntimeUiTabAction::Activate => window.selected_tab_id = Some(tab_id.clone()),
             RuntimeUiTabAction::Hide { hidden } => {
@@ -776,8 +778,9 @@ impl AppCore {
             return self.retain_runtime_ui_action(operation_id, fingerprint, receipt);
         }
         drop(reload_admission);
-        let native =
-            self.project_embedded_runtime_snapshot_without_persistence(Some(&operation_id));
+        let native = self.project_embedded_runtime_snapshot_with_content_focus(
+            Some(&operation_id), content_focus_tab_id,
+        );
         let (status, stage, failure_code) = match native {
             Ok(_) => match self.persist_runtime_ui_windows(std::slice::from_ref(&window_id)) {
                 Ok(()) => (

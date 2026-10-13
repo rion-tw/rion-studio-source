@@ -184,6 +184,8 @@ function injectMainWorld() {
     goBack: invoke('tabs.goBack'),
     goForward: invoke('tabs.goForward'),
     onActivated: event('tabs.onActivated'),
+    onAttached: event('tabs.onAttached'),
+    onDetached: event('tabs.onDetached'),
     onCreated: event('tabs.onCreated'),
     onRemoved: event('tabs.onRemoved'),
     onReplaced: event('tabs.onReplaced'),

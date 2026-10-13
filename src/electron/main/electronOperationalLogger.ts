@@ -382,11 +382,14 @@ export class ElectronOperationalLogger {
     reliable: boolean,
     statuses: Extract<CoreEvent, { type: "macroStatuses" }>["statuses"]
   ): void {
+    // `reliable` selects lifecycle delivery versus coalescible presentation;
+    // it is not a judgement about input reliability or macro health.
+    if (!reliable) return;
     const active = new Set<string>();
     for (const status of statuses) {
       const key = `${status.roleId}:${status.macroId}`;
       active.add(key);
-      const reduced = JSON.stringify({ state: status.state, reliable });
+      const reduced = status.state;
       if (this.#macroStates.get(key) === reduced) continue;
       this.#macroStates.set(key, reduced);
       const level: LogLevel = status.state === "failed" || status.state === "cancelled"
@@ -395,8 +398,7 @@ export class ElectronOperationalLogger {
       this.#record(level, "macro", "macro_lifecycle_changed", "Macro lifecycle changed.", {
         roleId: status.roleId,
         macroId: status.macroId,
-        state: status.state,
-        reliabilityState: reliable ? "reliable" : "unreliable"
+        state: status.state
       });
     }
     for (const key of [...this.#macroStates.keys()]) {
@@ -406,8 +408,7 @@ export class ElectronOperationalLogger {
       this.info("macro", "macro_lifecycle_stopped", "Macro lifecycle stopped.", {
         roleId: key.slice(0, separator),
         macroId: key.slice(separator + 1),
-        state: "stopped",
-        reliabilityState: reliable ? "reliable" : "unreliable"
+        state: "stopped"
       });
     }
   }

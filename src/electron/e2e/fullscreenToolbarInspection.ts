@@ -209,8 +209,7 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
             if (tabIndex <= previousTabIndex) return true;
             previousTabIndex = tabIndex;
             return !record(anchor) || !exact(anchor, ["x", "y"]) ||
-              !Number.isFinite(anchor.x) || !Number.isFinite(anchor.y) ||
-              Number(anchor.x) < 0 || Number(anchor.y) < 0;
+              !Number.isFinite(anchor.x) || !Number.isFinite(anchor.y);
           })) {
         throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 6).");
       }

@@ -113,7 +113,9 @@ fn foreground_focus_action<'a>(
                 reveal_window_ids,
                 focus_window_ids,
                 focus_tab_id,
+                content_focus_tab_id,
             } if target.is_none()
+                && content_focus_tab_id.is_none()
                 && *lifecycle_epoch >= 1
                 && reveal_window_ids == &[window_id]
                 && focus_window_ids == &[window_id]

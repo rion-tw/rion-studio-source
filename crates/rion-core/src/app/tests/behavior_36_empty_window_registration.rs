@@ -45,12 +45,14 @@ fn embedded_window_register_projects_one_exact_empty_logical_window_before_nativ
             reveal_window_ids,
             focus_window_ids,
             focus_tab_id,
+            content_focus_tab_id,
         } = &actions[0]
         else {
             panic!("{platform}: expected one ownership-follow effect");
         };
         assert_eq!(*lifecycle_epoch, 1, "{platform}");
         assert!(roles.is_empty(), "{platform}");
+        assert!(content_focus_tab_id.is_none(), "{platform}");
         assert_eq!(windows.len(), 1, "{platform}");
         let projected = &windows[0];
         assert_eq!(projected.window_id, window_id, "{platform}");

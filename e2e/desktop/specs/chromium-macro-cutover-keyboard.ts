@@ -1,3 +1,4 @@
+import { createFunctionKeyMacros, exerciseFunctionKeyMacros } from "./chromium-macro-function-keys";
 import { focusWindowsRoleCanvas } from "../support/windows-role-canvas";
 import { exerciseModifierReconciliation } from "./chromium-macro-modifier-reconciliation";
 import { expect } from "@wdio/globals";
@@ -429,6 +430,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     name: "Chromium Macro Keyboard Role B"
   });
   const macros = await createKeyboardMacros(roleA.id);
+  const functionMacros = await createFunctionKeyMacros(roleA.id);
   const middleHeld = await createMiddleHeldMacro(roleB.id);
   const window = await createChromiumMacroWindow(WINDOW_ID, "Chromium Macro Keyboard");
   const tabA = await launchChromiumRoleVisible(roleA, ROLE_A_FIXTURE, window);
@@ -531,6 +533,12 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     platform: context.platform,
     roleId: roleA.id,
     roleName: roleA.name
+  });
+
+  await exerciseFunctionKeyMacros({
+    launchUrl: roleA.launchUrl!, mainWindowHandle: context.mainWindowHandle,
+    platform: context.platform, roleId: roleA.id, roleName: roleA.name,
+    fixtureRoleId: ROLE_A_FIXTURE, windowId: WINDOW_ID, macros: functionMacros
   });
 
   await exerciseCompatibleAltShortcuts({

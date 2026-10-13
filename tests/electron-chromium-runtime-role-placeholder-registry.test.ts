@@ -30,6 +30,7 @@ function testDeferred<T>() {
 }
 
 class FakeContents implements ChromiumRoleSurfaceWebContentsPort {
+  setIgnoreMenuShortcuts = vi.fn();
   readonly listeners = new Map<string, Set<(...arguments_: never[]) => void>>();
   readonly sent: Array<readonly [string, ...unknown[]]> = [];
   readonly session: ChromiumRoleSessionPort;

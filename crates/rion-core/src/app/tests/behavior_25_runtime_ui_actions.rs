@@ -42,6 +42,49 @@ fn seed_runtime_ui_topology(
 }
 
 #[test]
+fn explicit_tab_activation_projects_content_focus_once_without_window_activation() {
+    for platform in ["win32", "darwin"] {
+        let (_directory, core) = core_for_runtime_contract(platform, 23);
+        core.invoke(CoreCommand::BrowserRuntimeRegister {
+            registration: chromium_registration(platform, true),
+        }).unwrap();
+        seed_runtime_ui_topology(&core, "content-focus-seed", vec![("window", "tab", "role")]);
+        let window = core.browser_runtime.snapshot().unwrap().windows["window"].clone();
+        let command = CoreCommand::EmbeddedTabActivate {
+            operation_id: "content-focus-activate".to_owned(), tab_id: "tab".to_owned(),
+            window_id: "window".to_owned(), window_generation: window.window_generation,
+            topology_revision: window.revision,
+        };
+        let (result, actions) = drive_command(Arc::clone(&core), command.clone(), None);
+        let receipt: crate::model::SystemRuntimeOperationSummaryRecord =
+            serde_json::from_value(result.unwrap()).unwrap();
+        assert_eq!(receipt.status, crate::model::SystemRuntimeOperationStatus::Applied);
+        assert!(actions.iter().any(|action| matches!(action,
+            CoreEffectAction::EmbeddedFollowRoleOwnership {
+                content_focus_tab_id: Some(tab_id), reveal_window_ids, focus_window_ids,
+                focus_tab_id: None, windows, ..
+            } if tab_id == "tab" && reveal_window_ids.is_empty() && focus_window_ids.is_empty()
+                && windows.iter().any(|window| window.window_id == "window"
+                    && window.active_tab_id.as_deref() == Some("tab"))
+        )), "{platform}: {actions:?}");
+        let (replay, actions) = drive_command(Arc::clone(&core), command, None);
+        assert!(replay.is_ok());
+        assert!(actions.is_empty(), "a replay cannot reacquire content focus");
+
+        let window = core.browser_runtime.snapshot().unwrap().windows["window"].clone();
+        let (hidden, actions) = drive_command(Arc::clone(&core), CoreCommand::EmbeddedTabHide {
+            operation_id: "content-focus-hide".to_owned(), tab_id: "tab".to_owned(),
+            window_id: "window".to_owned(), window_generation: window.window_generation,
+            topology_revision: window.revision, hidden: true,
+        }, None);
+        assert!(hidden.is_ok());
+        assert!(actions.iter().all(|action| !matches!(action,
+            CoreEffectAction::EmbeddedFollowRoleOwnership { content_focus_tab_id: Some(_), .. }
+        )), "passive topology must not grant a responder handoff");
+    }
+}
+
+#[test]
 fn windows_projection_carries_core_activation_phase_until_authoritative_ready() {
     let (_directory, core) = core_for_runtime_contract("win32", 23);
     let tab_id = "runtime-phase-tab";

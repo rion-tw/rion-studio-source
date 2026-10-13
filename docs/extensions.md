@@ -206,6 +206,16 @@ load is `indeterminate` and blocks Role navigation until its exact extension is
 observed and unloaded. Normal release remains `EventBound` on the exact
 `extension-unloaded` event.
 
+Committed Role moves propagate the exact old/new native parent and unchanged
+WebContents/Session handle to the compatibility owner. Pending preparation uses
+the new parent; registered tabs update their parent and cached queries without
+recreating tab observers or emitting a new tab. Context menus retire their old
+native window binding before adopting the destination. Stale moves are rejected;
+close removes the current registered surface before destroying WebContents.
+The native compatibility probe covers queries after moving and destroying the
+source window, and the paired GAME-WINDOWS-TABS-020 journeys require clean
+extension retirement after visible tab moves and window closes.
+
 Development output and exported diagnostics correlate Electron permission
 warnings, extension/service-worker runtime errors, compatibility handshake
 results, and terminal lease outcomes by extension ID. Records contain bounded

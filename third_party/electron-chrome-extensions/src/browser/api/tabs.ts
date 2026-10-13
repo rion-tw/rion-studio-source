@@ -19,6 +19,11 @@ export class TabsAPI {
     handle('tabs.goBack', this.goBack.bind(this))
 
     this.ctx.store.on('tab-added', this.observeTab.bind(this))
+    this.ctx.store.on('tab-reparented', (tab: TabContents, previous: Electron.BaseWindow, next: Electron.BaseWindow) => {
+      this.createTabDetails(tab)
+      this.ctx.router.broadcastEvent('tabs.onDetached', tab.id, { oldWindowId: previous.id, oldPosition: -1 })
+      this.ctx.router.broadcastEvent('tabs.onAttached', tab.id, { newWindowId: next.id, newPosition: -1 })
+    })
   }
 
   private observeTab(tab: TabContents) {

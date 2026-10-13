@@ -44,6 +44,11 @@ export interface ChromiumSessionFactoryPort {
     handle: ChromiumRoleSessionHandle,
     surface?: ChromiumRoleExtensionSurfacePort
   ) => Promise<void>;
+  reparentExtensionSurface?: (
+    handle: ChromiumRoleSessionHandle,
+    previous: ChromiumRoleExtensionSurfacePort,
+    next: ChromiumRoleExtensionSurfacePort
+  ) => void;
   retireExtensionSurface?: (
     handle: ChromiumRoleSessionHandle,
     surface: ChromiumRoleExtensionSurfacePort,
@@ -381,6 +386,14 @@ export class ChromiumRoleSessionRegistry {
     alreadyDestroyed: boolean
   ): void {
     this.#factory.retireExtensionSurface?.(handle, surface, alreadyDestroyed);
+  }
+
+  reparentExtensionSurface(
+    handle: ChromiumRoleSessionHandle,
+    previous: ChromiumRoleExtensionSurfacePort,
+    next: ChromiumRoleExtensionSurfacePort
+  ): void {
+    this.#factory.reparentExtensionSurface?.(handle, previous, next);
   }
 
   get activeCount(): number {

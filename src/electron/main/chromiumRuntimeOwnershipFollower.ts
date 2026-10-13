@@ -39,6 +39,7 @@ interface FollowChromiumRuntimeOwnershipInput {
   readonly revealWindowIds: readonly string[];
   readonly focusWindowIds: readonly string[];
   readonly focusTabId?: string;
+  readonly contentFocusTabId?: string;
   readonly ownershipTransitions: ChromiumRuntimeOwnershipTransitionCoordinator;
   readonly signal?: AbortSignal;
   readonly beforeNativeSubmission: () => Promise<void>;
@@ -243,6 +244,15 @@ async function compensateEmptySavedWindow(
 export async function followChromiumRuntimeOwnership(
   input: FollowChromiumRuntimeOwnershipInput
 ): Promise<CoreEffectEventContinuation | undefined> {
+  if (input.contentFocusTabId !== undefined && (
+    input.revealWindowIds.length !== 0 || input.focusWindowIds.length !== 0 || input.focusTabId !== undefined ||
+    !input.projectedWindows.some(window => window.activeTabId === input.contentFocusTabId &&
+      window.tabIds.includes(input.contentFocusTabId!) &&
+      !window.hiddenTabIds.includes(input.contentFocusTabId!))
+  )) {
+    throw ownershipError("ELECTRON_CHROMIUM_CONTENT_FOCUS_INVALID",
+      "Core content focus must name one selected, visible tab without a window activation.");
+  }
   const requiredWindowIds = [...input.revealWindowIds, ...input.focusWindowIds];
   const targetWindow = input.windows.get(input.effect.target.handleId);
   if (targetWindow) requiredWindowIds.push(targetWindow.host.logicalWindowId);
@@ -345,6 +355,7 @@ export async function followChromiumRuntimeOwnership(
           window.host.isVisible()
         );
       }
+      if (input.contentFocusTabId !== undefined) requestChromiumContentFocus(input, input.contentFocusTabId);
       if (!input.signal?.aborted) handoffChromiumContentFocus(input, input.projectedWindows, input.projectedRoles);
       return undefined;
     }

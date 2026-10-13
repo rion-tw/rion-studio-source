@@ -43,7 +43,7 @@ describe.each(["darwin", "win32"])("bootstrap lease lifecycle (%s)", platform =>
     let ready!: CompatibilityReadyCallback;
     const sessions = new ChromiumExtensionSessions(core as never, {
       createCompatibilityHost: (_session, onReady) => {
-        ready = onReady; return { addTab: vi.fn(), removeTab: vi.fn() };
+        ready = onReady; return { addTab: vi.fn(), removeTab: vi.fn(), moveTab: vi.fn() };
       }
     });
     const handle = { roleId: "role", session: { extensions: native, serviceWorkers: workers } };

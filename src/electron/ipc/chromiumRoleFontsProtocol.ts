@@ -3,7 +3,7 @@ import type { BrowserFontRuntimePayloadRecord } from "../../shared/generated";
 export const CHROMIUM_ROLE_FONTS_CHANNEL = "rion:chromium-role-fonts:v1";
 export const CHROMIUM_ROLE_FONTS_REFRESH_CHANNEL =
   "rion:chromium-role-fonts-refresh:v1";
-export const CHROMIUM_ROLE_FONTS_RUNTIME_VERSION = 7;
+export const CHROMIUM_ROLE_FONTS_RUNTIME_VERSION = 8;
 
 export type ChromiumRoleFontsMethod = "payload" | "receipt" | "failure";
 
@@ -47,7 +47,7 @@ export interface ChromiumRoleFontsApplicationEvidence {
   readonly fontSmoothingEnabled: boolean;
   readonly loadedCatalogIds: readonly string[];
   readonly loadedFaceCount: number;
-  readonly runtimeVersion: 7;
+  readonly runtimeVersion: 8;
   readonly sequence: number;
   readonly status: "applied";
   readonly styleInstalled: boolean;

@@ -102,6 +102,26 @@ export class ExtensionStore extends EventEmitter {
     this.emit('tab-added', tab)
   }
 
+  moveTab(tab: Electron.WebContents, previous: Electron.BaseWindow, next: Electron.BaseWindow) {
+    if (!this.tabs.has(tab) || this.tabToWindow.get(tab) !== previous || next.isDestroyed()) {
+      throw new Error('RION_EXTENSION_COMPAT_TAB_PARENT_MISMATCH')
+    }
+    if (previous === next) return
+    this.tabToWindow.set(tab, next)
+    if (this.windowToActiveTab.get(previous) === tab) this.windowToActiveTab.delete(previous)
+    const previousHasTabs = Array.from(this.tabs).some(item => this.tabToWindow.get(item) === previous)
+    if (!previousHasTabs) {
+      this.windows.delete(previous)
+      this.windowDetailsCache.delete(previous.id)
+      if (this.lastFocusedWindowId === previous.id) this.lastFocusedWindowId = next.id
+    }
+    this.addWindow(next)
+    this.windowDetailsCache.delete(next.id)
+    if (!this.getActiveTabFromWindow(next)) this.setActiveTab(tab)
+    this.tabDetailsCache.delete(tab.id)
+    this.emit('tab-reparented', tab, previous, next)
+  }
+
   removeTab(tab: Electron.WebContents) {
     if (!this.tabs.has(tab)) return
 
@@ -110,13 +130,14 @@ export class ExtensionStore extends EventEmitter {
 
     this.tabs.delete(tab)
     this.tabToWindow.delete(tab)
-
-    // TODO: clear active tab
+    if (this.windowToActiveTab.get(win) === tab) this.windowToActiveTab.delete(win)
 
     // Clear window if it has no remaining tabs
     const windowHasTabs = Array.from(this.tabs).find((tab) => this.tabToWindow.get(tab) === win)
     if (!windowHasTabs) {
       this.windows.delete(win)
+      this.windowDetailsCache.delete(win.id)
+      if (this.lastFocusedWindowId === win.id) this.lastFocusedWindowId = undefined
     }
 
     if (typeof this.impl.removeTab === 'function') {

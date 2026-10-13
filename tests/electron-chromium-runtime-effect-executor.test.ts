@@ -1126,8 +1126,7 @@ describe("Electron Chromium runtime effect executor", () => {
     expect(subject.setVisible).toHaveBeenCalledWith("role-1", 1, true);
     expect(subject.setVisible).toHaveBeenCalledWith("role-2", 1, false);
     expect(subject.executor.snapshot().windows[0]?.activeTabId).toBe("tab-1");
-    if (platform === "macos") expect(subject.focusVisible).toHaveBeenCalledExactlyOnceWith("role-1", 1);
-    else expect(subject.focusVisible).not.toHaveBeenCalled();
+    expect(subject.focusVisible).toHaveBeenCalledExactlyOnceWith("role-1", 1);
   });
 
   it("quarantines exact native ownership after Applied visibility placeholder failure", async () => {

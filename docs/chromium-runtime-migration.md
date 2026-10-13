@@ -279,6 +279,21 @@ cached face decode, load, or document-registration failure is counted in the
 receipt and terminalizes the application as failed instead of reporting partial
 success.
 
+Installed Georgia and the recognized common serif families retain an explicit
+`serif` fallback in settings previews, live DOM styles and Canvas overrides.
+Georgia has no CJK glyphs: selecting it must not force missing characters into
+the shell's `system-ui` fallback. The preload derives bounded presentation
+fallbacks from the Core-owned selection; stored preferences and font assets stay
+unchanged. Explicit slot families precede the generic fallback, and unknown
+families retain the existing behavior. Native tests compare CJK raster output
+with named-serif references; exact fallback faces remain platform-dependent.
+Unicode-scoped named faces precede unrestricted generic families, so a default
+numeric `system-ui` selection cannot mask the selected CJK or Latin face.
+Generics remain fallback families, not unicode-scoped local font aliases.
+Settings previews also preserve unquoted CSS generic families such as
+`ui-monospace`, matching their live-page meaning instead of looking up a font
+whose literal name is the generic keyword.
+
 Frame evaluation and permissions remain `degraded`: evaluation is restricted
 to the bounded isolated-world/main-frame paths used by the product, while
 permissions deliberately implement a strict deny subset. Downloads remain
@@ -962,8 +977,12 @@ Fullscreen Game Window presentation uses the same Rust/Core-owned placement and
 window-preference records on both targets. On macOS, the View-menu checkbox and
 green fullscreen control remain real AppKit UI; Chromium Role surfaces only
 follow the retained controller's revision-fenced content layout. On Windows,
-managed-page F11 is intercepted above page delivery and enters the same
-event-bound Core command. The frameless host loads a bundled, sandboxed local
+fullscreen is selected through the native View menu and enters the same
+event-bound Core command. Function keys F1–F24, including Ctrl chords, stay
+available to game input and managed Macros: no F11 fullscreen interceptor or
+accelerator is installed. Exact-surface before-input observation ignores menu
+shortcuts only for function keys, preserving their trusted DOM key lifecycle
+and restoring menu processing on the next non-function event. The frameless host loads a bundled, sandboxed local
 tab/control document in the dedicated non-persistent `rion-runtime-shell`
 session; exact sender URL, WebContents, generation, and projection revision are
 required for reveal and minimize/maximize/close commands. Native enter/leave or
@@ -1118,14 +1137,17 @@ revision, native foreground/focus and surface visibility. It never activates a
 window, chooses a workspace surface, or retries after background completion.
 AppKit document readiness only registers passive native input observation; it
 never restores launcher focus or queues a later key-window activation.
-A committed AppKit user tab activation also projects an optional
-`contentFocusTabId`. After native selection and surface visibility commit, the
+A committed user tab activation also projects an optional
+`contentFocusTabId`, through the AppKit projection on macOS and the ownership
+projection on Windows. After native selection and surface visibility commit, the
 same content-only handoff restores the selected standalone Role WebContents,
 preserving its DOM focus target. Passive layout/restore projections and duplicate
 or superseded activations do not grant focus. Native blur/hide/close/failure,
 cancellation, a newer selection, or replaced ownership revokes pending handoff;
 readiness never reactivates a background host. Physical Ctrl+Tab/Shift release
-continues through the existing native modifier handoff. No Escape interception
+continues through the existing native modifier handoff. Windows native menu
+Ctrl+Tab/Shift+Ctrl+Tab uses this same exact selected-Role handoff, including a
+selection made while that Role is loading. No Escape interception
 or DOM canvas focus is introduced.
 Missing persisted window names project as empty
 native titles on macOS and Windows. Windows shell document titles cannot replace

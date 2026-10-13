@@ -105,6 +105,7 @@ export interface RuntimeHostPreventableEvent {
 }
 
 export interface WindowsRuntimeHostWebContentsPort {
+  setIgnoreMenuShortcuts: (ignore: boolean) => void;
   readonly session: RuntimeHostSessionPort;
   getURL: () => string;
   send: (channel: string, projection: WindowsRuntimeHostProjection) => void;

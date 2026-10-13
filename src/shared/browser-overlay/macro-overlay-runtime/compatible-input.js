@@ -77,8 +77,18 @@
           ? key.type === "keyUp" ? "releaseOwnership" : "adoptPhysical" : "dispatch";
         recordCompatibleModifierTransition("compatible", key.code, key.type, disposition, retained ? null : event);
         modifierEvidence = compatibleModifierEvidence(command.modifierState, physicalBefore, disposition, retained ? null : event);
+        // Share delivery metadata with trusted keys so a later Canvas blur can
+        // ask Core to restore a still-owned hold. This never schedules input.
+        // Capture before dispatch: a game handler may synchronously move focus.
+        if (key.type === "rawKeyDown") activeMacroGameKeys.set(key.code, {
+          snapshot: snapshotMacroKeyboardEvent(event), target,
+          deliveryOwner: { ownerId: command.ownerId, requestId: command.requestId,
+            inputEpoch: command.inputEpoch, surfaceGeneration: command.generation },
+          dispatchId: command.requestId
+        });
         if (retained) return receipt("applied");
         deliver(event);
+        if (key.type === "keyUp") discardForwardedMacroKey(key.code);
         modifierEvidence = compatibleModifierEvidence(command.modifierState, physicalBefore, disposition, event);
       } else if (command.action === "click") {
         const pointer = command.pointer;

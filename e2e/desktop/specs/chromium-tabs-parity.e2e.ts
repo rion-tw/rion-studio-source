@@ -7,9 +7,8 @@ import { exerciseRoleFirstPaint, expectRolePaint } from "./chromium-role-first-p
 import { exerciseMixedWorkspaceTearout } from "./chromium-tab-tearout-workspace";
 import { exerciseVisibleTabTearout } from "./chromium-tab-tearout";
 import { exerciseLauncherDuringLoading } from "./chromium-launcher-loading";
-import { runMacosTabFocusRegression } from "./chromium-tab-content-focus-setup";
-import { expectLoadingTabPresentation, expectReadyTabAboveLoadingSibling } from "./chromium-loading-tab-evidence";
-import { resizeWorkspaceWindow } from "../support/workspace-window-resize";
+import { runTabFocusRegression } from "./chromium-tab-content-focus-setup";
+import { expectLoadingTabPresentation, expectReadyTabAboveLoadingSibling, resizeReadyTabWhileSiblingLoads } from "./chromium-loading-tab-evidence";
 import { leaveLaunchInBackground } from "../support/launch-foreground";
 import { $, browser, expect } from "@wdio/globals";
 import { writeFile } from "node:fs/promises";
@@ -434,16 +433,9 @@ async function launchRoleIntoWindow(
         await browser.waitUntil(async () => (await currentRuntime(gameWindow.id)).windows
           .find(window => window.id === gameWindow.id)?.activeTabId === loading.previousTab!.id, { timeout: 20_000 });
         await expectReadyTabAboveLoadingSibling(gameWindow.id, loading.previousTab.id, tabId!, role.id);
-        const beforeResize = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
-        const oldBounds = beforeResize.surfaces.find(surface => surface.tabId === loading.previousTab!.id)!.bounds;
-        await resizeWorkspaceWindow({ inspection:beforeResize, edge:"bottomRight", moves:[{x:-48,y:-32}],
-          whileHeld: async () => {
-            await browser.waitUntil(async () => {
-              const current = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
-              resizedWhileLoading = current.surfaces.find(surface => surface.tabId === loading.previousTab!.id)!.bounds;
-              return resizedWhileLoading.width < oldBounds.width && resizedWhileLoading.height < oldBounds.height;
-            }, { timeout:20_000, timeoutMsg:"Native resize did not update A while B was loading" });
-          } });
+        resizedWhileLoading = await resizeReadyTabWhileSiblingLoads({
+          platform: loading.platform, windowId: gameWindow.id, tabId: loading.previousTab.id
+        });
       }
       await loading.duringLoading?.();
       // Observation reads must also complete while this exact network gate remains held.
@@ -1457,6 +1449,8 @@ async function seedPhase(input: Readonly<{
     roles,
     stage: "seed-distributed-final"
   });
+  expect((await rendererCall("queryLogs", { levels: ["error"], limit: 100,
+    search: "extension_compatibility_tab_retire_failed" })).entries).toEqual([]);
 }
 
 async function restartPhase(input: Readonly<{
@@ -1593,11 +1587,11 @@ async function restartPhase(input: Readonly<{
 describe("Chromium native tab lifecycle parity", () => {
   it("hands fullscreen tab keyboard focus to content without a page click", async function () {
     const probe = await electronDesktopE2eProbe();
-    if (probe.platform !== "macos" || required("RION_STUDIO_E2E_PHASE") !== "chromium-tabs-visible-seed") this.skip();
+    if (required("RION_STUDIO_E2E_PHASE") !== "chromium-tabs-visible-seed") this.skip();
     await ensureEnglishUi();
     await acceptLegalAndSkipFirstRun();
     await installRuntimeTabShellErrorJournal();
-    await runMacosTabFocusRegression({ mainWindowHandle: await browser.getWindowHandle(),
+    await runTabFocusRegression({ platform: probe.platform, mainWindowHandle: await browser.getWindowHandle(),
       createWindow: createGameWindowThroughVisibleUi, launchRole: launchRoleIntoWindow });
   });
 

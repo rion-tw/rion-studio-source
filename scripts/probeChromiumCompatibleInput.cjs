@@ -1,8 +1,9 @@
 // Real Chromium world-boundary regression; no external debugger or user profile.
 const { app, BrowserWindow } = require("electron");
+const { createHash } = require("node:crypto");
 const { mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { resolve, dirname } = require("node:path");
-const [reportPath, userData] = process.argv.slice(2);
+const [reportPath, userData, soakDuration = "0"] = process.argv.slice(2);
 if (!reportPath || !userData || !["darwin", "win32"].includes(process.platform)) {
   throw new Error("Use bundled Electron: probeChromiumCompatibleInput.cjs REPORT ISOLATED_USER_DATA");
 }
@@ -27,19 +28,20 @@ app.whenReady().then(async () => {
     const manifest = resolve("src/shared/browser-overlay/macroOverlayRuntime.js");
     const source = [...readFileSync(manifest, "utf8").matchAll(/@source\s+"([^"]+)"/gu)]
       .map(match => readFileSync(resolve(dirname(manifest), match[1]), "utf8")).join("\n");
+    const sourceSha256 = createHash("sha256").update(source).digest("hex");
     const replace = (text, name, value) => text.replace(JSON.stringify(name), value);
     let overlay = source;
     for (const [name, value] of Object.entries({
       "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__": readFileSync("src/shared/browser-overlay/macroOverlayShortcutGuard.js", "utf8").trim(),
       // Deterministic physical precondition only; the production endpoint is unchanged.
       "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__": "() => true",
-      "__RION_STUDIO_MACRO_OVERLAY_BINDING__": "async () => ({ macros: [], statuses: [] })",
+      "__RION_STUDIO_MACRO_OVERLAY_BINDING__": "Object.assign(async () => ({ macros: [], statuses: [] }), { inputContextLost: async request => { globalThis.focusLosses.push(request); } })",
       "__RION_STUDIO_MACRO_OVERLAY_CSS__": '""',
       "__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE__": '""',
       "__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER__": "() => Promise.reject(new Error('unused'))"
     })) overlay = replace(overlay, name, value);
     await window.webContents.executeJavaScriptInIsolatedWorld(999, [{ code:
-      `globalThis.__rionStudioDocumentInstanceId = 'document'; ${overlay}` }]);
+      `globalThis.__rionStudioDocumentInstanceId = 'document'; globalThis.focusLosses = []; ${overlay}` }]);
     const send = async (code, phase, coreBefore, coreAfter) => {
       const command = { requestId: `request-${++sequence}`, ownerId: "macro", roleId: "role", generation: 1,
         inputEpoch: 1, frameToken: "document", documentInstanceId: "document", sequence,
@@ -53,11 +55,19 @@ app.whenReady().then(async () => {
     };
     let sequence = 0, physical = false;
     const receipts = [], commands = [];
-    const cycle = async () => {
-      receipts.push(await send("AltLeft", "rawKeyDown", [], ["AltLeft"]));
-      receipts.push(await send("Digit3", "rawKeyDown", ["AltLeft"], ["AltLeft"]));
-      receipts.push(await send("Digit3", "keyUp", ["AltLeft"], ["AltLeft"]));
-      receipts.push(await send("AltLeft", "keyUp", ["AltLeft"], []));
+    const cycle = async (retain = true, physicalOverlap = false) => {
+      const results = [await send("AltLeft", "rawKeyDown", [], ["AltLeft"]),
+        await send("Digit3", "rawKeyDown", ["AltLeft"], ["AltLeft"])];
+      if (physicalOverlap) await window.webContents.executeJavaScript(`
+        for (const type of ['keydown', 'keyup']) document.querySelector('canvas').dispatchEvent(
+          new KeyboardEvent(type, { code: 'Digit3', key: '3', keyCode: 51, which: 51,
+            altKey: true, bubbles: true }));
+      `);
+      results.push(await send("Digit3", "keyUp", ["AltLeft"], ["AltLeft"]),
+        await send("AltLeft", "keyUp", ["AltLeft"], []));
+      if (retain) receipts.push(...results);
+      else commands.splice(-results.length);
+      return results;
     };
     await cycle();
     physical = true;
@@ -71,6 +81,34 @@ app.whenReady().then(async () => {
     await window.webContents.executeJavaScriptInIsolatedWorld(999, [{ code: "window.dispatchEvent(new Event('blur'))" }]);
     const events = await window.webContents.executeJavaScript("received");
     const reconciliation = await require("./probeChromiumModifierReconciliation.cjs")(window.webContents);
-    writeFileSync(reportPath, JSON.stringify({ platform: process.platform, chromium: process.versions.chrome, receipts, commands, events, reconciliation }));
-  } finally { window.destroy(); app.quit(); }
+    sequence = Math.max(sequence, ...reconciliation.receipts.map(receipt => receipt.sequence));
+    physical = false;
+    // DOM focus transfer events require a real focused document. Visibility is
+    // a test precondition here; automatic Macro dispatch never requests focus.
+    window.show();
+    window.webContents.focus();
+    const focusContinuity = await require("./probeChromiumCanvasFocusContinuity.cjs")(window.webContents, send);
+    await window.webContents.executeJavaScript(`
+      globalThis.hiddenObservation = Promise.all([
+        document.hasFocus()
+          ? new Promise(resolve => addEventListener('blur', () => resolve(true), { once: true }))
+          : Promise.resolve(true),
+        document.visibilityState === 'hidden' ? Promise.resolve(true) : new Promise(resolve => {
+          const changed = () => {
+            if (document.visibilityState !== 'hidden') return;
+            document.removeEventListener('visibilitychange', changed); resolve(true);
+          };
+          document.addEventListener('visibilitychange', changed);
+        })
+      ]); void 0;
+    `);
+    window.hide();
+    await window.webContents.executeJavaScript("globalThis.hiddenObservation");
+    physical = true;
+    const soak = await require("./probeChromiumCompatibleInputSoak.cjs")(window.webContents, {
+      durationMs: Number(soakDuration), cycle: () => cycle(false, true)
+    });
+    writeFileSync(reportPath, JSON.stringify({ platform: process.platform, chromium: process.versions.chrome, sourceSha256, receipts, commands, events, reconciliation, focusContinuity, soak }));
+  } finally { window.destroy(); }
+  app.quit();
 }).catch(error => { console.error(error); app.exit(1); });

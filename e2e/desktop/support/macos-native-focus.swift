@@ -125,12 +125,21 @@ if mode == "shortcut" || mode == "roleKey" {
   }
   let key: CGKeyCode
   let flags: CGEventFlags
+  let functionCodes: [CGKeyCode] = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111]
+  let functionName = command.hasPrefix("Ctrl+") ? String(command.dropFirst(5)) : command
+  let functionNumber = functionName.hasPrefix("F") ? Int(functionName.dropFirst()) : nil
+  if mode == "roleKey", let number = functionNumber, (1...12).contains(number) {
+    key = functionCodes[number - 1]
+    flags = command.hasPrefix("Ctrl+") ? [.maskControl] : []
+  } else {
   switch command {
   case "AltDown" where mode == "roleKey": key = 58; flags = [.maskAlternate]
   case "AltUp" where mode == "roleKey": key = 58; flags = []
   case "Alt+Digit1" where mode == "roleKey": key = 18; flags = [.maskAlternate]
   case "Alt+Digit1Tap" where mode == "roleKey": key = 18; flags = [.maskAlternate]
   case "KeyY" where mode == "roleKey": key = 16; flags = []
+  case "Digit2" where mode == "roleKey": key = 19; flags = []
+  case "Digit3" where mode == "roleKey": key = 20; flags = []
   case "Shift+Digit3" where mode == "roleKey": key = 20; flags = [.maskShift]
   case "Shift+Digit4" where mode == "roleKey": key = 21; flags = [.maskShift]
   case "Shift+Digit5Hold" where mode == "roleKey": key = 23; flags = [.maskShift]
@@ -149,6 +158,7 @@ if mode == "shortcut" || mode == "roleKey" {
   case "zoomOut": key = 27; flags = [.maskCommand]
   case "zoomReset": key = 29; flags = [.maskCommand]
   default: fail("unsupported native shortcut")
+  }
   }
   guard foreground(), let source = CGEventSource(stateID: .hidSystemState),
         let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true),
@@ -232,7 +242,7 @@ if mode == "shortcut" || mode == "roleKey" {
     up.post(tap: .cghidEventTap)
     usleep(20_000)
     shiftUp.post(tap: .cghidEventTap)
-  } else if command == "nextTab" || command == "previousTab" {
+  } else if command == "nextTab" || command == "previousTab" || command.hasPrefix("Ctrl+F") {
     guard let controlDown = CGEvent(
       keyboardEventSource: source, virtualKey: 59, keyDown: true
     ), let controlUp = CGEvent(

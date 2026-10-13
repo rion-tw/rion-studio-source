@@ -175,7 +175,7 @@ describe("Windows Chromium runtime topology projection", () => {
     const cancel = vi.fn();
     subject.tabs.get("tab-1")!.pendingContentFocus = {
       cancel, window: subject.windows.get("window-1")!, windowGeneration: 3,
-      topologyRevision: 7, lifecycleEpoch: 1, attemptGeneration: undefined,
+      topologyRevision: 7, lifecycleEpoch: 1, nativeGeneration: 1, attemptGeneration: undefined,
       role: subject.roles.get("role-1"), roleId: "role-1", ownerGeneration: 1
     };
     await applyChromiumRuntimeWindowsProjection({

@@ -127,7 +127,7 @@ describe("Chromium fullscreen-toolbar exact replacement", () => {
       '!inspection.surfaces.some((surface) => surface.kind === "role")'
     );
     expect(effect).toContain("setRuntimeWindowPresentation");
-    expect(shortcut).toContain('input.code === "F11"');
+    expect(shortcut).not.toContain("requestFullscreen");
     expect(shortcut).toContain("input.event.preventDefault()");
     expect(bridge).toContain('action: "fullscreenToolbarRuntime"');
     expect(inspection).toContain("function exact(");

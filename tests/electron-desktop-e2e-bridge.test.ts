@@ -1557,14 +1557,14 @@ describe("Electron desktop E2E-only bridge", () => {
       .resolves.toEqual(candidate);
   });
 
-  it("accepts AppKit anchors for only the visible logical tabs", async () => {
+  it("accepts signed AppKit fullscreen offsets for only the visible logical tabs", async () => {
     const candidate = {
       ...fullscreenToolbarInspection,
       native: {
         ...fullscreenToolbarInspection.native,
         appKit: {
           ...fullscreenToolbarInspection.native.appKit,
-          tabAnchors: { [TAB_ID]: { x: 320, y: 20 } }
+          tabAnchors: { [TAB_ID]: { x: 320, y: -20 } }
         }
       },
       tabIds: [TAB_ID, ROLE_ID]

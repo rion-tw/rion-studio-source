@@ -5,20 +5,31 @@ import type { Role } from "../../../src/shared/types";
 import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eApplicationShortcutRuntime, electronDesktopE2eProbe } from "../support/electron-driver";
 import { clickVisibleElectronCanvasWithPointer, clickVisibleElectronPageElementWithPointer } from "../support/electron-role-surface";
 import { fixtureCursor, fixtureEvents, fixtureState, waitFixtureEvent } from "../support/fixture";
-import { focusVisibleMacosAppKitRuntime, pressVisibleMacosApplicationShortcut, pressVisibleMacosRoleKey } from "../support/native-application-actions";
+import { focusVisibleMacosAppKitRuntime, pressVisibleMacosApplicationShortcut, pressVisibleMacosRoleKey, pressVisibleWindowsApplicationShortcut } from "../support/native-application-actions";
+
+import { focusWindowsRuntimeNativeWindow } from "../support/windows-runtime-foreground";
 
 /** Native keys only after switching: selecting a ChromeDriver page can hide a missing responder handoff. */
-export async function exerciseMacosTabContentFocus(input: {
-  windowId: string; mainWindowHandle: string; roles: readonly Role[]; tabIds: readonly string[];
+export async function exerciseTabContentFocus(input: {
+  platform: "macos" | "windows"; windowId: string; mainWindowHandle: string; roles: readonly Role[]; tabIds: readonly string[];
 }): Promise<void> {
   const processId = (await electronDesktopE2eProbe()).processId;
   const first = input.roles[0]!;
   const last = input.roles.at(-1)!;
+  const nativeWindowHandle = (await electronDesktopE2eFullscreenToolbarRuntime(input.windowId)).nativeWindowHandle;
+  const focusHost = () => input.platform === "macos"
+    ? focusVisibleMacosAppKitRuntime({ processId, windowId: input.windowId })
+    : focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle: nativeWindowHandle! });
+  const shortcut = (command: "toggleFullscreen" | "nextTab" | "previousTab" | "escape") =>
+    input.platform === "macos"
+      ? pressVisibleMacosApplicationShortcut({ command, processId, runtimeWindowId: input.windowId,
+        targetMode: "focused-runtime" })
+      : pressVisibleWindowsApplicationShortcut({ command, processId, nativeWindowHandle,
+        targetMode: "focused-runtime" });
   const select = async (tabId: string) => {
-    await focusVisibleMacosAppKitRuntime({ processId, windowId: input.windowId });
+    await focusHost();
     if ((await electronDesktopE2eApplicationShortcutRuntime(input.windowId)).nativeWindow.activeTabId !== tabId) {
-      await pressVisibleMacosApplicationShortcut({ command: "nextTab", processId,
-        runtimeWindowId: input.windowId, targetMode: "focused-runtime" });
+      await shortcut("nextTab");
     }
     await browser.waitUntil(async () =>
       (await electronDesktopE2eApplicationShortcutRuntime(input.windowId)).nativeWindow.activeTabId === tabId,
@@ -29,13 +40,10 @@ export async function exerciseMacosTabContentFocus(input: {
   await clickVisibleElectronPageElementWithPointer(first.launchUrl, input.mainWindowHandle, "#tab-focus-input");
   await select(input.tabIds.at(-1)!);
   await clickVisibleElectronCanvasWithPointer(last.launchUrl, input.mainWindowHandle);
-  const shortcut = (command: "toggleFullscreen" | "nextTab" | "previousTab" | "escape") =>
-    pressVisibleMacosApplicationShortcut({ command, processId, runtimeWindowId: input.windowId,
-      targetMode: "focused-runtime" });
   const waitPresentation = (presentation: "normal" | "fullscreen") => browser.waitUntil(async () =>
     (await electronDesktopE2eFullscreenToolbarRuntime(input.windowId)).presentation === presentation,
   { timeout: 20_000, timeoutMsg: `Native window did not enter ${presentation}` });
-  await focusVisibleMacosAppKitRuntime({ processId, windowId: input.windowId });
+  await focusHost();
   await shortcut("toggleFullscreen");
   await waitPresentation("fullscreen");
   const evidence: unknown[] = [];
@@ -65,10 +73,12 @@ export async function exerciseMacosTabContentFocus(input: {
     expect(selection.nativeWindow.activeTabId).toBe(step.tabId);
     expect(selection.coreWindow.activeTabId).toBe(step.tabId);
     const keyCursor = await fixtureCursor();
-    await pressVisibleMacosRoleKey({ code: "KeyY", processId, runtimeWindowId: input.windowId,
-      runtimeTabName: step.role.name });
+    if (input.platform === "macos") await pressVisibleMacosRoleKey({ code: "KeyY", processId,
+      runtimeWindowId: input.windowId, runtimeTabName: step.role.name });
+    else await pressVisibleWindowsApplicationShortcut({ command: "digit3Tap", processId,
+      nativeWindowHandle, targetMode: "focused-runtime" });
     const key = await waitFixtureEvent({ afterSequence: keyCursor, kind: "keydown", roleId: fixtureId });
-    expect(key).toMatchObject({ code: "KeyY", isTrusted: true, activeElementId: step.element,
+    expect(key).toMatchObject({ code: input.platform === "macos" ? "KeyY" : "Digit3", isTrusted: true, activeElementId: step.element,
       modifiers: { alt: false, control: false, meta: false, shift: false } });
     await waitFixtureEvent({ afterSequence: keyCursor, kind: "keyup", roleId: fixtureId });
     const state = await fixtureState();

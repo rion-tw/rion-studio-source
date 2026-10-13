@@ -44,13 +44,12 @@ describe("Windows native application menu", () => {
     });
     expect(viewItems.map((item) => "accelerator" in item
       ? item.accelerator
-      : null)).toEqual(["Ctrl+0", "Ctrl+Plus", "Ctrl+-", null, "F11", null, "Ctrl+Tab", "Ctrl+Shift+Tab",
+      : null)).toEqual(["Ctrl+0", "Ctrl+Plus", "Ctrl+-", null, null, null, "Ctrl+Tab", "Ctrl+Shift+Tab",
         "Ctrl+=", "Ctrl+numadd", "Ctrl+numsub", "Ctrl+num0"]);
     expect(fullscreen).toMatchObject({
-      accelerator: "F11",
-      label: "Toggle Full Screen",
-      registerAccelerator: false
+      label: "Toggle &Full Screen"
     });
+    expect(fullscreen?.accelerator).toBeUndefined();
     if (
       typeof create !== "object" || create === null ||
       typeof create.click !== "function" ||

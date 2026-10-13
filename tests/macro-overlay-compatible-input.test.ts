@@ -1,14 +1,17 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { installMacroOverlayTestLifecycle, installOverlay } from "./helpers/macroOverlayKeyboardHarness";
+import { installMacroOverlayTestLifecycle, installOverlay, type OverlayBinding } from "./helpers/macroOverlayKeyboardHarness";
 import type { ChromiumCompatibleInputCommand as Command, ChromiumCompatibleInputReceipt as Receipt } from "../src/electron/ipc/chromiumCompatibleInputProtocol";
 import { chromiumCdpKeyDescriptor } from "../src/electron/main/chromiumCdpInputDescriptors";
+import type { Macro } from "../src/shared/types";
 
 describe.each(["darwin", "win32"] as const)("%s compatible game input", platform => {
   installMacroOverlayTestLifecycle();
-  function setup() {
+  function setup(macros: Macro[] = []) {
     vi.stubGlobal("__rionStudioDocumentInstanceId", "document-token");
-    const binding = vi.fn(async (_request: unknown) => ({ macros: [], statuses: [] }));
+    const binding = Object.assign(vi.fn(async (_request: unknown) => ({ macros, statuses: [] })), {
+      inputContextLost: vi.fn<NonNullable<OverlayBinding["inputContextLost"]>>(async () => undefined)
+    });
     const controller = installOverlay(binding) as ReturnType<typeof installOverlay> & {
       dispatchCompatibleInput: (command: Command) => Receipt;
     };
@@ -120,6 +123,85 @@ describe.each(["darwin", "win32"] as const)("%s compatible game input", platform
     }
   }
 
+  it("keeps a Core-held ordinary key down when the player taps and releases that same Canvas key", () => {
+    const { canvas, key } = setup();
+    const held = new Set<string>();
+    canvas.addEventListener("keydown", event => held.add(event.code));
+    canvas.addEventListener("keyup", event => held.delete(event.code));
+    key("Digit6", "rawKeyDown", ["Digit6"]);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { code: "Digit6", key: "6", bubbles: true }));
+    canvas.dispatchEvent(new KeyboardEvent("keyup", { code: "Digit6", key: "6", bubbles: true }));
+    expect([...held]).toEqual(["Digit6"]);
+    expect(key("Digit6", "keyUp", [])).toMatchObject({ status: "applied", eventCount: 1 });
+    expect([...held]).toEqual([]);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { code: "Digit6", key: "6", bubbles: true }));
+    canvas.dispatchEvent(new KeyboardEvent("keyup", { code: "Digit6", key: "6", bubbles: true }));
+    expect([...held]).toEqual([]);
+  });
+
+  it.each(["input", "canvas"])("does not consume a same-key release from another %s target", tag => {
+    const { key } = setup();
+    key("Digit6", "rawKeyDown", ["Digit6"]);
+    const other = document.createElement(tag);
+    document.body.append(other);
+    const released = vi.fn();
+    other.addEventListener("keyup", released);
+    other.dispatchEvent(new KeyboardEvent("keyup", { code: "Digit6", key: "6", bubbles: true }));
+    expect(released).toHaveBeenCalledOnce();
+    key("Digit6", "keyUp", []);
+  });
+
+  it("does not synthesize a physical cleanup release over a Core hold during Canvas blur", () => {
+    const { canvas, key } = setup();
+    const held = new Set<string>();
+    canvas.addEventListener("keydown", event => held.add(event.code));
+    canvas.addEventListener("keyup", event => held.delete(event.code));
+    key("Digit6", "rawKeyDown", ["Digit6"]);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { code: "Digit6", key: "6", bubbles: true }));
+    const input = document.createElement("input");
+    document.body.append(input);
+    input.focus();
+    expect([...held]).toEqual(["Digit6"]);
+    key("Digit6", "keyUp", []);
+    expect([...held]).toEqual([]);
+  });
+
+  it("releases a shared physical/Core Canvas key once when the document overlay is disposed", () => {
+    const { canvas, key, controller } = setup();
+    const released = vi.fn();
+    canvas.addEventListener("keyup", released);
+    key("Digit6", "rawKeyDown", ["Digit6"]);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { code: "Digit6", key: "6", bubbles: true }));
+    controller.dispose();
+    expect(released).toHaveBeenCalledOnce();
+  });
+
+  it("lets a hold shortcut's release stop its Macro while the same Canvas key is Core-owned", async () => {
+    const macro: Macro = {
+      id: "held-shortcut", name: "Held shortcut", enabled: true, activationMode: "hold",
+      roleIds: ["role"], shortcutSourceScope: { type: "all_execution_roles" },
+      trigger: { code: "Digit6", ctrl: false, alt: false, shift: false, meta: false },
+      repeat: { type: "once" }, steps: [{ id: "held", type: "key", code: "Digit6", action: "hold_until_stop" }],
+      createdAt: "2026-10-13T00:00:00.000Z", updatedAt: "2026-10-13T00:00:00.000Z"
+    };
+    const { canvas, key, binding, controller } = setup([macro]);
+    await controller.refresh();
+    const released = vi.fn();
+    canvas.addEventListener("keyup", released);
+    key("Digit6", "rawKeyDown", ["Digit6"]);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { code: "Digit6", key: "6", bubbles: true }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "hold-start", macroId: macro.id
+    })));
+    canvas.dispatchEvent(new KeyboardEvent("keyup", { code: "Digit6", key: "6", bubbles: true }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "hold-release", macroId: macro.id
+    })));
+    expect(released).not.toHaveBeenCalled();
+    expect(key("Digit6", "keyUp", [])).toMatchObject({ status: "applied", eventCount: 1 });
+    expect(released).toHaveBeenCalledOnce();
+  });
+
   it("delivers 100 paired key/click cycles behind a focused iframe without activating it or losing progress", () => {
     const { canvas, dispatch, key, binding } = setup();
     const iframe = document.createElement("iframe");
@@ -191,6 +273,34 @@ describe.each(["darwin", "win32"] as const)("%s compatible game input", platform
     expect([...held]).toEqual([]);
   });
 
+  it.each(["input", "button"])("requests Core continuity when focus moves to a %s and clears a compatible held key", async tag => {
+    const { canvas, key, binding } = setup();
+    const held = new Set<string>();
+    canvas.addEventListener("keydown", event => held.add(event.code));
+    canvas.addEventListener("keyup", event => held.delete(event.code));
+    canvas.addEventListener("blur", () => held.clear());
+    const input = document.createElement(tag);
+    document.body.append(input);
+    key("Digit6", "rawKeyDown", ["Digit6"]);
+    binding.inputContextLost.mockImplementation(async () => {
+      // The overlay reports loss; only Core can authorize the reassertion.
+      expect([...held]).toEqual([]);
+      key("Digit6", "rawKeyDown", ["Digit6"]);
+    });
+    input.focus();
+    await Promise.resolve();
+    expect(binding.inputContextLost).toHaveBeenCalledExactlyOnceWith({ reason: "blur", revision: 1 });
+    expect([...held]).toEqual(["Digit6"]);
+    expect(document.activeElement).toBe(input);
+    key("Digit6", "keyUp", []);
+    binding.inputContextLost.mockClear();
+    canvas.focus();
+    input.focus();
+    await Promise.resolve();
+    expect(binding.inputContextLost).not.toHaveBeenCalled();
+    expect([...held]).toEqual([]);
+  });
+
   it("does not acquire ownership on rejected input and bounds document modifier evidence", () => {
     const { canvas, dispatch, key } = setup();
     const down = vi.fn();
@@ -210,6 +320,72 @@ describe.each(["darwin", "win32"] as const)("%s compatible game input", platform
     expect(evidence.transitions.at(-1)?.sequence).toBe(80);
     expect(evidence.coreCodesAfter).toEqual([]);
     expect(evidence.eventModifierMask).toBe(0);
+  });
+
+  it("observes a Canvas blur triggered synchronously inside a compatible keydown handler", async () => {
+    const { canvas, key, binding } = setup();
+    const input = document.createElement("input");
+    document.body.append(input);
+    canvas.addEventListener("keydown", () => input.focus(), { once: true });
+    expect(key("Digit6", "rawKeyDown", ["Digit6"]).status).toBe("applied");
+    await Promise.resolve();
+    expect(binding.inputContextLost).toHaveBeenCalledExactlyOnceWith({ reason: "blur", revision: 1 });
+    expect(document.activeElement).toBe(input);
+  });
+
+  it.each(["body", "redirected-control", "returned-canvas", "window-blur"])(
+    "settles Canvas focus loss once at the final %s destination", async destination => {
+      const { canvas, key, binding } = setup();
+      const input = document.createElement("input");
+      const button = document.createElement("button");
+      document.body.append(input, button);
+      key("Digit6", "rawKeyDown", ["Digit6"]);
+      if (destination === "body") canvas.blur();
+      else {
+        input.addEventListener("focusin", () => {
+          if (destination === "redirected-control") button.focus();
+          if (destination === "returned-canvas") canvas.focus();
+          if (destination === "window-blur") window.dispatchEvent(new Event("blur"));
+        }, { once: true });
+        input.focus();
+      }
+      await Promise.resolve();
+      if (destination === "returned-canvas") expect(binding.inputContextLost).not.toHaveBeenCalled();
+      else expect(binding.inputContextLost).toHaveBeenCalledExactlyOnceWith({ reason: "blur", revision: 1 });
+      if (destination === "redirected-control") expect(document.activeElement).toBe(button);
+      if (destination === "body") expect(document.activeElement).toBe(document.body);
+      key("Digit6", "keyUp", []);
+    }
+  );
+
+  it("reports an adopted physical modifier on blur without inventing a duplicate keydown", async () => {
+    const { canvas, key, binding } = setup();
+    const keydown = vi.fn();
+    canvas.addEventListener("keydown", keydown);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { code: "AltLeft", key: "Alt", altKey: true, bubbles: true }));
+    expect(key("AltLeft", "rawKeyDown", ["AltLeft"])).toMatchObject({ status: "applied", eventCount: 0 });
+    const input = document.createElement("input");
+    document.body.append(input);
+    input.focus();
+    await Promise.resolve();
+    expect(binding.inputContextLost).toHaveBeenCalledExactlyOnceWith({ reason: "blur", revision: 1 });
+    expect(keydown).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a simultaneous stop authoritative while a blur observation is queued", async () => {
+    const { canvas, key, binding } = setup();
+    const held = new Set<string>();
+    canvas.addEventListener("keydown", event => held.add(event.code));
+    canvas.addEventListener("keyup", event => held.delete(event.code));
+    const input = document.createElement("input"); document.body.append(input);
+    key("Digit6", "rawKeyDown", ["Digit6"]);
+    input.focus();
+    key("Digit6", "keyUp", []);
+    await Promise.resolve();
+    // The matching release retires the queued observation before it can reach Core.
+    expect(binding.inputContextLost).not.toHaveBeenCalled();
+    expect([...held]).toEqual([]);
+    expect(document.activeElement).toBe(input);
   });
 
   it.each([

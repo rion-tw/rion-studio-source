@@ -43,7 +43,7 @@ const EVIDENCE = Object.freeze({
   fontSmoothingEnabled: true,
   loadedCatalogIds: Object.freeze(["inter"]),
   loadedFaceCount: 1,
-  runtimeVersion: 7 as const,
+  runtimeVersion: 8 as const,
   sequence: 1,
   status: "applied" as const,
   styleInstalled: true

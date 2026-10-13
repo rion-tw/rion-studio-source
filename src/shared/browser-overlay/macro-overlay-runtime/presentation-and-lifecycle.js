@@ -749,6 +749,7 @@
   }
 
   function handleWindowBlur() {
+    macroGameKeysNeedReassert = false;
     requestHeldKeyContinuity(
       "blur",
       () => cleanupInputContext({ deferModifierRelease: true })

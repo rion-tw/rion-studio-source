@@ -747,7 +747,6 @@ async function bootstrapReadyPhase(
   );
   installChromiumSessionSecurityPolicy(webChromeShellSession);
   let beginRuntimeTabQuickAccess: ((tabId: string) => void) | null = null;
-  let beginRuntimeTabFullscreen: ((tabId: string) => void) | null = null;
   let requestRuntimeWindowControl: ((
     windowId: string,
     action: "closeWindow" | "toggleMaximizeWindow"
@@ -816,18 +815,12 @@ async function bootstrapReadyPhase(
     onWorkspaceWebError: (err) => runtimeLogs.shellError(err),
     onWorkspaceWebDiagnostic: (context) => runtimeLogs.workspaceWebDiagnostic(context),
     onRuntimeTabQuickAccess: tabId => dispatchRuntimeTabShortcut("QUICK_ACCESS", beginRuntimeTabQuickAccess, tabId),
-    onRuntimeTabFullscreen: tabId => dispatchRuntimeTabShortcut("FULLSCREEN", beginRuntimeTabFullscreen, tabId),
     shellEffects: overlayShellEffects,
-    sessions: {
-      prepareExtensions: extensionSessions.prepare,
-      retireExtensionSurface: extensionSessions.retireSurface,
-      releaseExtensions: extensionSessions.release,
-      fromPath: (path, options) => {
-        const chromiumSession = session.fromPath(path, options);
-        installChromiumSessionSecurityPolicy(chromiumSession);
-        return chromiumSession;
-      }
-    },
+    sessions: extensionSessions.sessionFactory((path, options) => {
+      const chromiumSession = session.fromPath(path, options);
+      installChromiumSessionSecurityPolicy(chromiumSession);
+      return chromiumSession;
+    }),
     views: {
       create: (options) => {
         const focusLease = runtimePlatform === "darwin"
@@ -1356,13 +1349,6 @@ async function bootstrapReadyPhase(
   }
   beginRuntimeTabQuickAccess = runtimeActionServices
     ? (tabId) => { runtimeActionServices.beginRuntimeTabQuickAccess(tabId); }
-    : null;
-  beginRuntimeTabFullscreen = runtimeActionServices
-    ? (tabId) => {
-        void runtimeActionServices.toggleRuntimeTabFullscreen(tabId).catch(
-          revealShellError
-        );
-      }
     : null;
   requestRuntimeWindowControl = runtimeActionServices
     ? (windowId, action) =>

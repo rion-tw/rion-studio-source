@@ -18,6 +18,16 @@ function runtime() {
 }
 
 describe("macOS native tab point from retained AppKit geometry", () => {
+  it("translates signed fullscreen toolbar offsets through the actual screen bounds", () => {
+    const chrome = toolbar();
+    for (const anchor of Object.values(chrome.native.appKit.tabAnchors)) {
+      anchor.x -= 300;
+      anchor.y = -20;
+    }
+    expect(resolveMacosNativeTabPoint({ tabId: "b", tabName: "B", windowId: "window-a" }, chrome, runtime().currentRuntime))
+      .toEqual({ x: -1580, y: -935 });
+  });
+
   it.each([
     { tabId: "a", x: -1740 }, { tabId: "b", x: -1580 }, { tabId: "c", x: -1440 }
   ])("centres unequal-width tab $tabId at negative screen coordinates", ({ tabId, x }) => {

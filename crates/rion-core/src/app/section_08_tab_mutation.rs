@@ -84,6 +84,7 @@ impl AppCore {
                     lifecycle_epoch: self.application_lifecycle_epoch.load(Ordering::Acquire),
                     roles: snapshot.roles.clone(), windows, target: None,
                     reveal_window_ids: Vec::new(), focus_window_ids: Vec::new(), focus_tab_id: None,
+                    content_focus_tab_id: None,
                 }, Duration::from_secs(15), None)], &request.operation_id)?;
             self.emit(vec![CoreEvent::RuntimeTabTopologyCommitted {
                 operation_id: close.operation_id.as_str().to_owned(), tab_id: request.tab_id.clone(),

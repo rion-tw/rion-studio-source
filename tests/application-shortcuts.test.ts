@@ -20,10 +20,14 @@ const keyEvent = (
 });
 
 describe("Windows application shortcut mapping", () => {
+  it("leaves all function keys and Ctrl chords to the game", () => {
+    for (let number = 1; number <= 24; number++) for (const ctrlKey of [false, true]) {
+      expect(applicationShortcutForKeyEvent(keyEvent(`F${number}`, { ctrlKey }))).toBeUndefined();
+    }
+  });
   it.each([
     ["KeyN", { ctrlKey: true }, "newGameWindow"],
     ["KeyQ", { ctrlKey: true }, "quitApplication"],
-    ["F11", {}, "toggleFullscreen"],
     ["Digit0", { ctrlKey: true }, "zoomReset"],
     ["Numpad0", { ctrlKey: true }, "zoomReset"],
     ["Minus", { ctrlKey: true }, "zoomOut"],

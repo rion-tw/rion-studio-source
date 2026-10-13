@@ -128,7 +128,8 @@ describe("extension compatibility surface retirement", () => {
         void tab.session;
         void tab.id;
         order.push("removeTab");
-      })
+      }),
+      moveTab: vi.fn()
     };
     const createCompatibilityHost = vi.fn(() => host as never);
     const logger = { extensionDiagnostic: vi.fn() };
@@ -178,6 +179,38 @@ describe("extension compatibility surface retirement", () => {
     expect(value.order).toEqual(["addTab", "removeTab", "close"]);
     expect(value.host.removeTab).toHaveBeenCalledOnce();
     expect(value.logger.extensionDiagnostic).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("retires the current parent after moving a surface (prepare pending: %s)", async pending => {
+    const value = fixture(pending);
+    const next = { contents: value.contents, window: {} };
+    const ready = value.sessions.prepare(value.handle, value.surface);
+    if (!pending) await ready;
+    value.sessions.reparentSurface(value.handle, value.surface, next);
+    value.resolveAcquire();
+    await ready;
+    if (pending) {
+      expect(value.host.addTab).toHaveBeenCalledExactlyOnceWith(value.contents, next.window);
+      expect(value.host.moveTab).not.toHaveBeenCalled();
+    } else {
+      expect(value.host.moveTab).toHaveBeenCalledExactlyOnceWith(value.contents, value.surface.window, next.window);
+    }
+    value.sessions.retireSurface(value.handle, next, false);
+    value.closeContents();
+    await value.sessions.release(value.handle);
+    expect(value.host.removeTab).toHaveBeenCalledOnce();
+    expect(value.logger.extensionDiagnostic).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale move without changing the registered surface", async () => {
+    const value = fixture();
+    await value.sessions.prepare(value.handle, value.surface);
+    value.sessions.reparentSurface(value.handle, { contents: value.contents, window: {} },
+      { contents: value.contents, window: {} });
+    expect(value.host.moveTab).not.toHaveBeenCalled();
+    value.sessions.retireSurface(value.handle, value.surface, false);
+    await value.sessions.release(value.handle);
+    expect(value.host.removeTab).toHaveBeenCalledOnce();
   });
 
   it("fences compatibility registration when stop wins the prepare race", async () => {
@@ -301,7 +334,7 @@ it("waits for the exact compatibility receipt and unloads a bootstrap timeout", 
       : null,
     prepared: null
   })) };
-  const host = { addTab: vi.fn(), removeTab: vi.fn() };
+  const host = { addTab: vi.fn(), removeTab: vi.fn(), moveTab: vi.fn() };
   const sessions = new ChromiumExtensionSessions(core as never, {
     createCompatibilityHost: () => host as never,
     deadlineMs: 1
@@ -360,7 +393,7 @@ it("accepts a matching compatibility receipt after static rulesets are enabled",
       : null,
     prepared: null
   })) };
-  const host = { addTab: vi.fn(), removeTab: vi.fn() };
+  const host = { addTab: vi.fn(), removeTab: vi.fn(), moveTab: vi.fn() };
   const sessions = new ChromiumExtensionSessions(core as never, {
     createCompatibilityHost: (_session, onReady) => {
       ready = onReady as typeof ready;

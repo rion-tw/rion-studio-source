@@ -29,6 +29,27 @@ use down, up, then click/auxclick; right clicks end with contextmenu after relea
 on both platforms. Cleanup sends releases
 only, always to the original target.
 
+Compatible key delivery retains the same original-Canvas metadata as trusted
+key delivery, including physical modifier adoption. On Windows, moving focus
+from that Canvas into another in-page control or the document body requests the
+existing event-bound Core held-key continuity operation after page focus
+propagation. Redirected focus settles once at the final destination; returning to
+Canvas or a top-level/child-frame blur does not duplicate the observation.
+Only Core may reassert keys that remain owned; the destination keeps focus, and an exact
+compatible key release retires the metadata. A game handler moving focus during
+keydown follows the same ordering. Overlay revision `2026-10-13.1` restores this
+existing continuity path without adding polling or replaying a stopped Macro.
+
+While that admitted keydown still owns its exact connected Canvas, a physical
+same-code keyup cannot clear the game's held state. The page consumes that
+release and retires only its physical observation; Core's subsequent keyup
+still dispatches and clears the delivery metadata. Focus cleanup likewise
+cannot synthesize a physical release over the same Core-owned Canvas hold.
+This does not add key
+effects, suppress physical keydown, or change receipt event-count rules.
+Keyup on another Canvas or editable target is preserved. Managed shortcut
+release keeps priority so a hold-to-run shortcut can still stop its Macro.
+
 The isolated endpoint validates the document token, role/generation identity,
 monotonic dispatch sequence, input epoch and declared external receipt deadline.
 Its receipt echoes those identities, the owner/request, target token, exact event
@@ -140,3 +161,39 @@ The P0/P1 recovery and cleanup journeys inject an exact Role's malformed receipt
 after actual Canvas delivery, including compensation. Visible macro start must
 lead to unavailable automatic input without a document/surface replacement.
 The exported incident preserves claimed delivery separately from validation.
+
+## Native endpoint endurance evidence
+
+`scripts/probeChromiumCompatibleInput.cjs` accepts an optional third argument,
+a soak duration in milliseconds (up to 12 hours). For example, after building:
+
+```sh
+pnpm exec electron scripts/probeChromiumCompatibleInput.cjs \
+  /tmp/rion-input-soak.json /tmp/rion-input-soak-profile 9000000
+```
+
+The isolated test Session repeats a physical-Alt overlap precondition and paired
+Digit3 effects while an editable element retains focus. Every cycle validates
+the production isolated-world receipt and the main-world consumer's legacy key
+fields and pressed set. Final cleanup must leave that set empty. The report
+records measured duration and cycle count; any mismatch fails the probe.
+Physical preconditions are simulated by the fixture. This establishes endpoint
+endurance, separately from physical keyboard, Core scheduling and desktop E2E
+evidence. Its pacing timer exists only in the opt-in diagnostic process.
+Before the background soak, a visible isolated fixture verifies real Chromium
+Canvas focus loss into a text field, button, body and redirected control. Each
+loss must yield one observation, and a separately authorized compatible reassert
+must restore the consumer without changing its final focus. The probe observes
+both native document blur and hidden visibility before starting the soak.
+
+The separate ignored Core test holds `Digit6` with the real scheduler, injects
+ordered context-loss events with controlled browser acknowledgements, then
+requires one matching release and no late reassertion after stop:
+
+```sh
+RION_CORE_HOLD_SOAK_MS=3600000 cargo test -p rion-core \
+  held_key_endurance_keeps_one_owner_until_acknowledged_stop -- --ignored --nocapture
+```
+
+It reports elapsed wall time and continuity count. This checks Core ownership
+and cleanup longevity; it does not claim native Windows or game delivery evidence.

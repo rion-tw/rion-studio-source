@@ -593,6 +593,13 @@ parent binding that omitted `physicalInputSequence` and never registered the
 exact HWND evidence owner that `windowsChromiumViewParentBinding` reads. These
 were probe drift against production, not product defects; both are corrected.
 
+The following September fullscreen-key audit describes the retired behavior.
+Owner direction on 2026-10-13 supersedes it: F1–F24 and Ctrl function-key chords
+belong to game/Macro input. The F11 interception and menu accelerator have been
+removed; fullscreen is entered through the native View menu. Per-WebContents
+menu-shortcut filtering preserves trusted function-key down/up delivery. The
+paired keyboard journey now checks physical F1–F12 and Ctrl+F1–F12 Macro output.
+
 Windows no longer keeps a native F11 owner. `c0a1c992` had already stopped the
 low-level hook from capturing injected F11, and `SendInput` — the only way an
 automated probe can drive a key — always sets `LLKHF_INJECTED`. Every shipped

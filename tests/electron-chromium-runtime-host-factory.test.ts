@@ -79,6 +79,7 @@ class FakeSession {
 }
 
 class FakeWebContents {
+  setIgnoreMenuShortcuts = vi.fn();
   readonly session = new FakeSession();
   readonly listeners = new Map<string, Set<Listener>>();
   currentUrl = "";
@@ -677,12 +678,10 @@ describe("Windows Electron Chromium runtime-host factory", () => {
   it("registers and retires the exact physical-input evidence owner", async () => {
     const browserWindows = new FakeBrowserWindows();
     const shortcutOwner = new FakeRuntimeShortcutOwner();
-    const requestFullscreen = vi.fn();
     const factory = new ChromiumPlatformRuntimeHostFactory({
       platform: "win32",
       browserWindows: browserWindows.port,
       displays,
-      onRuntimeTabFullscreen: requestFullscreen,
       runtimeDocumentPath,
       runtimeShortcutOwner: shortcutOwner
     });
@@ -695,7 +694,6 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(shortcutOwner.registrations[0]?.handle.readBigUInt64LE()).toBe(1n);
     // The owner supplies evidence only. It cannot dispatch a shortcut, so no
     // fullscreen intent may originate from the registration itself.
-    expect(requestFullscreen).not.toHaveBeenCalled();
 
     const close = host.close();
     expect(shortcutOwner.unregisterCalls).toHaveLength(1);
@@ -703,7 +701,6 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(shortcutOwner.unregisterCalls[0]?.handle.readBigUInt64LE()).toBe(1n);
     window.emit("closed");
     await close;
-    expect(requestFullscreen).not.toHaveBeenCalled();
   });
 
   it("routes host Ctrl+K once to the exact active tab and suppresses both halves", async () => {
@@ -741,14 +738,12 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
-  it("owns both halves of host F11 and submits one fullscreen intent", async () => {
+  it("does not turn host function-key input into fullscreen", async () => {
     const browserWindows = new FakeBrowserWindows();
-    const requestFullscreen = vi.fn();
     const factory = new ChromiumPlatformRuntimeHostFactory({
       platform: "win32",
       browserWindows: browserWindows.port,
       displays,
-      onRuntimeTabFullscreen: requestFullscreen,
       runtimeDocumentPath
     });
     const creation = factory.create(target(), tab(target()));
@@ -788,11 +783,10 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     });
 
     expect(nativeEvents.every(
-      (event) => event.preventDefault.mock.calls.length === 1
+      (event) => event.preventDefault.mock.calls.length === 0
     )).toBe(true);
     expect(wrongKey.preventDefault).not.toHaveBeenCalled();
-    expect(requestFullscreen).toHaveBeenCalledOnce();
-    expect(requestFullscreen).toHaveBeenCalledWith("tab-1");
+    expect(window.webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
   });
 
   it("streams exact native state events and retires observers before replacement", async () => {

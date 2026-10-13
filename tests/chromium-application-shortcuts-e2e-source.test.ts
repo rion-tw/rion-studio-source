@@ -114,7 +114,7 @@ describe("Chromium application-shortcut E2E journey", () => {
     expect(cleanExitDiagnostics).toContain("cleanExitCoreShutdown");
     expect(nativeWindowControlObserver).toContain("toggleFullscreenForTab");
     expect(nativeWindowControlObserver).toContain("readWindowsShortcutActiveTab");
-    expect(nativeWindowControlObserver).toContain("runtimeFullscreenIngress");
+    expect(nativeWindowControlObserver).not.toContain("runtimeFullscreenIngress");
     expect(coreFlowDiagnostics).toContain(
       'candidate.type === "layoutCreateDividers"'
     );

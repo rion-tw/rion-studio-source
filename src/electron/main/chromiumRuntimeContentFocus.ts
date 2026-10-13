@@ -24,6 +24,7 @@ export interface ChromiumContentFocusClaim {
   readonly windowGeneration: number;
   readonly topologyRevision: number;
   readonly lifecycleEpoch: number;
+  readonly nativeGeneration: number;
   readonly attemptGeneration: string | undefined;
   readonly role: ChromiumRuntimeRoleRecord | undefined;
   readonly roleId: string;
@@ -31,10 +32,14 @@ export interface ChromiumContentFocusClaim {
   readonly cancel: () => void;
 }
 
-function foreground(window: ChromiumRuntimeWindowRecord, epoch?: number): boolean {
+function foreground(window: ChromiumRuntimeWindowRecord, epoch?: number, nativeGeneration?: number): boolean {
   const native = window.host.readRuntimeWindowState?.();
-  return !window.host.isDestroyed() && !!window.host.appKitIdentity &&
+  return !window.host.isDestroyed() &&
     !!native?.focused && native.foreground && native.visible && !native.minimized &&
+    native.source !== "closed" && native.source !== "failed" && native.failureCode === undefined &&
+    native.platform === (window.host.appKitIdentity ? "macos" : "windows") &&
+    native.logicalWindowId === window.host.logicalWindowId && native.nativeHostId === window.host.id &&
+    (nativeGeneration === undefined || native.nativeGeneration === nativeGeneration) &&
     native.windowGeneration === window.windowGeneration &&
     native.topologyRevision === window.topologyRevision &&
     (epoch === undefined || native.lifecycleEpoch === epoch) &&
@@ -53,12 +58,12 @@ export function requestChromiumContentFocus(input: ContentFocusState, tabId: str
       !window.host.bindRuntimeWindowState) return;
   const slot = tab.specification.slots[0];
   if (!slot?.owner || tab.specification.slots.length !== 1) return;
-  const lifecycleEpoch = window.host.readRuntimeWindowState!().lifecycleEpoch;
+  const { lifecycleEpoch, nativeGeneration } = window.host.readRuntimeWindowState!();
   const subscription: { dispose?: () => void } = {};
   const role = [...input.roles.values()].find(role => role.tabId === tabId);
   const claim: ChromiumContentFocusClaim = {
     window, windowGeneration: window.windowGeneration, topologyRevision: window.topologyRevision,
-    lifecycleEpoch, attemptGeneration: tab.specification.attemptGeneration,
+    lifecycleEpoch, nativeGeneration, attemptGeneration: tab.specification.attemptGeneration,
     role,
     roleId: slot.role.id, ownerGeneration: role?.ownerGeneration ?? slot.owner.generation,
     cancel: () => {
@@ -72,6 +77,9 @@ export function requestChromiumContentFocus(input: ContentFocusState, tabId: str
     subscription.dispose = window.host.bindRuntimeWindowState(observation => {
       if (!observation.focused || !observation.foreground || !observation.visible ||
           observation.minimized || observation.source === "closed" || observation.source === "failed" ||
+          observation.failureCode !== undefined || observation.nativeHostId !== window.host.id ||
+          observation.logicalWindowId !== window.host.logicalWindowId ||
+          observation.nativeGeneration !== nativeGeneration ||
           observation.windowGeneration !== claim.windowGeneration ||
           observation.lifecycleEpoch !== lifecycleEpoch) claim.cancel();
     });
@@ -100,7 +108,7 @@ export function handoffChromiumContentFocus(
         window.topologyRevision < claim.topologyRevision ||
         tab.specification.attemptGeneration !== claim.attemptGeneration ||
         window.activeTabId !== tabId || window.hiddenTabIds.has(tabId) ||
-        !foreground(window, claim.lifecycleEpoch)) { claim.cancel(); continue; }
+        !foreground(window, claim.lifecycleEpoch, claim.nativeGeneration)) { claim.cancel(); continue; }
     if (!projected || projected.topologyRevision !== window.topologyRevision ||
         projected.windowGeneration !== window.windowGeneration) continue;
     const phase = projected.tabPhases.find(item => item.tabId === tabId)?.phase;

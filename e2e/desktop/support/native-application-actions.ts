@@ -112,7 +112,11 @@ export async function cancelVisibleNativeDiagnosticsSaveDialog(input: Readonly<{
   }
 }
 
+export type VisibleFunctionKey = `F${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12}` |
+  `Ctrl+F${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12}`;
+
 export type VisibleWindowsApplicationShortcut =
+  | VisibleFunctionKey
   | "closeWindow"
   | "zoomInEqual" | "zoomInNumpad" | "zoomOutNumpad" | "zoomResetNumpad"
   | "altDown" | "altUp" | "altDigit1" | "altDigit1Tap"
@@ -122,6 +126,7 @@ export type VisibleWindowsApplicationShortcut =
   | "shiftDigit4"
   | "shiftDigit3TapHoldShift"
   | "digit3Tap"
+  | "digit2Tap"
   | "shiftDigit5Hold"
   | "shiftDigit5Release"
   | "shiftDigit2ThenDigit3Hold"
@@ -151,7 +156,9 @@ export type VisibleApplicationShortcutTargetMode =
   | "launcher";
 
 export type VisibleMacosRoleKey =
+  | VisibleFunctionKey
   | "KeyY"
+  | "Digit2" | "Digit3"
   | "Shift+Digit3"
   | "Shift+Digit4"
   | "Shift+Digit5Hold"
@@ -611,6 +618,9 @@ $ALT = [byte]0x12
 $modifier = $true
 $shiftModifier = $false
 $altModifier = $false
+if ($command -match '^(Ctrl\+)?F([1-9]|1[0-2])$') {
+  $key = [byte](0x6F + [int]$Matches[2]); $modifier = $command.StartsWith('Ctrl+')
+} else {
 switch ($command) {
   'closeWindow' { $key = [byte]0x73; $modifier = $false; $altModifier = $true }
   { $_ -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap') } { $key = [byte]0x31; $modifier = $false }
@@ -619,6 +629,7 @@ switch ($command) {
   'shiftDigit3' { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
   'shiftDigit4' { $key = [byte]0x34; $modifier = $false; $shiftModifier = $true }
   { $_ -in @('shiftDigit3TapHoldShift', 'digit3Tap') } { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
+  'digit2Tap' { $key = [byte]0x32; $modifier = $false }
   'shiftDigit5Hold' { $key = [byte]0x35; $modifier = $false; $shiftModifier = $true }
   'shiftDigit5Release' { $key = [byte]0x35; $modifier = $false; $shiftModifier = $true }
   'shiftDigit2ThenDigit3Hold' { $key = [byte]0x32; $modifier = $false; $shiftModifier = $true }
@@ -627,7 +638,7 @@ switch ($command) {
   'escape' { $key = [byte]0x1B; $modifier = $false }
   'newGameWindow' { $key = [byte]0x4E }
   'quickAccess' { $key = [byte]0x4B }
-  'toggleFullscreen' { $key = [byte]0x7A; $modifier = $false }
+  'toggleFullscreen' { $key = [byte]0x56; $modifier = $false; $altModifier = $true }
   'zoomIn' { $key = [byte]0xBB; $shiftModifier = $true }
   'zoomOut' { $key = [byte]0xBD }
   'zoomInEqual' { $key = [byte]0xBB }
@@ -636,6 +647,7 @@ switch ($command) {
   'zoomResetNumpad' { $key = [byte]0x60 }
   'zoomReset' { $key = [byte]0x30 }
   default { throw 'unsupported Windows application shortcut' }
+}
 }
 $keyScan = [uint16][RionNativeShortcutInput]::MapVirtualKey($key, 0)
 $ctrlScan = [uint16][RionNativeShortcutInput]::MapVirtualKey($CTRL, 0)
@@ -652,7 +664,12 @@ if ($altModifier) { $scanCodes.Add($altScan) }
 $scanCodes.Add($keyScan)
 [Console]::WriteLine([RionNativeShortcutInput]::FocusEvidence($foregroundWindow))
 [Console]::Error.WriteLine('shortcut-stage: submit-native-chord')
-$submitted = if ($command -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap')) {
+# Fullscreen uses the visible View > Toggle Full Screen menu mnemonic. F11
+# is game input; it must never be used as a presentation test shortcut.
+$submitted = if ($command -eq 'toggleFullscreen') {
+  [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray()) -and
+    [RionNativeShortcutInput]::SendScanChord(@([uint16][RionNativeShortcutInput]::MapVirtualKey(0x46, 0)))
+} elseif ($command -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap')) {
   [RionNativeShortcutInput]::SendAltSequence($command)
 } elseif ($command -in @('shiftDigit3TapHoldShift', 'digit3Tap', 'shiftDigit5Hold', 'shiftDigit5Release', 'shiftDigit2ThenDigit3Hold', 'shiftDigit3ThenDigit2Hold', 'shiftUp')) {
   [RionNativeShortcutInput]::SendShiftSequence($command, $shiftScan, $keyScan)

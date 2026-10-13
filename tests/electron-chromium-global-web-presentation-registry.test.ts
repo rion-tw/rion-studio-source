@@ -33,6 +33,7 @@ import type {
 type Listener = (...arguments_: unknown[]) => unknown;
 
 class FakeContents implements ChromiumRoleSurfaceWebContentsPort {
+  setIgnoreMenuShortcuts = vi.fn();
   readonly listeners = new Map<keyof ChromiumRoleSurfaceEventMap, Set<Listener>>();
   readonly loadedUrls: string[] = [];
   readonly sent: Array<Readonly<{ channel: string; value: unknown }>> = [];

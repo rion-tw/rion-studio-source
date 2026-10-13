@@ -24,6 +24,7 @@ impl AppCore {
             reveal_window_ids,
             focus_window_ids,
             focus_tab_id,
+            content_focus_tab_id: None,
         };
         self.run_embedded_runtime_effect(
             "embedded-runtime",
@@ -82,6 +83,14 @@ impl AppCore {
         &self,
         parent_operation_id: Option<&str>,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        self.project_embedded_runtime_snapshot_with_content_focus(parent_operation_id, None)
+    }
+
+    fn project_embedded_runtime_snapshot_with_content_focus(
+        &self,
+        parent_operation_id: Option<&str>,
+        content_focus_tab_id: Option<String>,
+    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         let snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
@@ -95,6 +104,7 @@ impl AppCore {
                 reveal_window_ids: Vec::new(),
                 focus_window_ids: Vec::new(),
                 focus_tab_id: None,
+                content_focus_tab_id,
             },
             Duration::from_secs(15),
             None,
@@ -131,6 +141,7 @@ impl AppCore {
                 reveal_window_ids: Vec::new(),
                 focus_window_ids: Vec::new(),
                 focus_tab_id: None,
+                content_focus_tab_id: None,
             },
             Duration::from_secs(15),
             None,
@@ -218,6 +229,7 @@ impl AppCore {
                 reveal_window_ids: Vec::new(),
                 focus_window_ids: Vec::new(),
                 focus_tab_id: None,
+                content_focus_tab_id: None,
             },
             Duration::from_secs(15),
             None,

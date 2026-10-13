@@ -464,6 +464,7 @@
       recordCompatibleModifierTransition(source, code, "keyUp", "retained");
       return;
     }
+    if (coreOwnsGameCanvasKey(code, active.target)) return;
     const release = dispatchPhysicalGameKeyUp(active, source === "physical-reconcile");
     recordCompatibleModifierTransition(source, code, "keyUp", release ? "dispatch" : "retained", release);
   }
@@ -542,6 +543,22 @@
     return true;
   }
 
+  function coreOwnsGameCanvasKey(code, target) {
+    const active = activeMacroGameKeys.get(code);
+    return !!active?.deliveryOwner && active.target === target && isConnectedGameCanvas(target);
+  }
+
+  function consumeCoreHeldCanvasKeyUp(event) {
+    // The admitted Core keydown owns this exact Canvas until its matching
+    // release. A player's same-key tap must not clear the game's held state.
+    // Editable/other targets retain their physical keyup, and no input is replayed.
+    if (physicalModifierCodeSet.has(event.code) ||
+        !coreOwnsGameCanvasKey(event.code, eventPathCanvas(event))) return false;
+    forgetPhysicalGameKey(event.code, event);
+    consumeShortcutEvent(event);
+    return true;
+  }
+
   function dispatchForwardedMacroGameEvent(target, type, snapshot) {
     if (!isConnectedGameCanvas(target) || typeof window.KeyboardEvent !== "function") return false;
     try {
@@ -593,6 +610,9 @@
     }
     const active = activeMacroGameKeys.get(normalizedCode);
     if (!active) return false;
+    if (isDisposed && physicalGameKeys.get(normalizedCode)?.target === active.target) {
+      physicalGameKeys.delete(normalizedCode);
+    }
     activeMacroGameKeys.delete(normalizedCode);
     if (activeMacroGameKeys.size === 0) macroGameKeysNeedReassert = false;
     dispatchForwardedMacroGameEvent(
@@ -662,13 +682,20 @@
       macroGameKeysNeedReassert = false;
       return;
     }
-    const activeElement = getDeepActiveElement();
-    if (!shouldIgnoreShortcutEvent(event, activeElement, document.designMode)) return;
+    queueMacroGameFocusContinuity();
+  }
+
+  function queueMacroGameFocusContinuity() {
     if (!macroGameKeysNeedReassert || macroGameKeyReassertQueued) return;
     macroGameKeyReassertQueued = true;
     Promise.resolve().then(() => {
       macroGameKeyReassertQueued = false;
-      if (isDisposed || getDeepActiveElement() !== activeElement) return;
+      const activeElement = getDeepActiveElement();
+      // Page handlers can redirect focus again during the same event turn.
+      // Observe the final in-page destination, including buttons or document
+      // body. Window/child-frame blur already owns its continuity observation.
+      if (isDisposed || !macroGameKeysNeedReassert || isCanvas(activeElement) ||
+          (typeof HTMLIFrameElement !== "undefined" && activeElement instanceof HTMLIFrameElement)) return;
       macroGameKeysNeedReassert = false;
       // Core decides whether any owner still exists after a simultaneous stop/release.
       // This event never directly dispatches a canvas keydown.
@@ -682,6 +709,7 @@
     macroGameKeysNeedReassert = [...activeMacroGameKeys.values()].some(
       (active) => active.target === canvas
     );
+    queueMacroGameFocusContinuity();
   }
 
   function refreshIfStale() {
@@ -1076,9 +1104,10 @@
       return;
     }
     const consumedShortcutKeyUp = consumedPhysicalShortcutCodes.delete(event.code);
-    const consumedModifierKeyUp = consumeOverlappingPhysicalModifierKeyUp(event);
-    if (consumedShortcutKeyUp && !consumedModifierKeyUp) consumeShortcutEvent(event);
-    if (!consumedModifierKeyUp) forgetPhysicalGameKey(event.code, event);
+    const consumedOwnedKeyUp = consumeOverlappingPhysicalModifierKeyUp(event) ||
+      consumeCoreHeldCanvasKeyUp(event);
+    if (consumedShortcutKeyUp && !consumedOwnedKeyUp) consumeShortcutEvent(event);
+    if (!consumedOwnedKeyUp) forgetPhysicalGameKey(event.code, event);
     if (coordinateMeasurementController?.handleKeyUp(event)) {
       return;
     }

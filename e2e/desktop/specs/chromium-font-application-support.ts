@@ -98,10 +98,38 @@ export async function verifyChromiumFontApplication(input: Awaited<ReturnType<ty
   expect(inventory.some((font) => font.family === nativeFamily)).toBe(true);
   expect(inventory.every((font) => !/\.(?:ttc|ttf|otf|dfont)$/iu.test(font.family))).toBe(true);
   expect(inventory.some((font) => font.family === "Courier New")).toBe(true);
+  expect(inventory.some((font) => font.family === "Georgia")).toBe(true);
+  await pick("Georgia", "Chinese & Japanese");
+  await pick("Georgia");
+  const previewFamily = await browser.execute(() => {
+    const sample = document.querySelector(".browser-font-preview-samples p > span");
+    if (!sample) throw new Error("CJK font preview is missing");
+    return getComputedStyle(sample).fontFamily;
+  });
+  expect(previewFamily.replaceAll('"', "")).toBe("Georgia, serif");
+  await press("Apply");
+  await browser.waitUntil(async () => {
+    const state = await read();
+    return state.bodyFamily.includes("Rion Studio cjk system")
+      && state.bodyFamily.startsWith('"Rion Studio latin system"')
+      && state.bodyFamily.includes("serif, system-ui");
+  }, { timeout: 15_000, interval: 100, timeoutMsg: "Georgia CJK fallback did not reach the live Role" });
+  await writeChromiumMacroEvidence("chromium-font-georgia-fallback.json", {
+    previewFamily, role: await read(), settings: await rendererCall("getGameBrowserSettings")
+  });
+  await press("Reset to system fonts");
+  await press("Apply");
+  await browser.waitUntil(async () => JSON.stringify(await read()) === JSON.stringify(before), {
+    timeout: 15_000, interval: 100, timeoutMsg: "Georgia reset did not restore the live Role"
+  });
   await pick("Courier New");
   await press("Cancel changes");
   expect(await read()).toEqual(before);
   await pick("ui-monospace");
+  expect(await browser.execute(() => {
+    const sample = document.querySelector(".browser-font-preview-samples p > span:nth-child(2)");
+    return sample ? getComputedStyle(sample).fontFamily : null;
+  })).toBe("ui-monospace");
   await press("Cancel changes");
   expect(await read()).toEqual(before);
   await pick("ui-monospace");

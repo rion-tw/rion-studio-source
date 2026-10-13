@@ -113,16 +113,26 @@ export function readMacosAppKitFullscreenToolbar(input: Readonly<{
     );
   }
   const tabAnchors = geometry && input.readTabAnchor && input.tabIds
-    ? Object.fromEntries(input.tabIds.map((tabId) => {
-        const anchor = input.readTabAnchor!(input.identity, tabId);
-        if (!Number.isFinite(anchor.x) || !Number.isFinite(anchor.y) ||
-            anchor.x < 0 || anchor.y < 0) {
+    ? Object.fromEntries(input.tabIds.flatMap((tabId) => {
+        let anchor: RawAppKitDesktopE2ETabAnchor;
+        try {
+          anchor = input.readTabAnchor!(input.identity, tabId);
+        } catch (error) {
+          // AppKit can detach a tab item during toolbar rehosting even while
+          // its surface has screen geometry. No clickable anchor exists then;
+          // omit that optional evidence without losing window presentation.
+          if (error instanceof Error && error.message ===
+              "The shared AppKit runtime-tabs controller failed: InvalidLayout.") return [];
+          throw error;
+        }
+        // Fullscreen toolbar hosts can sit above the Chromium window frame.
+        if (!Number.isFinite(anchor.x) || !Number.isFinite(anchor.y)) {
           throw observationError(
             "ELECTRON_MACOS_APPKIT_TAB_ANCHOR_INVALID",
             "The AppKit tab anchor observer returned malformed native geometry."
           );
         }
-        return [tabId, Object.freeze({ x: anchor.x, y: anchor.y })];
+        return [[tabId, Object.freeze({ x: anchor.x, y: anchor.y })]];
       }))
     : undefined;
   return Object.freeze({

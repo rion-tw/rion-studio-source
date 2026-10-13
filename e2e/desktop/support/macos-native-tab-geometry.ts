@@ -62,7 +62,6 @@ export function resolveMacosNativeTabPoint(input: Readonly<{
   const clickY = bounds.y + bounds.height / 2;
   if (
     bounds.width <= 0 || bounds.height <= 0 ||
-    anchor.x < 0 || anchor.y < 0 || firstAnchor.x < 0 ||
     tabLeft < bounds.x || tabRight <= tabLeft ||
     clickY < bounds.y || clickY > bounds.y + bounds.height ||
     ![

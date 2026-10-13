@@ -22,6 +22,10 @@ it("probes bundled Chromium fonts and exact frame permission on the native platf
       outDir: directory, emptyOutDir: false,
       lib: { entry: "src/electron/main/chromiumSystemFonts.ts", formats: ["cjs"], fileName: () => "font-provider.cjs" }
     } });
+    await build({ configFile: false, logLevel: "error", build: {
+      outDir: directory, emptyOutDir: false,
+      lib: { entry: "src/electron/preload/chromiumRoleFontSource.ts", formats: ["cjs"], fileName: () => "font-source.cjs" }
+    } });
     await executeFile(require("electron") as string, [
       "scripts/probeChromiumLocalFonts.cjs", reportPath, join(directory, "data"), join(directory, "font-provider.cjs"),
       String(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION)
@@ -54,6 +58,17 @@ it("probes bundled Chromium fonts and exact frame permission on the native platf
     expect(report.productionNavigated).toEqual({ status: "rejected",
       message: "The application font request belongs to a retired document." });
     expect(report.permissionChecks.some((check: { admitted: boolean }) => check.admitted)).toBe(true);
+    expect(report.fontFallbacks).toHaveLength(12);
+    for (const outcome of report.fontFallbacks) {
+      expect(outcome.application.status).toBe("applied");
+      expect(outcome.canvas).toBe(outcome.reference[`"${outcome.family}", serif`]);
+      // CoreText can resolve a named serif's missing CJK glyphs before the
+      // following generic. Compare the production aliases with the explicit
+      // named-serif reference, not an assumed difference between named stacks.
+      expect(outcome.canvas).not.toBe(outcome.reference["sans-serif"]);
+      expect(outcome.bodyFamily).toContain("serif, system-ui");
+      expect(outcome.bodyFamily.startsWith('"Rion Studio')).toBe(true);
+    }
     console.info(JSON.stringify({ platform: report.platform, electron: report.electron,
       families: report.productionFamilies.length, productionProvider: true }));
   } finally {

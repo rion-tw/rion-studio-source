@@ -1,8 +1,6 @@
 import { WindowsRuntimeWindowStateStream } from "../main/windowsRuntimeWindowState";
 import { ChromiumRuntimeOwnershipTransitionCoordinator } from
   "../main/chromiumRuntimeOwnershipTransitionCoordinator";
-import { ChromiumRuntimeBootstrap } from
-  "../main/chromiumRuntimeBootstrap";
 import { ChromiumRuntimeNativeWindowController } from
   "../main/chromiumRuntimeNativeWindowController";
 import { WindowsRuntimeHostChromeController } from
@@ -38,38 +36,6 @@ export function installElectronDesktopE2eNativeWindowControlObserver(): void {
       });
       throw error;
     }
-  };
-
-  const originalBootstrapStart = ChromiumRuntimeBootstrap.start;
-  ChromiumRuntimeBootstrap.start = (input) => {
-    const originalFullscreen = input.onRuntimeTabFullscreen;
-    return originalBootstrapStart({
-      ...input,
-      ...(originalFullscreen ? {
-        onRuntimeTabFullscreen: (tabId) => {
-          const identity = nextCoreFlowIdentity(
-            `runtime-fullscreen-ingress:${tabId}`
-          );
-          appendCoreFlowObservation({
-            boundary: "command", details: { tabId }, identity,
-            status: "started", type: "runtimeFullscreenIngress"
-          });
-          try {
-            originalFullscreen(tabId);
-            appendCoreFlowObservation({
-              boundary: "command", identity, status: "completed",
-              type: "runtimeFullscreenIngress"
-            });
-          } catch (error) {
-            appendCoreFlowObservation({
-              boundary: "command", error: describeCoreFlowError(error), identity,
-              status: "rejected", type: "runtimeFullscreenIngress"
-            });
-            throw error;
-          }
-        }
-      } : {})
-    });
   };
 
   const controller = ChromiumRuntimeNativeWindowController.prototype;

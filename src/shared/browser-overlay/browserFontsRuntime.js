@@ -5,7 +5,7 @@
   const INJECTED_PAYLOAD_KEY = "__rionStudioBrowserFontsInjectedPayloadV1";
   const STYLE_ID = "rion-studio-browser-fonts";
   const CANVAS_HOOK_KEY = "__rionStudioBrowserFontsCanvasHook";
-  const VERSION = 7;
+  const VERSION = 8;
   const CANVAS_FONT_CACHE_CAPACITY = 256;
   const SLOT_RANGES = Object.freeze({
     cjk: [
@@ -605,17 +605,30 @@
       }
     }
 
-    const bodyStack = [resolved.numeric, resolved.latin, resolved.cjk, "system-ui", "sans-serif"]
+    // Fallbacks are presentation data derived by the preload from Core's exact
+    // selection. Keep them after all explicit slots so CJK cannot steal Latin
+    // or numeric glyphs, but before the page/app's unrelated sans-serif default.
+    const serifFallback = (slot) => resolved[slot] && payload.fallbacks?.[slot] === "serif"
+      ? "serif" : undefined;
+    const bodyFallback = serifFallback(slots.cjk ? "cjk" : "latin");
+    const monoFallback = serifFallback("monospace");
+    // A generic has no unicode-range restriction. In particular, the default
+    // numeric system-ui must not consume CJK/Latin before their selected faces.
+    const generalFamilies = [resolved.numeric, resolved.latin, resolved.cjk].filter(Boolean);
+    const namedFamilies = generalFamilies.filter((family) => !GENERIC_FAMILIES.has(family));
+    const genericFamilies = generalFamilies.filter((family) => GENERIC_FAMILIES.has(family));
+    const generalStack = [...new Set([...namedFamilies, bodyFallback, ...genericFamilies].filter(Boolean))];
+    const bodyStack = [...generalStack, "system-ui", "sans-serif"]
       .filter(Boolean)
       .join(",");
-    const monospaceStack = [resolved.monospace, "ui-monospace", "monospace"].filter(Boolean).join(",");
+    const monospaceStack = [resolved.monospace, monoFallback, "ui-monospace", "monospace"].filter(Boolean).join(",");
     const mathStack = [resolved.math, "math", resolved.latin, resolved.cjk, "serif"].filter(Boolean).join(",");
     state.canvasFontsActive = fontsActive;
     state.canvasRevision += 1;
     state.canvasStacks = {
-      general: [...new Set([resolved.numeric, resolved.latin, resolved.cjk].filter(Boolean))],
+      general: generalStack,
       math: [...new Set([resolved.math, resolved.latin, resolved.cjk].filter(Boolean))],
-      monospace: [...new Set([resolved.monospace].filter(Boolean))]
+      monospace: [...new Set([resolved.monospace, monoFallback].filter(Boolean))]
     };
     state.canvasTextQualityActive = textQualityActive;
     const generalSelector = [

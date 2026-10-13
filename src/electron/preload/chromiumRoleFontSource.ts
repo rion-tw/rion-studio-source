@@ -1,6 +1,7 @@
 import browserFontsRuntimeSource from
   "../../shared/browser-overlay/browserFontsRuntime.js?raw";
 import type { BrowserFontRuntimePayloadRecord } from "../../shared/generated";
+import { browserFontSerifFallback } from "../../shared/browserFontFallback";
 
 const INJECTED_PAYLOAD_KEY = "__rionStudioBrowserFontsInjectedPayloadV1";
 
@@ -31,7 +32,11 @@ export function assembleChromiumRoleFontSource(
       configurable: true,
       enumerable: false,
       writable: false,
-      value: ${scriptJson(payload)}
+      value: ${scriptJson({ ...payload, fallbacks: Object.fromEntries(
+        Object.entries(payload.settings.slots).map(([slot, selection]) => [
+          slot, selection?.source === "system" ? browserFontSerifFallback(selection.family) : undefined
+        ])
+      ) })}
     });
     try {
       const application = ${source}

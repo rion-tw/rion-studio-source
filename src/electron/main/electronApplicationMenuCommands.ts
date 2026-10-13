@@ -33,15 +33,11 @@ export function createElectronApplicationMenuCommands(
     click: (_item, focusedWindow) => executeShortcut(action, focusedWindow)
   });
   const fullscreen = command("toggleFullscreen", "F", "Toggle Full Screen");
-  fullscreen.accelerator = macos ? "Control+Command+F" : "F11";
-  if (!macos) {
-    // CP-07: a registered accelerator fires above the focused-surface fence, so
-    // it would both bypass that check and dispatch a second time alongside the
-    // before-input-event owners that already suppress both halves and route
-    // exactly once. The isolated probe measures the difference: the registered
-    // accelerator completes on key-down and still lets the managed page observe
-    // F11, while the before-input owner leaks neither.
-    fullscreen.registerAccelerator = false;
+  if (macos) fullscreen.accelerator = "Control+Command+F";
+  else {
+    // Function keys belong to game input and managed Macro shortcuts.
+    delete fullscreen.accelerator;
+    fullscreen.label = "Toggle &Full Screen";
   }
   return {
     newWindow: command("newGameWindow", "N", "New Game Window", "&New Game Window"),

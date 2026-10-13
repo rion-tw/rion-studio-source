@@ -20,6 +20,7 @@ import { browserFontPresets, resolveBrowserFontPreset, type BrowserFontPresetId 
 import type { BrowserFontCatalogEntry, BrowserFontCategory, BrowserFontCjkVariant, BrowserFontSelection, BrowserFontSlot, GameBrowserSettings, SystemFontFamily } from "../../../../shared/types";
 
 import { getGoogleFontPreviewStatus, quoteFontFamily, requestGoogleFontPreview, retryGoogleFontPreview, subscribeGoogleFontPreview, type GoogleFontPreviewStatus } from "./googleFontPreview";
+import { browserSystemFontPreviewStack } from "../../../../shared/browserFontFallback";
 
 import { browserFontPresetCategories, browserFontPresetDescriptionKeys, browserFontPresetLabelKeys } from "./settingsPresentation";
 
@@ -567,7 +568,8 @@ function useBrowserFontPreview(
   const remoteFamily = resolved.source === "google" && status === "loaded" ? resolved.family : undefined;
   const activeFamily = resolved.source === "system" ? resolved.family : remoteFamily ?? localFamily;
   return {
-    ...(activeFamily ? { fontFamily: quoteFontFamily(activeFamily) } : {}),
+    ...(activeFamily ? { fontFamily: resolved.source === "system"
+      ? browserSystemFontPreviewStack(activeFamily) : quoteFontFamily(activeFamily) } : {}),
     hasLocalFallback: Boolean(localFamily),
     retry: () => {
       if (resolved.source === "google" && resolved.family) {

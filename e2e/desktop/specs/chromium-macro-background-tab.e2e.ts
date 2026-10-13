@@ -1,4 +1,6 @@
 import { browser, expect } from "@wdio/globals";
+import { exerciseWindowsHeldCanvasBlur } from "./chromium-macro-canvas-blur";
+import { exerciseHeldKeyOverlap } from "./chromium-macro-key-overlap";
 import { Key } from "webdriverio";
 
 import type { GameWindow, Macro, Role } from "../../../src/shared/types";
@@ -80,7 +82,7 @@ function required(name: string): string {
 function roleALaunchUrl(platform: ChromiumMacroPlatform): string {
   return macroFixtureUrl(
     ROLE_A_FIXTURE,
-    platform === "windows" ? "resetConsumerInputOnContextLoss=1" : ""
+    platform === "windows" ? "resetConsumerInputOnContextLoss=1&resetConsumerInputOnCanvasBlur=1" : ""
   );
 }
 
@@ -390,7 +392,15 @@ describe("Chromium Macro background-tab exact replacement", () => {
     expect((await fixtureState())[ROLE_A_FIXTURE]!.consumerPressedCodes)
       .toContain("Digit2");
 
+    await exerciseHeldKeyOverlap({
+      platform: context.platform, role: scenario.roles[0], fixtureId: ROLE_A_FIXTURE,
+      mainWindowHandle: context.mainWindowHandle, windowId: WINDOW_ID, processId: probe.processId
+    });
     if (context.platform === "windows") {
+      for (const selector of ["#tab-focus-input", "#qa-target"] as const) await exerciseWindowsHeldCanvasBlur({
+        role: scenario.roles[0], fixtureId: ROLE_A_FIXTURE, mainWindowHandle: context.mainWindowHandle,
+        windowId: WINDOW_ID, processId: probe.processId, firstHold, selector
+      });
       // WebDriver's page-key target is not proof of native Canvas focus.
       // Establish it before the loss cursor so the tab switch exercises blur.
       await focusWindowsRoleCanvas({ launchUrl: scenario.roles[0].launchUrl!,

@@ -102,11 +102,15 @@ async function probe() {
     const productionFamilies = JSON.parse(await core.invoke(JSON.stringify({
       type: "systemFontsList", families: productionNames
     })));
+    const { assembleChromiumRoleFontSource } = require(join(resolve(providerModule, ".."), "font-source.cjs"));
+    const fontFallbacks = await require("./probeChromiumFontFallback.cjs")(
+      owner.webContents, assembleChromiumRoleFontSource
+    );
     await writeFile(reportPath, JSON.stringify({ platform: process.platform,
       electron: process.versions.electron, chromium: process.versions.chrome,
       outcomes, permissionChecks,
       productionFamilies, productionOtherOwner, productionSubframe, productionReload,
-      productionDenied, productionNavigated
+      productionDenied, productionNavigated, fontFallbacks
     }, null, 2) + "\n");
   } finally {
     if (core) await core.shutdown();

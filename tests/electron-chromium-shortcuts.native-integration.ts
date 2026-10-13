@@ -26,7 +26,7 @@ it.skipIf(process.platform !== "win32")("compares Chromium F11 ownership APIs ab
       expect(outcome.hostFocused).toBe(true);
       expect(outcome.pageEvents.every((event: { trusted: boolean }) => event.trusted)).toBe(true);
       if (outcome.mode === "before-input") {
-        // The shipped owner suppresses both halves above page delivery and
+        // The retired fullscreen owner suppresses both halves above page delivery and
         // never completes the command before the key is released.
         expect(outcome.pageEvents, JSON.stringify(outcome)).toEqual([]);
         expect(outcome.commandsBeforeRelease).toBe(0);
@@ -45,6 +45,17 @@ it.skipIf(process.platform !== "win32")("compares Chromium F11 ownership APIs ab
       for (const events of [outcome.pageEvents, outcome.destinationPageEvents]) {
         expect(events.every((event: { trusted: boolean }) => event.trusted)).toBe(true);
       }
+    }
+    expect(report.functionKeyOutcomes).toHaveLength(96);
+    for (const outcome of report.functionKeyOutcomes) {
+      expect(outcome.fullscreen, JSON.stringify(outcome)).toBe(false);
+      expect(outcome.events.some((event: { kind: string }) => event.kind === "unexpected-menu-command")).toBe(false);
+      expect(outcome.pageEvents).toEqual([
+        expect.objectContaining({ type: "keydown", code: outcome.code, trusted: true, control: outcome.control }),
+        expect.objectContaining({ type: "keyup", code: outcome.code, trusted: true, control: outcome.control }),
+        expect.objectContaining({ type: "keydown", code: "Digit3", trusted: true, control: false }),
+        expect.objectContaining({ type: "keyup", code: "Digit3", trusted: true, control: false })
+      ]);
     }
     // API differences are reported, never converted into replacement parity.
     console.info(JSON.stringify(report.outcomes));

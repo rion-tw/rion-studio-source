@@ -1,12 +1,13 @@
 // Isolated comparison of the two Chromium APIs that can own F11 above page
-// delivery: a before-input-event owner (what production uses) and a registered
-// menu accelerator (what production rejects). The Win32 low-level hook is out
+// delivery: the retired before-input-event fullscreen owner and a registered
+// menu accelerator, compared with the production game function-key policy. The Win32 low-level hook is out
 // of scope: it owns no key, and SendInput cannot observe a hook that only ever
 // saw physical input. Never imported by production code.
 const { app, BrowserWindow, WebContentsView, Menu } = require("electron");
 const { spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
 const { writeFile } = require("node:fs/promises");
+const { mkdirSync } = require("node:fs");
 const { resolve, join } = require("node:path");
 const [reportPath, userData] = process.argv.slice(2);
 if (process.platform !== "win32" || !reportPath || !userData) {
@@ -15,6 +16,11 @@ if (process.platform !== "win32" || !reportPath || !userData) {
 app.setPath("userData", resolve(userData));
 app.on("window-all-closed", () => {});
 const root = resolve(__dirname, "..");
+mkdirSync(userData, { recursive: true });
+const policyPath = join(resolve(userData), "function-key-policy.cjs");
+require("esbuild").buildSync({ entryPoints: [join(root, "src/electron/main/chromiumFunctionKeyInput.ts")],
+  outfile: policyPath, bundle: true, platform: "node", format: "cjs" });
+const { preserveChromiumFunctionKeyInput } = require(policyPath);
 const fixture = "data:text/html," + encodeURIComponent(
   '<!doctype html><title>Shortcut probe</title><body tabindex="0">Isolated shortcut surface</body>'
 );
@@ -93,6 +99,7 @@ async function probe() {
   const driver = inputDriver();
   const outcomes = [];
   const lifecycleOutcomes = [];
+  const functionKeyOutcomes = [];
   let activeHost = host;
   let mode = "observe";
   let events = [];
@@ -103,13 +110,14 @@ async function probe() {
       await surface.contents.loadURL(fixture);
       await surface.contents.executeJavaScript(`window.shortcutEvents = [];
         for (const type of ['keydown', 'keyup']) document.addEventListener(type, event => {
-          if (event.code === 'F11') window.shortcutEvents.push({ type, trusted: event.isTrusted,
-            repeat: event.repeat, shift: event.shiftKey });
+          if (/^F[0-9]+$/.test(event.code) || event.code === 'Digit3') window.shortcutEvents.push({ type, code: event.code, trusted: event.isTrusted,
+            repeat: event.repeat, shift: event.shiftKey, control: event.ctrlKey });
         }, true);`);
       let captured = false;
       surface.resetCapture = () => { captured = false; };
       surface.shortcutActive = true;
       surface.contents.on("before-input-event", (event, input) => {
+        if (mode === "game-function-keys") preserveChromiumFunctionKeyInput(surface.contents, input);
         if (input.code !== "F11" && input.key !== "F11") return;
         record("before-input", { surface: surface.name, type: input.type,
           repeat: input.isAutoRepeat, shift: input.shift });
@@ -222,10 +230,38 @@ async function probe() {
         }
       }
     }
+    mode = "game-function-keys";
+    for (const surface of surfaces) {
+      Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: "Probe", submenu: [{
+        label: "Conflicting legacy fullscreen", accelerator: "F11",
+        click: () => record("unexpected-menu-command")
+      }] }]));
+      activeHost = surface.host;
+      role.setVisible(surface.view === role);
+      web.setVisible(surface.view === web);
+      activeHost.show();
+      await driver.send(activeHost, [], true);
+      surface.contents.focus();
+      for (let number = 1; number <= 12; number++) for (const control of [false, true]) {
+        events = [];
+        await surface.contents.executeJavaScript("window.shortcutEvents = []");
+        const key = 0x6f + number;
+        await driver.send(activeHost, [
+          ...(control ? [{ code: 0x11, up: false }] : []),
+          { code: key, up: false }, { code: key, up: true },
+          ...(control ? [{ code: 0x11, up: true }] : []),
+          { code: 0x33, up: false }, { code: 0x33, up: true }
+        ]);
+        await observe();
+        functionKeyOutcomes.push({ surface: surface.name, code: `F${number}`, control,
+          fullscreen: activeHost.isFullScreen(), events: [...events],
+          pageEvents: await surface.contents.executeJavaScript("window.shortcutEvents") });
+      }
+    }
     await writeFile(reportPath, JSON.stringify({ platform: process.platform,
       electron: process.versions.electron, chromium: process.versions.chrome,
       scope: "isolated native windows and WebContentsViews; not production Role replacement parity",
-      outcomes, lifecycleOutcomes }, null, 2) + "\n");
+      outcomes, lifecycleOutcomes, functionKeyOutcomes }, null, 2) + "\n");
   } finally {
     // Always release test-owned keys before retiring the exact foreground HWND.
     await driver.send(activeHost, [{ code: F11, up: true }, { code: SHIFT, up: true }]).catch(() => {});

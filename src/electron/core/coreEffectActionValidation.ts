@@ -471,7 +471,8 @@ function isClosedKnownCoreEffectAction(value: unknown, type: ActionType): boolea
         roles: arrayOf(runtimeRole), revealWindowIds: arrayOf(identity),
         focusWindowIds: arrayOf(identity)
       }, {
-        windows: arrayOf(runtimeWindowProjection), target: launchTarget, focusTabId: identity
+        windows: arrayOf(runtimeWindowProjection), target: launchTarget, focusTabId: identity,
+        contentFocusTabId: identity
       });
     case "embeddedObserveAppKitWorkspaceAppearance":
       return closed(value, {

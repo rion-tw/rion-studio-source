@@ -12,7 +12,7 @@ import {
   type ChromiumExtensionRuntimeStage,
   type ChromiumExtensionRuntimeStatus
 } from "./chromiumExtensionRuntimeDiagnostics";
-import type { ChromiumRoleSessionHandle } from "./chromiumRoleSessionRegistry";
+import type { ChromiumRoleSessionHandle, ChromiumSessionFactoryPort } from "./chromiumRoleSessionRegistry";
 import type { ChromiumRoleExtensionSurfacePort } from "./chromiumRoleSessionRegistry";
 import {
   RionChromeExtensions
@@ -53,6 +53,7 @@ const FATAL_PERMISSIONS = new Set([
 
 interface CompatibilityHostPort {
   addTab: (tab: WebContents, window: BaseWindow) => void;
+  moveTab: (tab: WebContents, previous: BaseWindow, next: BaseWindow) => void;
   removeTab: (tab: WebContents) => void;
 }
 
@@ -146,6 +147,11 @@ export class ChromiumExtensionSessions {
     input: ChromiumExtensionSessionsInput = {}
   ) {
     this.#input = input;
+  }
+
+  sessionFactory(fromPath: ChromiumSessionFactoryPort["fromPath"]): ChromiumSessionFactoryPort {
+    return { fromPath, prepareExtensions: this.prepare, reparentExtensionSurface: this.reparentSurface,
+      retireExtensionSurface: this.retireSurface, releaseExtensions: this.release };
   }
 
   prepare = (
@@ -389,6 +395,29 @@ export class ChromiumExtensionSessions {
     entry.surfaceState = "registered";
     return host;
   }
+
+  /** Follows the committed native parent; never replaces the Role or its Session. */
+  reparentSurface = (
+    handle: ChromiumRoleSessionHandle,
+    previous: ChromiumRoleExtensionSurfacePort,
+    next: ChromiumRoleExtensionSurfacePort
+  ): void => {
+    const entry = this.#entries.get(handle.roleId);
+    if (!entry || entry.released || entry.surfaceState === "retired") return;
+    if (entry.handle !== handle || entry.surface?.contents !== previous.contents ||
+        entry.surface?.window !== previous.window || next.contents !== previous.contents) {
+      this.#recordSurfaceRetirementFailure(entry, "surface_reparent_identity_mismatch");
+      return;
+    }
+    entry.surface = next;
+    if (next.window === previous.window || entry.surfaceState !== "registered" || !entry.host) return;
+    try {
+      if (!previous.window || !next.window) throw new Error("EXTENSIONS_PARENT_MISSING");
+      entry.host.moveTab(next.contents as WebContents, previous.window as BaseWindow, next.window as BaseWindow);
+    } catch {
+      this.#disableCompatibilityHost(entry, "reparent_tab_failed");
+    }
+  };
 
   retireSurface = (
     handle: ChromiumRoleSessionHandle,

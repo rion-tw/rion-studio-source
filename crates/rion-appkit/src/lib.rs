@@ -1165,7 +1165,9 @@ pub unsafe fn runtime_tabs_desktop_e2e_tab_anchor(
             &raw mut y,
         )
     };
-    if !captured || !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0 {
+    // AppKit can rehost fullscreen tabs above the Chromium window frame.
+    // These are signed offsets; screen bounds validate the eventual UI action.
+    if !captured || !x.is_finite() || !y.is_finite() {
         return Err(RuntimeTabsControllerError::InvalidLayout);
     }
     Ok(RuntimeTabsDesktopE2ETabAnchor { x, y })

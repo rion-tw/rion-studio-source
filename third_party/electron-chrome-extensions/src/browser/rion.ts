@@ -95,6 +95,13 @@ export class RionChromeExtensions extends EventEmitter {
     this.#ctx.store.removeTab(tab)
   }
 
+  moveTab(tab: Electron.WebContents, previous: Electron.BaseWindow, next: Electron.BaseWindow) {
+    this.#checkSession(tab)
+    this.#contextMenus.removeTab(tab)
+    this.#ctx.store.moveTab(tab, previous, next)
+    this.#contextMenus.addTab(tab, next)
+  }
+
   selectTab(tab: Electron.WebContents) {
     this.#checkSession(tab)
     if (this.#ctx.store.tabs.has(tab)) this.#tabs.onActivated(tab.id)

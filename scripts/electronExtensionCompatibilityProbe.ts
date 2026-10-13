@@ -21,6 +21,9 @@ if (
   throw new Error("The compatibility probe requires absolute isolated paths.");
 }
 app.setPath("userData", join(root, "app"));
+// The close/reopen probe intentionally passes through zero native windows.
+// Only the explicit completion/failure below may terminate this process.
+app.on("window-all-closed", () => undefined);
 
 function withDeadline<Value>(promise: Promise<Value>): Promise<Value> {
   return new Promise((resolve, reject) => {
@@ -78,6 +81,9 @@ void app.whenReady().then(async () => {
     const removed = () => undefined;
     chrome.permissions.onRemoved.addListener(removed);
     chrome.webNavigation.onCompleted.addListener(() => undefined);
+    const parentEvents = [];
+    chrome.tabs.onAttached.addListener((tabId, detail) => parentEvents.push({ type: 'attached', tabId, ...detail }));
+    chrome.tabs.onDetached.addListener((tabId, detail) => parentEvents.push({ type: 'detached', tabId, ...detail }));
     chrome.runtime.onMessage.addListener((_message, _sender, reply) => {
       void (async () => {
         await chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' });
@@ -111,6 +117,7 @@ void app.whenReady().then(async () => {
         await chrome.contextMenus.removeAll();
         const permissionLevel = await chrome.notifications.getPermissionLevel();
         const tabs = await chrome.tabs.query({ active: true });
+        const currentWindowTabs = await chrome.tabs.getAllInWindow();
         const enabledRulesets = await chrome.declarativeNetRequest.getEnabledRulesets();
         await chrome.offscreen.createDocument({
           url: 'offscreen.html', reasons: ['DOM_PARSER'], justification: 'compatibility probe'
@@ -127,6 +134,10 @@ void app.whenReady().then(async () => {
           permissionsOnRemoved: chrome.permissions.onRemoved.hasListener(removed),
           sessionStorage: stored.probe,
           tabCount: tabs.length,
+          tabId: tabs[0]?.id,
+          tabWindowId: tabs[0]?.windowId,
+          currentWindowTabIds: currentWindowTabs.map(tab => tab.id),
+          parentEvents,
           webNavigation: typeof chrome.webNavigation.onCompleted.addListener === 'function'
         });
       })().catch(error => reply({ error: String(error) }));
@@ -160,13 +171,16 @@ void app.whenReady().then(async () => {
   } });
   window.contentView.addChildView(view);
   host.addTab(view.webContents, window);
-  const response = new Promise<Record<string, unknown>>((resolveResponse) => {
-    view.webContents.on("console-message", (event) => {
+  const nextResponse = () => new Promise<Record<string, unknown>>((resolveResponse) => {
+    const listener = (event: Electron.Event<Electron.WebContentsConsoleMessageEventParams>) => {
       if (event.message.startsWith("RION_EXTENSION_COMPAT_REPLY=")) {
+        view.webContents.removeListener("console-message", listener);
         resolveResponse(JSON.parse(event.message.slice("RION_EXTENSION_COMPAT_REPLY=".length)));
       }
-    });
+    };
+    view.webContents.on("console-message", listener);
   });
+  const response = nextResponse();
   const server = createServer((_request, output) => output.end("<!doctype html><body>probe</body>"));
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   const extension = await nativeSession.extensions.loadExtension(extensionPath, { allowFileAccess: false });
@@ -194,19 +208,57 @@ void app.whenReady().then(async () => {
     permissionsOnRemoved: true,
     sessionStorage: "ready",
     tabCount: 1,
+    tabId: view.webContents.id,
+    tabWindowId: window.id,
+    currentWindowTabIds: [view.webContents.id],
+    parentEvents: [],
     webNavigation: true
   });
-  nativeSession.extensions.removeExtension(extension.id);
+  const destination = new BaseWindow({ show: false });
+  const sourceWindowId = window.id;
+  window.contentView.removeChildView(view);
+  destination.contentView.addChildView(view);
+  host.moveTab(view.webContents, window, destination);
+  window.destroy();
+  const movedResponse = nextResponse();
+  await view.webContents.loadURL(`http://127.0.0.1:${address.port}/moved`);
+  const moved = await withDeadline(movedResponse);
+  assert.deepEqual(moved, { ...result, tabWindowId: destination.id, parentEvents: [
+    { type: 'detached', tabId: view.webContents.id, oldWindowId: sourceWindowId, oldPosition: -1 },
+    { type: 'attached', tabId: view.webContents.id, newWindowId: destination.id, newPosition: -1 }
+  ] });
   host.removeTab(view.webContents);
   view.webContents.close();
-  window.destroy();
+  destination.destroy();
+  const reopenedWindow = new BaseWindow({ show: false });
+  const reopenedView = new WebContentsView({ webPreferences: {
+    contextIsolation: true, nodeIntegration: false, sandbox: true, session: nativeSession
+  } });
+  reopenedWindow.contentView.addChildView(reopenedView);
+  host.addTab(reopenedView.webContents, reopenedWindow);
+  const reopenedResponse = new Promise<Record<string, unknown>>(resolveResponse => {
+    reopenedView.webContents.on("console-message", event => {
+      if (event.message.startsWith("RION_EXTENSION_COMPAT_REPLY="))
+        resolveResponse(JSON.parse(event.message.slice("RION_EXTENSION_COMPAT_REPLY=".length)));
+    });
+  });
+  await reopenedView.webContents.loadURL(`http://127.0.0.1:${address.port}/reopened`);
+  const reopened = await withDeadline(reopenedResponse);
+  assert.deepEqual(reopened, { ...moved, tabId: reopenedView.webContents.id,
+    tabWindowId: reopenedWindow.id, currentWindowTabIds: [reopenedView.webContents.id] });
+  nativeSession.extensions.removeExtension(extension.id);
+  host.removeTab(reopenedView.webContents);
+  reopenedView.webContents.close();
+  reopenedWindow.destroy();
   await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
   console.log(`RION_EXTENSION_COMPAT_PROBE=${JSON.stringify({
     workerType,
     electron: process.versions.electron,
     extensionId: extension.id,
     platform: process.platform,
-    result
+    result,
+    moved,
+    reopened
   })}`);
   app.quit();
 }).catch((error) => {

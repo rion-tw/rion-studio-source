@@ -159,6 +159,7 @@ export interface ChromiumRoleSurfaceWebContentsPort {
   ): void;
   setAudioMuted: (muted: boolean) => void;
   setZoomFactor: (factor: number) => void;
+  setIgnoreMenuShortcuts: (ignore: boolean) => void;
 }
 
 export interface ChromiumRoleWebContentsViewPort {
@@ -183,7 +184,7 @@ export interface ChromiumRoleSurfaceNativeWindowPort {
 export interface ChromiumRoleSurfaceParentPort {
   readonly id: number;
   readonly contentView: ChromiumRoleSurfaceParentContentPort;
-  /** Exact Electron BaseWindow used only for native popup parenting. */
+  /** Exact Electron BaseWindow for native popup and extension tab ownership. */
   readonly nativeWindow?: ChromiumRoleSurfaceNativeWindowPort;
   isDestroyed: () => boolean;
 }
@@ -197,6 +198,11 @@ export interface ChromiumWebContentsViewFactoryPort {
 }
 
 export interface ChromiumRoleSessionOwnerPort {
+  reparentExtensionSurface?: (
+    handle: ChromiumRoleSessionHandle,
+    previous: ChromiumRoleExtensionSurfacePort,
+    next: ChromiumRoleExtensionSurfacePort
+  ) => void;
   prepareExtensions?: (
     handle: ChromiumRoleSessionHandle,
     surface?: ChromiumRoleExtensionSurfacePort

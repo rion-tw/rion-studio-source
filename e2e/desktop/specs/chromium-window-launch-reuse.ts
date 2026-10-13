@@ -4,7 +4,7 @@ import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { GameWindow, Role } from "../../../src/shared/types";
 import { electronDesktopE2eApplicationShortcutRuntime, electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eGameWindowRuntime } from "../support/electron-driver";
-import { pressVisibleMacosApplicationShortcut, pressVisibleWindowsApplicationShortcut } from "../support/native-application-actions";
+import { focusVisibleMacosAppKitRuntime, pressVisibleMacosApplicationShortcut, pressVisibleWindowsApplicationShortcut, withMacosAnsiInputSource } from "../support/native-application-actions";
 import { macosNativeWindowControl } from "../support/macos-native-window-controls";
 import { selectMacosVisibleRuntimeLauncherRole } from "../support/macos-appkit-ui";
 import { clickVisibleRuntimeTab, clickVisibleRuntimeWindowControl, closeVisibleRuntimeTab, runtimeTabShellErrors } from "../support/native-runtime-tabs";
@@ -27,18 +27,23 @@ export async function exerciseWindowLaunchReuse(input: {
   await clickVisibleRuntimeWindowControl({ ...input, windowId, tabId: tabIds[0]!, command: "maximize" });
   await browser.waitUntil(async () => (await rendererCall("getEmbeddedRuntimeState")).windows
     .find(window => window.id === windowId)?.presentation === "maximized", { timeout: 20_000 });
-  for (const expected of [1.05, 1.1]) {
-    if (input.platform === "macos") await pressVisibleMacosApplicationShortcut({
-      command: "zoomIn", processId: input.processId, runtimeWindowId: windowId,
-      targetMode: "focused-runtime"
-    });
-    else await pressVisibleWindowsApplicationShortcut({
-      command: "zoomIn", processId: input.processId, targetMode: "focused-runtime",
-      nativeWindowHandle: (await electronDesktopE2eFullscreenToolbarRuntime(windowId)).nativeWindowHandle
-    });
-    await browser.waitUntil(async () => (await electronDesktopE2eApplicationShortcutRuntime(windowId))
-      .nativeWindow.windowZoomFactor === expected, { timeout: 20_000 });
-  }
+  const zoomWindow = async () => {
+    if (input.platform === "macos") await focusVisibleMacosAppKitRuntime({ processId: input.processId, windowId });
+    for (const expected of [1.05, 1.1]) {
+      if (input.platform === "macos") await pressVisibleMacosApplicationShortcut({
+        command: "zoomIn", processId: input.processId, runtimeWindowId: windowId,
+        targetMode: "focused-runtime"
+      });
+      else await pressVisibleWindowsApplicationShortcut({
+        command: "zoomIn", processId: input.processId, targetMode: "focused-runtime",
+        nativeWindowHandle: (await electronDesktopE2eFullscreenToolbarRuntime(windowId)).nativeWindowHandle
+      });
+      await browser.waitUntil(async () => (await electronDesktopE2eApplicationShortcutRuntime(windowId))
+        .nativeWindow.windowZoomFactor === expected, { timeout: 20_000 });
+    }
+  };
+  if (input.platform === "macos") await withMacosAnsiInputSource(zoomWindow);
+  else await zoomWindow();
   if (input.platform === "macos") {
     await clickVisibleRuntimeWindowControl({ ...input, windowId, tabId: tabIds[0]!, command: "maximize" });
     await browser.waitUntil(async () => (await rendererCall("getEmbeddedRuntimeState")).windows

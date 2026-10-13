@@ -64,6 +64,11 @@ try {
         ? resolve()
         : reject(new Error(`Extension compatibility probe failed: ${code ?? signal}`)));
     });
+    const completion = compatibilityOutput.split("\n")
+      .find(line => line.startsWith("RION_EXTENSION_COMPAT_PROBE="));
+    if (!completion || JSON.parse(completion.slice("RION_EXTENSION_COMPAT_PROBE=".length)).workerType !== workerType) {
+      throw new Error(`Extension compatibility ${workerType} probe omitted completion evidence.`);
+    }
     if (compatibilityOutput.includes("Error occurred in handler for 'crx-msg'")) {
       throw new Error("Handled extension API errors escaped through the native IPC handler.");
     }

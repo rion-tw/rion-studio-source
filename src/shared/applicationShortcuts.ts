@@ -15,11 +15,6 @@ export function applicationShortcutForKeyEvent(
 ): ApplicationShortcutCommand | undefined {
   if (event.isComposing || event.altKey || event.metaKey) return undefined;
 
-  if (event.code === "F11") {
-    return !event.ctrlKey && !event.shiftKey && !event.repeat
-      ? "toggleFullscreen"
-      : undefined;
-  }
   if (!event.ctrlKey) return undefined;
   if (event.code === "KeyN") {
     return !event.shiftKey && !event.repeat ? "newGameWindow" : undefined;

@@ -335,7 +335,6 @@ export interface ChromiumRuntimeBootstrapInput {
   ) => void;
   readonly onNativeProjectionChanged?: () => void;
   readonly onRuntimeTabQuickAccess?: (tabId: string) => void;
-  readonly onRuntimeTabFullscreen?: (tabId: string) => void;
   readonly platform: RuntimePlatform;
   readonly rolePreloadPath: string;
   /** Main-process startup quit fence; production supplies it before Core recovery. */
@@ -669,17 +668,6 @@ export class ChromiumRuntimeBootstrap {
               }
               input.onRuntimeTabQuickAccess(tabId);
             },
-            onRuntimeTabFullscreen: (tabId) => {
-              requireNativeActionIngress();
-              const request = input.onRuntimeTabFullscreen;
-              if (!request) {
-                throw bootstrapError(
-                  "ELECTRON_CHROMIUM_FULLSCREEN_UNAVAILABLE",
-                  "The Core-owned Windows fullscreen shortcut lane is unavailable."
-                );
-              }
-              request(tabId);
-            },
             onWorkspaceDividerPointer: (event) => {
               requireNativeActionIngress();
               return nativeActionIngress.run(() => input.core.invoke({
@@ -763,8 +751,7 @@ export class ChromiumRuntimeBootstrap {
         core: input.core,
         onError: input.onWorkspaceWebError ?? input.onError
       });
-    // Shared by every surface hosted inside a Game Window. Role surfaces use
-    // the whole port; a Website slot consumes only its fullscreen lane.
+    // Quick Access is the only application shortcut captured by Role surfaces.
     const quickAccessShortcut = input.onRuntimeTabQuickAccess
       ? {
           platform: input.platform,
@@ -772,14 +759,6 @@ export class ChromiumRuntimeBootstrap {
             requireNativeActionIngress();
             input.onRuntimeTabQuickAccess!(tabId);
           },
-          ...(input.onRuntimeTabFullscreen === undefined
-            ? {}
-            : {
-                requestFullscreen: (tabId: string) => {
-                  requireNativeActionIngress();
-                  input.onRuntimeTabFullscreen!(tabId);
-                }
-              }),
           onError: (error: unknown) => input.onError(normalizeRionBridgeError(
             error,
             "ELECTRON_CHROMIUM_QUICK_ACCESS_REQUEST_FAILED"
@@ -801,8 +780,7 @@ export class ChromiumRuntimeBootstrap {
       globalNativeAttachments,
       popupCoordinator,
       workspaceWebNavigationFailureReporter,
-      workspaceWebNavigationCommitReporter,
-      quickAccessShortcut
+      workspaceWebNavigationCommitReporter
     );
     const webSurfaces = input.webChromeShell
       ? new ChromiumGlobalWebPresentationRegistry({

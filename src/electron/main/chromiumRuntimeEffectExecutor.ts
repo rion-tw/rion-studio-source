@@ -1511,6 +1511,7 @@ export class ChromiumRuntimeEffectExecutor {
       revealWindowIds: action.revealWindowIds,
       focusWindowIds: action.focusWindowIds,
       focusTabId: action.focusTabId,
+      contentFocusTabId: action.contentFocusTabId,
       ownershipTransitions: this.#ownershipTransitions,
       ...(signal ? { signal } : {}),
       beforeNativeSubmission: async () => {

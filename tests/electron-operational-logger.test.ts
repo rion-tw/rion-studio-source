@@ -210,6 +210,8 @@ describe("Electron operational logger", () => {
     core.emit(browserEvent);
     core.emit(browserEvent);
     core.emit(macroEvent);
+    core.emit({ ...macroEvent, reliable: false });
+    core.emit({ type: "macroStatuses", reliable: false, statuses: [] });
     core.emit({ ...macroEvent, statuses: [{ ...macroEvent.statuses[0], iteration: 2 }] });
     core.emit({ type: "macroStatuses", reliable: true, statuses: [] });
     core.emit({

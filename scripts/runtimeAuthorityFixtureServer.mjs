@@ -335,7 +335,8 @@ function rolePage(roleId, sessionMode, sessionMarker) {
   </main>
   <script>
     const roleId = ${safeRoleId};
-    document.querySelector("#tab-focus-input").hidden = !roleId.startsWith("chromium-tabs-focus-");
+    document.querySelector("#tab-focus-input").hidden = !roleId.startsWith("chromium-tabs-focus-") &&
+      new URL(location.href).searchParams.get("resetConsumerInputOnCanvasBlur") !== "1";
     const counts = { click: 0, keydown: 0, focus: 0, visibility: 0 };
     const sessionKey = "rion-e2e-session";
     const sessionMarker = ${safeSessionMarker};
@@ -844,6 +845,10 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     }
     addEventListener("keydown", (event) => recordConsumerKeyboard("consumer-keydown", event));
     addEventListener("keyup", (event) => recordConsumerKeyboard("consumer-keyup", event));
+    document.querySelector("#game-input-canvas").addEventListener("blur", () => {
+      if (new URL(location.href).searchParams.get("resetConsumerInputOnCanvasBlur") === "1")
+        resetConsumerKeyboard("canvas-blur");
+    });
     document.querySelector("#game-input-canvas").addEventListener("click", (event) => {
       record("game-click", {
         activeElementId: document.activeElement?.id ?? null,

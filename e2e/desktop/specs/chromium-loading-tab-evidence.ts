@@ -3,6 +3,33 @@ import { resolve } from "node:path";
 import { browser, expect } from "@wdio/globals";
 import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eApplicationShortcutRuntime, electronDesktopE2eGameWindowRuntime } from "../support/electron-driver";
 import { captureWorkspacePixels } from "../support/workspace-pixels";
+import { resizeWorkspaceWindow } from "../support/workspace-window-resize";
+
+export async function resizeReadyTabWhileSiblingLoads(input: {
+  platform: "macos" | "windows"; windowId: string; tabId: string;
+}) {
+  const inspection = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
+  const before = inspection.surfaces.find(surface => surface.tabId === input.tabId)!.bounds;
+  let resized = before;
+  // A standalone AppKit Role has no Workspace corner grip. Use its native
+  // right/bottom borders separately so both dimensions actually move.
+  const drags = input.platform === "macos"
+    ? [{ edge: "right" as const, x: -48, y: 0 }, { edge: "bottom" as const, x: 0, y: -32 }]
+    : [{ edge: "bottomRight" as const, x: -48, y: -32 }];
+  for (const drag of drags) await resizeWorkspaceWindow({ inspection, edge: drag.edge, moves: [drag],
+    whileHeld: async () => {
+      await browser.waitUntil(async () => {
+        const current = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
+        resized = current.surfaces.find(surface => surface.tabId === input.tabId)!.bounds;
+        return (drag.x === 0 || resized.width < before.width) &&
+          (drag.y === 0 || resized.height < before.height);
+      }, { timeout: 20_000, timeoutMsg: "Native resize did not update A while B was loading" });
+    }
+  });
+  expect(resized.width).toBeLessThan(before.width);
+  expect(resized.height).toBeLessThan(before.height);
+  return resized;
+}
 
 /** Observe the real screen before releasing B's navigation, without changing focus. */
 export async function expectReadyTabAboveLoadingSibling(windowId: string, readyTabId: string,

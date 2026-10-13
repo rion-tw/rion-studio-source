@@ -380,7 +380,7 @@ it("consumes one-shot Chromium payloads without exposing or calling the Tauri br
     };
     expect(first).toMatchObject({
       fontMode: "custom",
-      runtimeVersion: 7,
+      runtimeVersion: 8,
       status: "applied",
       styleInstalled: true
     });

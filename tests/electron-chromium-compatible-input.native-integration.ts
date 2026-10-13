@@ -7,14 +7,25 @@ import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import { validateCompatibleInputReceipt } from "../src/electron/main/chromiumCompatibleInputValidation";
 
-it("preserves compatible legacy fields in the main-world consumer across 100 held-Alt cycles", async () => {
+it("preserves main-world legacy fields and held-key overlap across repeated compatible cycles", async () => {
   const directory = await mkdtemp(join(tmpdir(), "rion-compatible-worlds-"));
   try {
     const reportPath = join(directory, "report.json");
     await promisify(execFile)(createRequire(import.meta.url)("electron") as string,
-      ["scripts/probeChromiumCompatibleInput.cjs", reportPath, join(directory, "data")], { timeout: 30000 });
+      ["scripts/probeChromiumCompatibleInput.cjs", reportPath, join(directory, "data"), "1000"], { timeout: 30000 });
     const report = JSON.parse(await readFile(reportPath, "utf8"));
     expect(report.platform).toBe(process.platform);
+    expect(report.sourceSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(report.soak.elapsedMs).toBeGreaterThanOrEqual(1000);
+    expect(report.soak.cycles).toBeGreaterThan(0);
+    expect(report.soak.final.at(-1).pressed).toEqual([]);
+    expect(report.focusContinuity.map((entry: { destination: string }) => entry.destination))
+      .toEqual(["input", "button", "body", "redirected-control"]);
+    for (const entry of report.focusContinuity) {
+      expect(entry.losses).toHaveLength(1);
+      expect(entry.cleared.pressed).toEqual([]);
+      expect(entry.after).toEqual({ pressed: [51], activeId: entry.cleared.activeId });
+    }
     expect(report.receipts).toHaveLength(404);
     for (const [index, receipt] of report.receipts.entries()) {
       expect(receipt.status).toBe("applied");

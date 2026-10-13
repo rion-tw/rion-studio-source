@@ -1,3 +1,4 @@
+import { preserveChromiumFunctionKeyInput } from "./chromiumFunctionKeyInput";
 import { compatibleInputSource, type ChromiumCompatibleInputCommand } from "../ipc/chromiumCompatibleInputProtocol";
 import type { BrowserAction } from "../../shared/generated";
 import { RionBridgeError } from "../ipc/errors";
@@ -998,6 +999,9 @@ export class ChromiumRoleSurfaceRegistry {
     this.#retainParent(parent);
     this.#releaseParent(previous);
     record.parent = parent;
+    this.#sessions.reparentExtensionSurface?.(record.sessionHandle,
+      { contents: record.contents, window: previous.nativeWindow ?? null },
+      { contents: record.contents, window: parent.nativeWindow ?? null });
     this.#syncNativePresentation(record);
   }
 
@@ -1176,6 +1180,7 @@ export class ChromiumRoleSurfaceRegistry {
     };
     record.listeners = {
       beforeInputEvent: (event, inputEvent) => {
+        preserveChromiumFunctionKeyInput(contents, inputEvent);
         interceptChromiumRoleQuickAccessShortcut({
           event,
           inputEvent,

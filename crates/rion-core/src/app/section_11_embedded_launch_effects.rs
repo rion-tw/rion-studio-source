@@ -114,6 +114,7 @@ fn embedded_launch_effects(
                 reveal_window_ids,
                 focus_window_ids,
                 focus_tab_id,
+                content_focus_tab_id: None,
             },
             Duration::from_secs(15),
             None,

@@ -1,3 +1,4 @@
+import { preserveChromiumFunctionKeyInput } from "./chromiumFunctionKeyInput";
 import { createRuntimeTabDragHost } from "./runtimeTabDragHost";
 import type { RuntimeTabDragStart } from "./runtimeTabDragController";
 import { requireBounds, WindowsRuntimeContentGeometry } from "./windowsRuntimeHostGeometry";
@@ -68,7 +69,7 @@ import {
   WindowsRuntimeWindowStateStream,
   type WindowsRuntimeForegroundProbePort
 } from "./windowsRuntimeWindowState";
-import { isChromiumRoleFullscreenShortcut, isChromiumRoleQuickAccessShortcut } from
+import { isChromiumRoleQuickAccessShortcut } from
   "./chromiumRoleQuickAccessShortcut";
 export {
   buildWindowsRuntimeHostWindowOptions,
@@ -153,7 +154,6 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
         event: BrowserWorkspaceDividerPointerRecord
       ) => Promise<BrowserWorkspaceDividerPointerReceiptRecord>;
       onRuntimeWindowPlacement?: (host: ChromiumRuntimeHostPort) => Promise<void>;
-      onRuntimeTabFullscreen?: (tabId: string) => void;
       onRuntimeTabQuickAccess?: (tabId: string) => void;
       runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort;
       runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort;
@@ -423,7 +423,6 @@ implements ChromiumRuntimeHostFactoryPort {
   readonly #onRuntimeWindowPlacement: ((
     host: ChromiumRuntimeHostPort
   ) => Promise<void>) | null;
-  readonly #onRuntimeTabFullscreen: (tabId: string) => void;
   readonly #onRuntimeTabQuickAccess: (tabId: string) => void;
   readonly #runtimeForegroundProbe: WindowsRuntimeForegroundProbePort | null;
   readonly #runtimeShortcutOwner: WindowsRuntimeShortcutOwnerPort | null;
@@ -473,7 +472,6 @@ implements ChromiumRuntimeHostFactoryPort {
     lifecycleEpoch?: () => number,
     onCommandError?: (error: unknown) => void,
     runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort,
-    onRuntimeTabFullscreen?: (tabId: string) => void,
     runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort,
     onRuntimeTabQuickAccess?: (tabId: string) => void,
     readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>,
@@ -504,12 +502,6 @@ implements ChromiumRuntimeHostFactoryPort {
       throw hostError("ELECTRON_RUNTIME_HOST_QUICK_ACCESS_UNAVAILABLE",
         "The Core-owned Windows Quick Access lane is unavailable.");
     });
-    this.#onRuntimeTabFullscreen = onRuntimeTabFullscreen ?? (() => {
-      throw hostError(
-        "ELECTRON_RUNTIME_HOST_FULLSCREEN_UNAVAILABLE",
-        "The Core-owned Windows fullscreen shortcut lane is unavailable."
-      );
-    });
   }
 
   static fromElectronBrowserWindow(
@@ -533,7 +525,6 @@ implements ChromiumRuntimeHostFactoryPort {
     lifecycleEpoch?: () => number,
     onCommandError?: (error: unknown) => void,
     runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort,
-    onRuntimeTabFullscreen?: (tabId: string) => void,
     runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort,
     onRuntimeTabQuickAccess?: (tabId: string) => void,
     readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>
@@ -544,7 +535,7 @@ implements ChromiumRuntimeHostFactoryPort {
     }, runtimeDocumentPath, displays, runtimeHostPreloadPath, onWindowControl,
     onWorkspaceDividerPointer, onTabControl, onRuntimeWindowPlacement,
     onTabReload, lifecycleEpoch, onCommandError, runtimeForegroundProbe,
-    onRuntimeTabFullscreen, runtimeShortcutOwner, onRuntimeTabQuickAccess,
+    runtimeShortcutOwner, onRuntimeTabQuickAccess,
     readCursorScreenPoint);
   }
 
@@ -915,6 +906,7 @@ implements ChromiumRuntimeHostFactoryPort {
     record.listeners = {
       pageTitleUpdated: (event) => event.preventDefault(),
       beforeInputEvent: (event, input) => {
+        preserveChromiumFunctionKeyInput(record.contents, input);
         if (isChromiumRoleQuickAccessShortcut(input, "win32")) {
           event.preventDefault();
           if (input.type === "keyDown" && !input.isAutoRepeat) {
@@ -922,13 +914,6 @@ implements ChromiumRuntimeHostFactoryPort {
           }
           return;
         }
-        if (!isChromiumRoleFullscreenShortcut(input, "win32")) return;
-        // Sole owner of F11 for this document: suppress both halves above
-        // Chromium's default BrowserWindow toggle so the Core-owned
-        // presentation command stays the only path into fullscreen.
-        event.preventDefault();
-        if (input.type !== "keyDown" || input.isAutoRepeat) return;
-        this.#dispatchRuntimeFullscreenShortcut(record);
       },
       beforeMouseEvent: windowsRuntimePointerLeave(record.chrome, () =>
         record.state === "active" && !record.native.isDestroyed() &&
@@ -1131,8 +1116,8 @@ implements ChromiumRuntimeHostFactoryPort {
   #installRuntimeShortcutOwner(record: WindowsHostRecord): void {
     if (!this.#runtimeShortcutOwner) return;
     // The owner supplies physical-input evidence for the exact HWND. It
-    // captures no key: F11 and Quick Access are owned above page delivery by
-    // the before-input-event handlers on this host and on each Role surface.
+    // captures no key. Quick Access has a separate before-input-event owner;
+    // function keys remain available to the focused game and its Macros.
     const receipt = this.#runtimeShortcutOwner.registerWindowsRuntimeShortcutOwner(
       Buffer.from(record.nativeHandle),
       record.ownerRevision
@@ -1178,28 +1163,6 @@ implements ChromiumRuntimeHostFactoryPort {
       if (!tabId) throw hostError("ELECTRON_RUNTIME_HOST_QUICK_ACCESS_TARGET_UNAVAILABLE",
         "The Windows Quick Access shortcut has no exact active runtime tab.");
       this.#onRuntimeTabQuickAccess(tabId);
-    } catch (error) {
-      this.#onCommandError(error);
-    }
-  }
-
-  #dispatchRuntimeFullscreenShortcut(record: WindowsHostRecord): void {
-    if (
-      record.state !== "active" || record.native.isDestroyed() ||
-      this.#activeByLogicalWindow.get(record.logicalWindowId) !== record ||
-      this.#ownerByNativeId.get(record.nativeId) !== record
-    ) {
-      return;
-    }
-    try {
-      const tabId = record.chrome.readActiveTabId();
-      if (!tabId) {
-        throw hostError(
-          "ELECTRON_RUNTIME_HOST_FULLSCREEN_TARGET_UNAVAILABLE",
-          "The Windows fullscreen shortcut has no exact active runtime tab."
-        );
-      }
-      this.#onRuntimeTabFullscreen(tabId);
     } catch (error) {
       this.#onCommandError(error);
     }
@@ -1522,7 +1485,6 @@ implements ChromiumRuntimeHostFactoryPort {
           input.lifecycleEpoch,
           input.onError,
           input.runtimeForegroundProbe,
-          input.onRuntimeTabFullscreen,
           input.runtimeShortcutOwner,
           input.onRuntimeTabQuickAccess,
           input.readCursorScreenPoint,

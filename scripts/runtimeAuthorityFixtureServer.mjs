@@ -272,6 +272,8 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     #qa-target { position: fixed; left: 50%; top: 50%; z-index: 2; margin: 0; transform: translate(-50%, -50%); }
     #qa-target[hidden] { display: none; }
     #qa-target.contained-fullscreen-layout { position: static; transform: none; }
+    #canvas-blur-button { position: fixed; left: 24px; top: 80px; z-index: 5; width: 240px; height: 40px; margin: 0; line-height: normal; }
+    #canvas-blur-button[hidden] { display: none; }
     #active-navigation-failure { position: fixed; left: 50%; bottom: 24px; z-index: 3; height: 56px; margin: 0; transform: translateX(-50%); line-height: normal; }
     #active-navigation-failure[hidden] { display: none; }
     #contained-fullscreen-controls { padding: 18px; border: 1px solid #5eead4; border-radius: 12px; background: #0e1522; }
@@ -291,6 +293,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
 </head>
 <body>
   <input id="tab-focus-input" aria-label="Tab focus text" hidden style="position:fixed;left:24px;top:24px;z-index:5;width:240px;height:40px">
+  <button id="canvas-blur-button" type="button" hidden>Focus game control</button>
   <canvas id="game-input-canvas" tabindex="0"></canvas>
   <main>
     <h1>[Runtime QA] <span id="role-id"></span></h1>
@@ -336,6 +339,9 @@ function rolePage(roleId, sessionMode, sessionMarker) {
   <script>
     const roleId = ${safeRoleId};
     document.querySelector("#tab-focus-input").hidden = !roleId.startsWith("chromium-tabs-focus-") &&
+      new URL(location.href).searchParams.get("resetConsumerInputOnCanvasBlur") !== "1";
+    // Unlike the macro click target, this control retains native button focus.
+    document.querySelector("#canvas-blur-button").hidden =
       new URL(location.href).searchParams.get("resetConsumerInputOnCanvasBlur") !== "1";
     const counts = { click: 0, keydown: 0, focus: 0, visibility: 0 };
     const sessionKey = "rion-e2e-session";

@@ -397,7 +397,7 @@ describe("Chromium Macro background-tab exact replacement", () => {
       mainWindowHandle: context.mainWindowHandle, windowId: WINDOW_ID, processId: probe.processId
     });
     if (context.platform === "windows") {
-      for (const selector of ["#tab-focus-input", "#qa-target"] as const) await exerciseWindowsHeldCanvasBlur({
+      for (const selector of ["#tab-focus-input", "#canvas-blur-button"] as const) await exerciseWindowsHeldCanvasBlur({
         role: scenario.roles[0], fixtureId: ROLE_A_FIXTURE, mainWindowHandle: context.mainWindowHandle,
         windowId: WINDOW_ID, processId: probe.processId, firstHold, selector
       });

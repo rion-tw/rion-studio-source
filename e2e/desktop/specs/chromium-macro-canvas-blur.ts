@@ -14,7 +14,7 @@ import { writeChromiumMacroEvidence } from "./chromium-macro-cutover-support";
 export async function exerciseWindowsHeldCanvasBlur(input: {
   role: Role; fixtureId: string; mainWindowHandle: string; windowId: string; processId: number;
   firstHold: ElectronDesktopE2eTrustedInputObservation;
-  selector: "#tab-focus-input" | "#qa-target";
+  selector: "#tab-focus-input" | "#canvas-blur-button";
 }): Promise<void> {
   const point = await readVisibleElectronPageElementPoint(
     input.role.launchUrl!, input.mainWindowHandle, input.selector

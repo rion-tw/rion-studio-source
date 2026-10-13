@@ -46,7 +46,8 @@ export async function exerciseCompatibleAltShortcuts(input: Readonly<{
       events = (await Promise.all(["consumer-keydown", "consumer-keyup"].map(kind =>
         fixtureEvents({ afterSequence, roleId: input.fixtureRoleId, kind })))).flat()
         .sort((left, right) => left.sequence - right.sequence);
-      return events.some(event => event.kind === "consumer-keyup" && event.code === "Digit3");
+      return ["Digit1", "Digit3"].every(code =>
+        events.some(event => event.kind === "consumer-keyup" && event.code === code));
     }, { timeout: 20_000, timeoutMsg: "Alt+1 did not complete its compatible Alt+3 output" });
     for (const code of ["Digit1", "Digit3"]) {
       for (const kind of ["consumer-keydown", "consumer-keyup"]) {

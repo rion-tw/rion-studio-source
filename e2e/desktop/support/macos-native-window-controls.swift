@@ -78,8 +78,10 @@ if command == "geometry" || command == "fullscreenGeometry" {
 guard let source = CGEventSource(stateID: .hidSystemState) else {
   fail("exact native window pointer source invalid")
 }
+// The titlebar center can be an interactive tab in a narrow CI display.
+// AppKit reserves the final 12 points as a draggable strip; use its center.
 let start = command == "drag"
-  ? CGPoint(x: point.x + extent.width / 2, y: point.y + 16)
+  ? CGPoint(x: point.x + extent.width - 6, y: point.y + 20)
   : CGPoint(x: point.x + extent.width - 2, y: point.y + extent.height - 2)
 var delta = command == "drag" ? CGPoint(x: 64, y: 38) : CGPoint(x: 72, y: 48)
 if command == "drag" && CommandLine.arguments.count == 6 {
@@ -87,19 +89,25 @@ if command == "drag" && CommandLine.arguments.count == 6 {
         x.isFinite, y.isFinite else { fail("native drag delta invalid") }
   delta = CGPoint(x: x, y: y)
 }
+var previous = CGEvent(source: nil)?.location ?? start
 func post(_ type: CGEventType, _ point: CGPoint) {
   guard let event = CGEvent(mouseEventSource: source, mouseType: type,
                             mouseCursorPosition: point, mouseButton: .left) else {
     fail("native window pointer event unavailable")
   }
+  event.setIntegerValueField(.mouseEventDeltaX, value: Int64((point.x - previous.x).rounded()))
+  event.setIntegerValueField(.mouseEventDeltaY, value: Int64((point.y - previous.y).rounded()))
+  previous = point
   event.flags = []
   event.setIntegerValueField(.mouseEventClickState, value: 1)
   event.post(tap: .cghidEventTap)
 }
 post(.mouseMoved, start)
+usleep(75_000) // Deliver the physical pointer move before capture begins.
 post(.leftMouseDown, start)
+usleep(75_000)
 for step in 1...10 {
-  usleep(20_000) // Pace the physical gesture; does not establish domain completion.
+  usleep(60_000) // Pace the physical gesture; does not establish domain completion.
   post(.leftMouseDragged, CGPoint(x: start.x + delta.x * CGFloat(step) / 10,
                                  y: start.y + delta.y * CGFloat(step) / 10))
 }

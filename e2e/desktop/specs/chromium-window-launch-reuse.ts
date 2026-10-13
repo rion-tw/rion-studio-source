@@ -49,13 +49,19 @@ export async function exerciseWindowLaunchReuse(input: {
     await browser.waitUntil(async () => (await rendererCall("getEmbeddedRuntimeState")).windows
       .find(window => window.id === windowId)?.presentation === "normal", { timeout: 20_000 });
     const geometry = (await electronDesktopE2eGameWindowRuntime(windowId)).currentRuntime!.nativeDisplay;
-    await macosNativeWindowControl("drag", windowId, {
+    const drag = await macosNativeWindowControl("drag", windowId, {
       x: geometry.workArea.x - geometry.bounds.x - 120, y: 0
     });
-    await browser.waitUntil(async () => {
-      const native = (await electronDesktopE2eGameWindowRuntime(windowId)).currentRuntime!.nativeDisplay;
-      return native.bounds.x < native.workArea.x;
-    }, { timeout: 20_000, timeoutMsg: "The physical drag did not cross the display work-area edge" });
+    let dragged = geometry;
+    try {
+      await browser.waitUntil(async () => {
+        dragged = (await electronDesktopE2eGameWindowRuntime(windowId)).currentRuntime!.nativeDisplay;
+        return dragged.bounds.x < dragged.workArea.x;
+      }, { timeout: 20_000, timeoutMsg: "The physical drag did not cross the display work-area edge" });
+    } finally {
+      await writeFile(resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "window-launch-drag-evidence.json"),
+        JSON.stringify({ before: geometry, after: dragged, nativeSubmission: drag }, null, 2));
+    }
   }
   const evidence: unknown[] = [{ stage: "before-presentation-change", before }];
   for (const role of roles.slice(1)) {

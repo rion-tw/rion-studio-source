@@ -206,6 +206,16 @@ load is `indeterminate` and blocks Role navigation until its exact extension is
 observed and unloaded. Normal release remains `EventBound` on the exact
 `extension-unloaded` event.
 
+The exact Session's native extension registry authorizes compatibility event
+listeners. Fire-and-forget listener IPC from an unregistered extension or a
+foreign origin is rejected without throwing through Electron's main-process
+event emitter. Native unload retires the observed frame/worker identities,
+including hosts that already removed their subscriptions, so queued old IPC
+cannot register or remove a replacement load's listeners. A worker wake may
+deliver an event only while its original subscription remains admitted; unload
+or explicit removal cancels that pending delivery. No late listener is queued
+for replay and none of these rejections promotes bootstrap to ready.
+
 Committed Role moves propagate the exact old/new native parent and unchanged
 WebContents/Session handle to the compatibility owner. Pending preparation uses
 the new parent; registered tabs update their parent and cached queries without

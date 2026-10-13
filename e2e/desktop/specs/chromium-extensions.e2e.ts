@@ -1,5 +1,5 @@
 import { verifyTemporaryWindowTitle } from "../support/temporary-window-title";
-import { extensionTerminalIds, expectExtensionPassedClassification, verifyExtensionPermissionsAfterRestart } from "../support/extensions-permissions";
+import { assertNoExtensionMainProcessException, extensionTerminalIds, expectExtensionPassedClassification, verifyExtensionPermissionsAfterRestart } from "../support/extensions-permissions";
 import { storeDetailLinkSelector, verifyBusterStoreNavigation } from "../support/extensions-store-navigation";
 import { join } from "node:path";
 import { $, browser, expect } from "@wdio/globals";
@@ -172,6 +172,7 @@ describe("Extensions store and per-role configuration", () => {
         timeoutMsg: "The extension Role did not stop and retire its last native window"
       });
       expect(await runtimeTabShellErrors()).toEqual([]);
+      assertNoExtensionMainProcessException();
       expect((await electronDesktopE2eProbe()).processId).toBe(probe.processId);
       const previousTerminals = await extensionTerminalIds();
       await $(`[data-selection-id='${future.id}']`)
@@ -226,6 +227,7 @@ describe("Extensions store and per-role configuration", () => {
         timeoutMsg: "The reopened extension Role did not release before restart"
       });
       expect(await runtimeTabShellErrors()).toEqual([]);
+      assertNoExtensionMainProcessException();
     } else if (phase === "chromium-extensions-restart") {
       await expect(sidebar.$("button*=Extensions")).toHaveText(/^Extensions\s*1$/);
       const snapshot = (await rendererCall("extensions", { type: "snapshot" })).snapshot;

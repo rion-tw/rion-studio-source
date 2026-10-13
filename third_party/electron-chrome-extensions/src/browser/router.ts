@@ -33,12 +33,17 @@ const validRouteName = (value: unknown, maximum: number) =>
 
 const extensionOrigin = (extensionId: string) => `chrome-extension://${extensionId}/`
 
-const assertAuthorizedExtensionSender = (event: IpcAnyEvent, extensionId: string) => {
+const isAuthorizedExtensionSender = (event: IpcAnyEvent, extensionId: string) => {
   const expected = extensionOrigin(extensionId)
+  if (event.type === 'frame' && event.sender.isDestroyed()) return false
   const actual = event.type === 'service-worker'
     ? event.serviceWorker.scope
     : event.senderFrame?.url || event.sender.getURL()
-  if (!actual?.startsWith(expected)) throw new Error('RION_EXTENSION_IPC_SENDER_MISMATCH')
+  return actual?.startsWith(expected) === true
+}
+
+const assertAuthorizedExtensionSender = (event: IpcAnyEvent, extensionId: string) => {
+  if (!isAuthorizedExtensionSender(event, extensionId)) throw new Error('RION_EXTENSION_IPC_SENDER_MISMATCH')
 }
 
 const assertBoundedArguments = (args: any[]) => {
@@ -129,7 +134,9 @@ class RoutingDelegate {
 
   private onAddListener = (event: IpcAnyEvent, extensionId: string, eventName: string) => {
     if (!validRouteName(eventName, MAX_EVENT_NAME_LENGTH)) return
-    assertAuthorizedExtensionSender(event, extensionId)
+    // These notifications have no reply channel. Reject invalid or retired
+    // senders without throwing out of Electron's main-process EventEmitter.
+    if (!isAuthorizedExtensionSender(event, extensionId)) return
     const observer = this.sessionMap.get(getSessionFromEvent(event))
     const listener: EventListener =
       event.type === 'frame'
@@ -141,17 +148,18 @@ class RoutingDelegate {
         : {
             type: event.type,
             extensionId,
+            host: event.serviceWorker,
           }
     return observer?.addListener(listener, extensionId, eventName)
   }
 
   private onRemoveListener = (
-    event: Electron.IpcMainInvokeEvent,
+    event: IpcAnyEvent,
     extensionId: string,
     eventName: string,
   ) => {
     if (!validRouteName(eventName, MAX_EVENT_NAME_LENGTH)) return
-    assertAuthorizedExtensionSender(event, extensionId)
+    if (!isAuthorizedExtensionSender(event, extensionId)) return
     const observer = this.sessionMap.get(getSessionFromEvent(event))
     const listener: EventListener =
       event.type === 'frame'
@@ -163,6 +171,7 @@ class RoutingDelegate {
         : {
             type: event.type,
             extensionId,
+            host: event.serviceWorker,
           }
     return observer?.removeListener(listener, extensionId, eventName)
   }
@@ -204,7 +213,7 @@ type EventName = string
 type HandlerMap = Map<EventName, Handler>
 
 type FrameEventListener = { type: 'frame'; host: Electron.WebContents; extensionId: string }
-type SWEventListener = { type: 'service-worker'; extensionId: string }
+type SWEventListener = { type: 'service-worker'; host: Electron.ServiceWorkerMain; extensionId: string }
 type EventListener = FrameEventListener | SWEventListener
 
 const getHostId = (host: FrameEventListener['host']) => host.id
@@ -232,6 +241,8 @@ export class ExtensionRouter {
   private extensionHosts: Set<Electron.WebContents> = new Set()
 
   private extensionWorkers: Set<any> = new Set()
+  private retiredHosts: WeakSet<ExtensionSender> = new WeakSet()
+  private listenerHosts: Map<string, Set<ExtensionSender>> = new Map()
 
   constructor(
     public session: Electron.Session,
@@ -241,6 +252,16 @@ export class ExtensionRouter {
 
     const sessionExtensions = session.extensions || session
     sessionExtensions.on('extension-unloaded', (event, extension) => {
+      // Preserve retirement across a later load of the same extension ID.
+      // A queued old worker/frame IPC must never mutate the replacement.
+      for (const host of this.listenerHosts.get(extension.id) ?? []) this.retiredHosts.add(host)
+      this.listenerHosts.delete(extension.id)
+      for (const worker of this.extensionWorkers) {
+        if (worker.scope === extensionOrigin(extension.id)) {
+          this.retiredHosts.add(worker)
+          this.extensionWorkers.delete(worker)
+        }
+      }
       this.filterListeners((listener) => listener.extensionId !== extension.id)
     })
 
@@ -262,7 +283,7 @@ export class ExtensionRouter {
         const { scope } = serviceWorker
         if (!scope.startsWith('chrome-extension:')) return
 
-        if (this.extensionHosts.has(serviceWorker)) {
+        if (this.extensionWorkers.has(serviceWorker)) {
           d('extension worker running status changed to %s', runningStatus)
         } else {
           d('storing reference to extension background service worker')
@@ -295,6 +316,7 @@ export class ExtensionRouter {
     host.once('destroyed', () => {
       d(`extension host destroyed [id:${hostId}]`)
       this.filterListeners((listener) => listener.type !== 'frame' || listener.host !== host)
+      for (const hosts of this.listenerHosts.values()) hosts.delete(host)
     })
   }
 
@@ -304,8 +326,13 @@ export class ExtensionRouter {
     const sessionExtensions = session.extensions || session
     const extension = sessionExtensions.getExtension(extensionId)
     if (!extension) {
-      throw new Error(`extension not registered in session [extensionId:${extensionId}]`)
+      this.retiredHosts.add(listener.host)
+      return
     }
+    if (this.retiredHosts.has(listener.host)) return
+    const hosts = this.listenerHosts.get(extensionId) ?? new Set<ExtensionSender>()
+    hosts.add(listener.host)
+    this.listenerHosts.set(extensionId, hosts)
 
     if (!listeners.has(eventName)) {
       listeners.set(eventName, [])
@@ -326,6 +353,7 @@ export class ExtensionRouter {
   }
 
   removeListener(listener: EventListener, extensionId: string, eventName: string) {
+    if (this.retiredHosts.has(listener.host)) return
     const { listeners } = this
 
     const eventListeners = listeners.get(eventName)
@@ -440,6 +468,10 @@ export class ExtensionRouter {
         this.session.serviceWorkers
           .startWorkerForScope(scope)
           .then((serviceWorker) => {
+            // The asynchronous wake may complete after unload/reload or remove.
+            // Only the original still-admitted subscription authorizes delivery.
+            if (!this.listeners.get(eventName)?.includes(listener) ||
+                this.retiredHosts.has(serviceWorker)) return
             serviceWorker.send(ipcName, ...args)
           })
           .catch((error) => {

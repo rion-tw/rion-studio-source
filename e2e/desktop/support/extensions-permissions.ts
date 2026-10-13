@@ -1,4 +1,6 @@
 import { $, browser } from "@wdio/globals";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { rendererCall } from "./renderer-bridge";
 import { waitForRoute } from "./ui";
 import { electronDesktopE2eProbe } from "./electron-driver";
@@ -6,6 +8,14 @@ import { closeVisibleRuntimeTab } from "./native-runtime-tabs";
 import { selectMacosVisibleRuntimeTabMenuAction } from "./macos-appkit-ui";
 
 const EXTENSION_ID = "gighmmpiobklfepjocnamgkkbiglidom";
+
+export function assertNoExtensionMainProcessException(): void {
+  const directory = process.env.RION_STUDIO_E2E_ARTIFACT_DIR;
+  if (!directory) throw new Error("The extension journey has no main-process evidence directory");
+  if (existsSync(join(directory, "electron-uncaught-main-error.json"))) {
+    throw new Error("Extension lifecycle raised an uncaught main-process exception; see electron-uncaught-main-error.json");
+  }
+}
 
 export async function extensionTerminalIds(): Promise<string[]> {
   const page = await rendererCall("queryLogs", { sources: ["extension"], limit: 200 });
@@ -40,6 +50,7 @@ export async function expectExtensionPassedClassification(roleId: string, previo
 
   }, { timeout: 90_000, timeoutMsg: "AdBlock did not reach native worker running and compatibility readiness" });
   if (terminalFailure) throw new Error(`AdBlock native extension readiness failed: ${terminalFailure}`);
+  assertNoExtensionMainProcessException();
 }
 
 export async function verifyExtensionPermissionsAfterRestart(): Promise<void> {
@@ -65,6 +76,7 @@ export async function verifyExtensionPermissionsAfterRestart(): Promise<void> {
   await browser.switchToWindow(main);
   await browser.waitUntil(async () => !(await rendererCall("extensions", { type: "snapshot" })).snapshot.roles
     .some(candidate => candidate.roleId === role.id), { timeout: 30_000 });
+  assertNoExtensionMainProcessException();
   await $(".app-main-sidebar").$("button*=Extensions").click();
   await waitForRoute("/extensions");
 }

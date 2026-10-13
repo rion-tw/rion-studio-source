@@ -44,6 +44,8 @@ interface WindowsRuntimeHostChromeNativePort {
     y: number;
   }>;
   isDestroyed: () => boolean;
+  isFocused: () => boolean;
+  focus: () => void;
   isFullScreen: () => boolean;
   isMaximized: () => boolean;
   isMinimized: () => boolean;
@@ -1151,16 +1153,27 @@ export class WindowsRuntimeHostChromeController {
     const current = nativePresentation(this.#native);
     if (desired === "fullscreen") {
       pending.expectedEvent = "enteredFullscreen";
-      this.#native.setFullScreen(true);
+      this.#setNativeFullscreen(true);
     } else if (current === "fullscreen") {
       pending.expectedEvent = "leftFullscreen";
-      this.#native.setFullScreen(false);
+      this.#setNativeFullscreen(false);
     } else if (desired === "maximized") {
       pending.expectedEvent = "maximized";
       this.#native.maximize();
     } else {
       pending.expectedEvent = "unmaximized";
       this.#native.unmaximize();
+    }
+  }
+
+  #setNativeFullscreen(fullscreen: boolean): void {
+    const focused = this.#native.isFocused();
+    this.#native.setFullScreen(fullscreen);
+    // Windows frame restoration can deactivate the foreground widget. Preserve
+    // focus only within this synchronous native mutation; a later user blur or
+    // a presentation change of a background host never authorizes activation.
+    if (focused && !this.#native.isDestroyed() && !this.#native.isFocused()) {
+      this.#native.focus();
     }
   }
 

@@ -41,6 +41,7 @@ function projection(active = tabId) {
 function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>, initialWorkspaceBackground: "black" | "material" = "material", initialWindowName = "") {
   const state = {
     destroyed: false,
+    focused: true,
     fullscreen: false,
     maximized: false,
     minimized: false,
@@ -49,6 +50,8 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
   const native = {
     getContentBounds: () => ({ height: 680, width: 960, x: 100, y: 80 }),
     isDestroyed: () => state.destroyed,
+    isFocused: () => state.focused,
+    focus: vi.fn(() => { state.focused = true; }),
     isFullScreen: () => state.fullscreen,
     isMaximized: () => state.maximized,
     isMinimized: () => state.minimized,
@@ -1217,6 +1220,30 @@ describe("Windows runtime-host chrome controller", () => {
       type: "toggleFullscreen", windowId, projectionRevision: projectionRevision - 1
     })).rejects.toMatchObject({ code: "ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE" });
     expect(subject.requestWindowControl).toHaveBeenCalledOnce();
+  });
+
+  it.each([true, false])("preserves only synchronous foreground fullscreen transitions (focused=%s)", async focused => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    for (const fullscreen of [true, false]) {
+      subject.state.focused = focused;
+      subject.native.focus.mockClear();
+      subject.native.setFullScreen.mockImplementation(value => {
+        subject.state.fullscreen = value;
+        subject.state.focused = false;
+      });
+      const terminal = subject.controller.setPresentation({
+        windowId, windowGeneration: 1, topologyRevision: 1,
+        presentation: fullscreen ? "fullscreen" : "normal"
+      });
+      expect(subject.native.focus).toHaveBeenCalledTimes(focused ? 1 : 0);
+      // A user who switches away after the native call must retain that focus.
+      subject.state.focused = false;
+      await subject.controller.nativePresentationChanged(fullscreen ? "enteredFullscreen" : "leftFullscreen");
+      await terminal;
+      expect(subject.state.focused).toBe(false);
+      expect(subject.native.focus).toHaveBeenCalledTimes(focused ? 1 : 0);
+    }
   });
 
   it("terminalizes fullscreen only from native events and relayouts reveal/pin live", async () => {

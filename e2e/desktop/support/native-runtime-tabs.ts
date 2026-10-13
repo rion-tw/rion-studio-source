@@ -1,4 +1,5 @@
 import { selectWindowsNativeMenuItem } from "./windows-native-menu";
+import { resizeWorkspaceWindow } from "./workspace-window-resize";
 import { runtimeTabMenuLabels } from "../../../src/shared/runtimeTabMenuLabels";
 import type { AppLanguage } from "../../../src/shared/types";
 import { revealWindowsRuntimeTab } from "./windows-runtime-tab-scroll";
@@ -797,57 +798,24 @@ export async function resizeVisibleWindowsRuntimeWindow(input: Readonly<{
     throw new Error("The exact Windows runtime resize delta is invalid");
   }
   const processId = (await electronDesktopE2eProbe()).processId;
-  await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
+  const nativeHandle = await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
     const controlName = await $(`.runtime-tab[data-tab-id='${input.tabId}'] .runtime-tab-close`)
       .getAttribute("aria-label");
     if (!controlName) throw new Error("The exact resize tab control has no accessible name");
-    const evidence = await readWindowsRuntimeTabCloseEvidence({
+    return (await readWindowsRuntimeTabCloseEvidence({
       processId, tabId: input.tabId, windowId: input.windowId, controlName
-    });
-    const script = String.raw`
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class RionExactVisibleResize {
-  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
-  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr value);
-  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr handle, out RECT rect);
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr handle, out uint process);
-  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr handle);
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr handle);
-  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
-}
-'@
-[RionExactVisibleResize]::SetThreadDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
-$handle = [IntPtr]::new([long]$payload.nativeHandle)
-$owner = [uint32]0
-[RionExactVisibleResize]::GetWindowThreadProcessId($handle, [ref]$owner) | Out-Null
-if ($owner -ne [uint32]$payload.processId) { throw 'The exact resize HWND owner changed' }
-[RionExactVisibleResize]::SetForegroundWindow($handle) | Out-Null
-if ([RionExactVisibleResize]::GetForegroundWindow() -ne $handle) { throw 'The exact resize window did not gain foreground' }
-$rect = New-Object RionExactVisibleResize+RECT
-if (-not [RionExactVisibleResize]::GetWindowRect($handle, [ref]$rect)) { throw 'The exact resize window has no native rectangle' }
-$scale = [RionExactVisibleResize]::GetDpiForWindow($handle) / 96.0
-if ($scale -le 0) { throw 'The exact resize window has no native DPI' }
-$right = $rect.Right
-$bottom = $rect.Bottom
-$deltaWidth = [int]([int]$payload.deltaWidth * $scale)
-$deltaHeight = [int]([int]$payload.deltaHeight * $scale)
-[RionExactVisibleResize]::SetCursorPos($right - 2, $bottom - 2) | Out-Null
-[RionExactVisibleResize]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
-[RionExactVisibleResize]::SetCursorPos($right + $deltaWidth, $bottom + $deltaHeight) | Out-Null
-[RionExactVisibleResize]::mouse_event(0x0001, 0, 0, 0, [UIntPtr]::Zero)
-[RionExactVisibleResize]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
-`;
-    await runEncodedPowerShellJson(script, {
-      nativeHandle: evidence.nativeHandle,
-      processId,
-      deltaHeight: input.deltaHeight,
-      deltaWidth: input.deltaWidth
-    }, { timeoutMilliseconds: 10_000 });
+    })).nativeHandle;
   });
+  const inspection = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
+  if (inspection.nativeWindowHandle !== nativeHandle) throw new Error("The exact resize host changed");
+  // The initial bottom/right border can be outside a small CI work area. These
+  // callers shrink from the visible left/top edges, with native input receipts.
+  for (const [edge, move] of [
+    ["left", { x: -input.deltaWidth, y: 0 }],
+    ["top", { x: 0, y: -input.deltaHeight }]
+  ] as const) {
+    await resizeWorkspaceWindow({ inspection, edge, moves: [move], whileHeld: async () => {} });
+  }
 }
 
 /** Resizes the visible native window by dragging its OS-native lower-right edge. */

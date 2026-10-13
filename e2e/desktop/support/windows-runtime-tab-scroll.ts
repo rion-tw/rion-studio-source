@@ -19,8 +19,7 @@ export async function revealWindowsRuntimeTab(tabId: string): Promise<void> {
         throw new Error("The required visible tab overflow control is unavailable");
       }
     }
-    return { direction, point, scrollLeft: row.scrollLeft,
-      steps: Math.ceil(row.scrollWidth / Math.max(120, row.clientWidth * 0.75)) + 1 };
+    return { direction, point, scrollLeft: row.scrollLeft, steps: row.children.length };
   }, tabId);
   let state = await inspect();
   const limit = state.steps;
@@ -28,10 +27,14 @@ export async function revealWindowsRuntimeTab(tabId: string): Promise<void> {
     await browser.action("pointer", { parameters: { pointerType: "mouse" } })
       .move({ origin: "viewport", ...state.point! }).down({ button: 0 }).up({ button: 0 }).perform(true);
     const previous = state.scrollLeft;
+    const direction = state.direction;
     await browser.waitUntil(async () => {
       state = await inspect();
       return state.direction === null || Math.abs(state.scrollLeft - previous) > 1;
     }, { timeout: 3_000, timeoutMsg: "The visible overflow click did not scroll its tab strip" });
+    if (state.direction && state.direction !== direction) {
+      throw new Error("The visible overflow button skipped the requested tab's fully visible position");
+    }
   }
   if (state.direction) throw new Error("Visible overflow clicks did not reveal the exact tab");
 }

@@ -14,7 +14,15 @@ export function createRuntimeTabToolbar(tabs: HTMLElement, open: () => void, geo
     return control;
   };
   const scroll = (direction: number) => {
-    tabs.scrollLeft += direction * Math.max(120, tabs.clientWidth * 0.75);
+    const row = tabs.getBoundingClientRect();
+    const bounds = [...tabs.children].map(tab => tab.getBoundingClientRect());
+    // A fixed page increment can skip the only position that fully reveals a
+    // middle tab in a narrow strip. Advance to the nearest clipped tab edge.
+    const next = direction < 0
+      ? bounds.reverse().find(rect => rect.left < row.left - 1)
+      : bounds.find(rect => rect.right > row.right + 1);
+    if (!next) return;
+    tabs.scrollLeft += direction < 0 ? next.left - row.left : next.right - row.right;
     update();
     geometry();
   };

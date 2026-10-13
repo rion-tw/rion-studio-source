@@ -39,7 +39,8 @@ import {
   closeVisibleRuntimeTab,
   readVisibleMacosRuntimeTabCloseEvidence,
   readVisibleWindowsRuntimeTabCloseEvidence,
-  shiftClickVisibleMacosScreenPoint
+  shiftClickVisibleMacosScreenPoint,
+  visibleRuntimeTabPhase
 } from "../support/native-runtime-tabs";
 import { focusVisibleMacosAppKitRuntime } from
   "../support/native-application-actions";
@@ -1208,6 +1209,14 @@ async function runPhase(
   );
   const sessionCursor = await fixtureCursor();
   const launched = await launchWorkspace(workspace, role);
+  // A running Role and visible host can precede the Workspace's ready event.
+  // Establish the native ready precondition before recording strict evidence.
+  await browser.waitUntil(async () => await visibleRuntimeTabPhase({
+    ...launched, platform, tabName: workspace.name
+  }) === "ready", {
+    timeout: 20_000,
+    timeoutMsg: "The fullscreen Workspace did not publish its native ready phase"
+  });
   if (!restart) {
     const entrance = await electronDesktopE2eWorkspaceWebRuntime(launched.windowId);
     expect(entrance.web.contentUrl).toBe("rion-start://home/");

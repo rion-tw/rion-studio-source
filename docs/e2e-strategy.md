@@ -248,7 +248,9 @@ That verdict is replaced by the paired
 `CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017` journeys. Their shared spec
 clicks the real controls in the remote global-Web Chromium document and submits
 Escape through an exact-PID native keyboard event after WebDriver proves that
-the target Chromium document owns focus. Read-only evidence must show the Rion-owned local
+the target Chromium document owns focus. Before the first strict fullscreen
+snapshot, the exact native tab must report ready; Role running and host visibility
+can precede Workspace readiness. Read-only evidence must show the Rion-owned local
 chrome hidden while remote content exactly fills its existing slot, with the
 Core revision, sibling Role bounds, window bounds, and window presentation
 unchanged. The same visible flow repeats inside a Core-admitted controlled

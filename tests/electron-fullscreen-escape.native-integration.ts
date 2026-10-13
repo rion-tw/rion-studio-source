@@ -11,6 +11,11 @@ const require = createRequire(import.meta.url);
 it("exits contained HTML fullscreen through the exact ChromeDriver key helper", async () => {
   expect(["darwin", "win32"]).toContain(process.platform);
   const platform = process.platform === "win32" ? "windows" : "macos";
+  const startedAt = performance.now();
+  const stage = (name: string) => process.stderr.write(
+    `Fullscreen Escape ${platform} ${Math.round(performance.now() - startedAt)}ms: ${name}\n`
+  );
+  stage("starting ChromeDriver session");
   const driver = await remote({
     logLevel: "error", connectionRetryCount: 0, connectionRetryTimeout: 20_000,
     capabilities: {
@@ -23,6 +28,7 @@ it("exits contained HTML fullscreen through the exact ChromeDriver key helper", 
     }
   });
   try {
+    stage("finding visible fixture");
     await driver.waitUntil(async () => {
       for (const handle of await driver.getWindowHandles()) {
         await driver.switchToWindow(handle);
@@ -32,8 +38,10 @@ it("exits contained HTML fullscreen through the exact ChromeDriver key helper", 
     }, { timeout: 10_000 });
     const outcomes: { mode: string; fullscreen: boolean }[] = [];
     for (const mode of ["generic-w3c", "complete-key-codes"]) {
+      stage(`${mode}: entering fullscreen`);
       await (await driver.$("#enter")).click();
       await driver.waitUntil(() => driver.execute(() => !!document.fullscreenElement));
+      stage(`${mode}: submitting Escape`);
       if (mode === "generic-w3c") {
         await driver.action("key").down(Key.Escape).up(Key.Escape).perform();
       } else {
@@ -41,6 +49,7 @@ it("exits contained HTML fullscreen through the exact ChromeDriver key helper", 
         await driver.waitUntil(() => driver.execute(() => !document.fullscreenElement));
       }
       outcomes.push({ mode, fullscreen: await driver.execute(() => !!document.fullscreenElement) });
+      stage(`${mode}: observed ${JSON.stringify(outcomes.at(-1))}`);
       // Research-case cleanup only; the complete-key-codes assertion ran before this.
       await driver.execute(() => document.exitFullscreen().catch(() => {}));
     }
@@ -52,6 +61,8 @@ it("exits contained HTML fullscreen through the exact ChromeDriver key helper", 
         JSON.stringify({ platform, electron: require("electron/package.json").version, outcomes }, null, 2));
     }
   } finally {
+    stage("deleting ChromeDriver session");
     await driver.deleteSession();
+    stage("session deleted");
   }
 });

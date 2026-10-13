@@ -21,6 +21,8 @@ AXValueGetValue(size as! AXValue, .cgSize, &extent)
 let phase = input["phase"] as! String
 var point = CGPoint(x: (input["x"] as? NSNumber)?.doubleValue ?? 0, y: (input["y"] as? NSNumber)?.doubleValue ?? 0)
 var previousPoint = CGEvent(source: nil)!.location
+let initialPointer = previousPoint
+let initialExtent = extent
 func postMouse(_ type: CGEventType, _ target: CGPoint) {
   guard let event = CGEvent(mouseEventSource: source, mouseType: type,
                             mouseCursorPosition: target, mouseButton: .left) else {
@@ -45,19 +47,19 @@ if phase == "start" {
   if edge == "top" { point = CGPoint(x: origin.x + extent.width / 2, y: origin.y + 1) }
   postMouse(.mouseMoved, point)
 }
-if phase == "move" {
+if phase == "move" && input["rapid"] as? Bool == true {
   let previous = previousPoint
-  let rapid = input["rapid"] as? Bool ?? false
-  let fractions = rapid ? [0.25,0.9,0.4,1.0,0.25,1.0] : [1.0/6,2.0/6,3.0/6,4.0/6,5.0/6]
-  for fraction in fractions {
+  for fraction in [0.25,0.9,0.4,1.0,0.25,1.0] {
     let sample = CGPoint(x: previous.x + (point.x-previous.x)*fraction,
                          y: previous.y + (point.y-previous.y)*fraction)
     // Keep cursor position and physical deltas in one input stream. Warping
     // before each event can let AppKit consume a reversal without its movement.
     postMouse(.leftMouseDragged, sample)
-    usleep(rapid ? 8_000 : 30_000)
+    usleep(8_000)
   }
 }
+// Ordinary moves submit one complete physical delta. Interpolating a short
+// edge reversal allows AppKit to coalesce away a relative resize sample.
 usleep(50_000) // Input pacing only; assertions use native geometry and actual pixels.
 let type: CGEventType = phase == "start" ? .leftMouseDown : phase == "end" ? .leftMouseUp : .leftMouseDragged
 postMouse(type, point)
@@ -76,7 +78,7 @@ while true {
   if abs(extent.width - expected["x"]!.doubleValue) <= 1 &&
       abs(extent.height - expected["y"]!.doubleValue) <= 1 { break }
   if Date() >= deadline {
-    fatalError("native resize did not reach requested frame: \(expected), actual \(extent)")
+    fatalError("native resize did not reach requested frame: \(expected), actual \(extent), initial \(initialExtent), pointer \(initialPointer) -> \(point), edge \(input["edge"]!)")
   }
   // A busy AppKit run loop can coalesce the short initial drag stream before
   // its final sample is handled. Keep the real button-held stream at the exact

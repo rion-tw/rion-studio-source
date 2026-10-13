@@ -370,9 +370,17 @@ fn cancel_control(control: &InvocationControl) {
     control.cancelled.store(true, Ordering::Release);
     control.wake.1.notify_all();
     drop(_wake);
-    control.start_ready.1.notify_all();
-    control.first_iteration_roles.1.notify_all();
-    control.children.1.notify_all();
+    // Each condition has its own predicate-to-wait handoff. The atomic flag
+    // alone cannot prevent a notification between that check and parking.
+    if let Ok(_ready) = control.start_ready.0.lock() {
+        control.start_ready.1.notify_all();
+    }
+    if let Ok(_roles) = control.first_iteration_roles.0.lock() {
+        control.first_iteration_roles.1.notify_all();
+    }
+    if let Ok(_children) = control.children.0.lock() {
+        control.children.1.notify_all();
+    }
     if let Ok(barriers) = control.barriers.lock() {
         for barrier in barriers.values() {
             if let Ok(_state) = barrier.state.lock() {

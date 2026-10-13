@@ -200,7 +200,7 @@ classes from `WM_POWERBROADCAST`. These adapters report signals only; neither
 adapter defines ordering or terminal semantics.
 
 ## Shutdown rules
-Chromium keeps documents and the effect stream live until Core’s `macroInputFence` / `macroInputDrain` confirm each retained Role’s epoch; failed drains cannot mark clean exit.
+Chromium keeps documents and the effect stream live until Core’s `macroInputFence` / `macroInputDrain` confirm each retained Role’s epoch; failed drains cannot mark clean exit. Core cancellation publishes its flag and notifies each start, first-iteration, and child-completion condition under that condition’s mutex. A worker entering an event-bound wait must observe cancellation or receive its notification before releasing owned input and reaching terminality.
 
 Shutdown moves once through `accepting`, `draining`, and either `closed` or
 `indeterminate`. While draining, new launch, navigation, geometry, presentation,

@@ -14,3 +14,4 @@ include!("behavior_11_application_lifecycle_suspend.rs");
 include!("behavior_12_windows_held_key_continuity.rs");
 include!("behavior_13_source_role_execution.rs");
 include!("behavior_14_held_key_endurance.rs");
+include!("behavior_15_cancellation_handoff.rs");

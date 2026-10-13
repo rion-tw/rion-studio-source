@@ -27,6 +27,8 @@ export interface ChromiumRuntimeHostPort {
   readonly contentView: CreateChromiumRoleSurfaceInput["parent"]["contentView"];
   close: () => Promise<void>;
   focus: () => void;
+  /** Windows content responder while an explicitly selected tab is loading. Never activates the host. */
+  focusLocalChrome?: () => void;
   hide: () => void;
   getContentBounds: () => ChromiumRoleSurfaceBounds;
   readProjection: () => ChromiumRuntimeHostProjection;

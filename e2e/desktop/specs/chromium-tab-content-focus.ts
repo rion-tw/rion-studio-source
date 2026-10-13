@@ -90,7 +90,11 @@ export async function exerciseTabContentFocus(input: {
     const state = await fixtureState();
     for (const role of input.roles) {
       const id = new URL(role.launchUrl).pathname.split("/").at(-1)!;
-      expect((state[id]?.trustedPressedCodes ?? []).filter(code =>
+      // Windows focus cleanup releases the old page through the established
+      // compatible endpoint. Its DOM key state must clear; new input above must
+      // still be trusted. AppKit additionally proves its native release path.
+      const pressed = input.platform === "windows" ? state[id]?.pressedCodes : state[id]?.trustedPressedCodes;
+      expect((pressed ?? []).filter(code =>
         /^(Control|Shift)/.test(code))).toEqual([]);
     }
     evidence.push({ command: step.command, escape, key, activeTabId: selection.nativeWindow.activeTabId,

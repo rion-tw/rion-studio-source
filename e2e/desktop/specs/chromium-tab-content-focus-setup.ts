@@ -4,7 +4,8 @@ import { rendererCall } from "../support/renderer-bridge";
 import { clickEntityMenuAction, setEditorName, submitEditor, waitForRoute } from "../support/ui";
 import { closeVisibleRuntimeWindow } from "../support/native-runtime-tabs";
 import { exerciseTabContentFocus } from "./chromium-tab-content-focus";
-import { withMacosAnsiInputSource } from "../support/native-application-actions";
+import { pressVisibleWindowsApplicationShortcut, withMacosAnsiInputSource } from "../support/native-application-actions";
+import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eProbe } from "../support/electron-driver";
 
 /** Independent visible-UI setup keeps tab focus coverage separate from launch admission coverage. */
 export async function runTabFocusRegression(input: {
@@ -42,12 +43,25 @@ export async function runTabFocusRegression(input: {
   const window = await input.createWindow("Tab Content Focus Window");
   const tabIds: string[] = [];
   for (const role of roles) tabIds.push(await input.launchRole(role, window));
+  const failures: unknown[] = [];
   try {
     const exercise = () => exerciseTabContentFocus({ ...input, roles, tabIds, windowId: window.id });
     if (input.platform === "macos") await withMacosAnsiInputSource(exercise);
     else await exercise();
-  } finally {
+  } catch (error) { failures.push(error); }
+  try {
+    if (input.platform === "windows") {
+      const state = await electronDesktopE2eFullscreenToolbarRuntime(window.id);
+      if (state.presentation === "fullscreen") {
+        await pressVisibleWindowsApplicationShortcut({ command: "toggleFullscreen",
+          processId: (await electronDesktopE2eProbe()).processId,
+          nativeWindowHandle: state.nativeWindowHandle!, targetMode: "focused-runtime" });
+      }
+    }
     await closeVisibleRuntimeWindow({ platform: input.platform, mainWindowHandle: input.mainWindowHandle,
       windowId: window.id, tabId: tabIds.at(-1)!, tabName: roles.at(-1)!.name });
-  }
+  } catch (error) { failures.push(error); }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures,
+    `Tab focus regression and cleanup failed: ${failures.map(String).join("; ")}`);
 }

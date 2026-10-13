@@ -47,14 +47,23 @@ function foreground(window: ChromiumRuntimeWindowRecord, epoch?: number, nativeG
 }
 
 /** EventBound, content only: a user admission grants one responder handoff. */
-export function requestChromiumContentFocus(input: ContentFocusState, tabId: string): void {
+export function requestChromiumContentFocus(input: ContentFocusState, tabId: string,
+  projections: readonly EmbeddedRuntimeWindowProjectionRecord[] = []): void {
   const tab = input.tabs.get(tabId);
   if (!tab) return;
   tab.pendingContentFocus?.cancel();
   const window = input.windows.get(tab.windowId);
   if (!window || input.signal?.aborted || !foreground(window, input.lifecycleEpoch) ||
-      window.activeTabId !== tabId || window.hiddenTabIds.has(tabId) ||
-      tab.specification.workspaceId || tab.webViews.size !== 0 || tab.roleViews.size !== 1 ||
+      window.activeTabId !== tabId || window.hiddenTabIds.has(tabId)) return;
+  const projected = projections.find(item => item.windowId === tab.windowId &&
+    item.windowGeneration === window.windowGeneration && item.topologyRevision === window.topologyRevision);
+  const phase = projected?.tabPhases.find(item => item.tabId === tabId)?.phase;
+  if (!window.host.appKitIdentity && (phase === "loading" || phase === "attaching" || phase === "activating")) {
+    // Hiding the previous Role can leave the focused HWND without a Chromium
+    // responder. One explicit selection hands input to local chrome until ready.
+    window.host.focusLocalChrome?.();
+  }
+  if (tab.specification.workspaceId || tab.webViews.size !== 0 || tab.roleViews.size !== 1 ||
       !window.host.bindRuntimeWindowState) return;
   const slot = tab.specification.slots[0];
   if (!slot?.owner || tab.specification.slots.length !== 1) return;

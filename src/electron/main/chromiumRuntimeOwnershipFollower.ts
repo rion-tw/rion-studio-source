@@ -355,7 +355,7 @@ export async function followChromiumRuntimeOwnership(
           window.host.isVisible()
         );
       }
-      if (input.contentFocusTabId !== undefined) requestChromiumContentFocus(input, input.contentFocusTabId);
+      if (input.contentFocusTabId !== undefined) requestChromiumContentFocus(input, input.contentFocusTabId, input.projectedWindows);
       if (!input.signal?.aborted) handoffChromiumContentFocus(input, input.projectedWindows, input.projectedRoles);
       return undefined;
     }
@@ -404,7 +404,7 @@ export async function followChromiumRuntimeOwnership(
         }
         const focusedWindow = input.windows.get(input.focusWindowIds[0] ?? "");
         const focusedTab = input.tabs.get(input.focusTabId ?? focusedWindow?.activeTabId ?? "");
-        if (focusedTab) requestChromiumContentFocus(input, focusedTab.specification.tabId);
+        if (focusedTab) requestChromiumContentFocus(input, focusedTab.specification.tabId, input.projectedWindows);
         if (!input.signal?.aborted) handoffChromiumContentFocus(input, input.projectedWindows, input.projectedRoles);
       }
       return receipt;

@@ -841,6 +841,9 @@ implements ChromiumRuntimeHostFactoryPort {
       contentView: native.contentView,
       close: () => this.#close(record),
       focus: () => this.#withCurrent(record, () => native.focus()),
+      focusLocalChrome: () => this.#withCurrent(record, () => {
+        if (native.isFocused() && native.isVisible()) record.contents.focus();
+      }),
       hide: () => this.#withCurrent(record, () => native.hide()),
       getContentBounds: () => this.#contentBounds(record),
       readProjection: () => this.#withCurrent(

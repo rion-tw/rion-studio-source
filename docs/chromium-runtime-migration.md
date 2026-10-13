@@ -1144,11 +1144,18 @@ same content-only handoff restores the selected standalone Role WebContents,
 preserving its DOM focus target. Passive layout/restore projections and duplicate
 or superseded activations do not grant focus. Native blur/hide/close/failure,
 cancellation, a newer selection, or replaced ownership revokes pending handoff;
-readiness never reactivates a background host. Physical Ctrl+Tab/Shift release
-continues through the existing native modifier handoff. Windows main-process
+readiness never reactivates a background host. AppKit physical Ctrl+Tab/Shift
+release continues through the native modifier handoff; Windows retains the
+explicit untrusted focus-cleanup release in the old document. Tests require its
+observable DOM key state to clear and all subsequent physical input to remain
+trusted with neutral modifier flags. Windows main-process
 `before-input-event` owns Ctrl+Tab/Shift+Ctrl+Tab before the Role overlay or native
 menu fallback and uses this same exact selected-Role handoff, including a
-selection made while that Role is loading. No Escape interception
+selection made while that Role is loading. An explicit Windows selection of a
+loading tab focuses the same foreground host's local chrome once, so hiding the
+previous Role never strands keyboard navigation without a Chromium responder.
+Passive loading projections do not focus chrome; readiness retains the exact,
+revocable Role handoff. No Escape interception
 or DOM canvas focus is introduced.
 Missing persisted window names project as empty
 native titles on macOS and Windows. Windows shell document titles cannot replace

@@ -79,6 +79,7 @@ class FakeSession {
 }
 
 class FakeWebContents {
+  focus = vi.fn();
   setIgnoreMenuShortcuts = vi.fn();
   readonly session = new FakeSession();
   readonly listeners = new Map<string, Set<Listener>>();
@@ -456,6 +457,26 @@ const invalidRequestCases: Array<[
 ];
 
 describe("Windows Electron Chromium runtime-host factory", () => {
+  it("focuses only local chrome of an already focused visible host", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32", browserWindows: browserWindows.port, displays, runtimeDocumentPath
+    });
+    const creation = factory.create(target(), tab(target()));
+    const window = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, window);
+    host.focusLocalChrome!();
+    expect(window.webContents.focus).not.toHaveBeenCalled();
+    window.focused = true;
+    window.visible = true;
+    host.focusLocalChrome!();
+    expect(window.webContents.focus).toHaveBeenCalledOnce();
+    window.visible = false;
+    host.focusLocalChrome!();
+    expect(window.webContents.focus).toHaveBeenCalledOnce();
+    expect(window.focusCalls).toBe(0);
+    expect(window.showCalls).toBe(0);
+  });
   it("rehydrates the complete unchanged chrome after an active host document reload", async () => {
     const browserWindows = new FakeBrowserWindows();
     const factory = new ChromiumPlatformRuntimeHostFactory({

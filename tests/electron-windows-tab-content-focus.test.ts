@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CoreEffectRequest } from "../src/shared/generated";
 import { isClosedCoreEffectRequest } from "../src/electron/core/coreEffectActionValidation";
 import { effect, tab } from "./support/electronChromiumRuntimeEffectFixtures";
@@ -58,12 +58,36 @@ describe("Windows tab activation content focus", () => {
 
   it("holds a loading selection until the exact role becomes ready, then consumes it once", async () => {
     const subject = await fixture(false);
+    const focusLocalChrome = vi.fn();
+    Object.assign(subject.host, { focusLocalChrome });
     await subject.apply(subject.projection("tab-1", "loading"));
+    expect(focusLocalChrome).toHaveBeenCalledOnce();
+    await subject.apply(subject.projection("tab-1", "loading", false));
+    expect(focusLocalChrome).toHaveBeenCalledOnce();
     expect(subject.focusVisible).not.toHaveBeenCalled();
     for (const specification of subject.tabs) await loadRoles(subject, specification);
     await subject.apply(subject.projection("tab-1", "ready", false));
     await subject.apply(subject.projection("tab-1", "ready", false));
     expect(subject.focusVisible).toHaveBeenCalledExactlyOnceWith("role-1", 1);
+    expect(focusLocalChrome).toHaveBeenCalledOnce();
+    expect(subject.host.focus).not.toHaveBeenCalled();
+  });
+
+  it("keeps ready/loading/ready keyboard selections within the current native host", async () => {
+    const subject = await fixture(false);
+    const focusLocalChrome = vi.fn();
+    Object.assign(subject.host, { focusLocalChrome });
+    await loadRoles(subject, subject.tabs[0]!);
+    await subject.apply(subject.projection("tab-1"));
+    expect(focusLocalChrome).not.toHaveBeenCalled();
+    subject.focusVisible.mockClear();
+    await subject.apply(subject.projection("tab-2", "loading"));
+    expect(focusLocalChrome).toHaveBeenCalledOnce();
+    expect(subject.focusVisible).not.toHaveBeenCalled();
+    await subject.apply(subject.projection("tab-1"));
+    expect(subject.focusVisible).toHaveBeenCalledExactlyOnceWith("role-1", 1);
+    expect(subject.host.focus).not.toHaveBeenCalled();
+    expect(subject.host.show).not.toHaveBeenCalled();
   });
 
   it.each(["blur", "selection", "failure", "abort", "close"] as const)(
@@ -88,11 +112,14 @@ describe("Windows tab activation content focus", () => {
 
   it("does not acquire a claim in a background window", async () => {
     const subject = await fixture();
+    const focusLocalChrome = vi.fn();
+    Object.assign(subject.host, { focusLocalChrome });
     subject.host.focused = false;
-    await subject.apply(subject.projection("tab-1"));
+    await subject.apply(subject.projection("tab-1", "loading"));
     subject.host.focused = true;
     await subject.apply(subject.projection("tab-1", "ready", false));
     expect(subject.focusVisible).not.toHaveBeenCalled();
+    expect(focusLocalChrome).not.toHaveBeenCalled();
   });
 
   it("revokes a pending claim when its native generation is replaced", async () => {

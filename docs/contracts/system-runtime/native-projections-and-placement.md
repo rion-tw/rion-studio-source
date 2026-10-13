@@ -207,12 +207,14 @@ Empty floating hosts are hidden on re-entry, retained through the physical
 terminal callback, and retired through the existing exact Core provision fence.
 
 Windows Electron main owns Ctrl+Tab and Ctrl+Shift+Tab through `before-input-event`
-on the focused WebContents of the exact visible, focused runtime host, including
-local chrome and loading documents. It consumes Tab before document handlers or
-menu fallback, dispatches once per non-repeated keydown, and consumes the matching
-keyup across selected WebContents and modifier release. Native blur/close ends
-that physical-edge ownership. Menus retain click commands without duplicate tab
-accelerators; launchers, popups and background contents cannot activate a runtime
-tab. The adapter reads Core's ordered non-hidden tabs
-and submits one `embeddedTabActivate` under the exact focused host, generation,
-selection and topology fence; the launcher is not a runtime shortcut target.
+of the exact focused WebContents and visible, focused runtime host, including loading chrome.
+It consumes both Tab edges before document handlers/menu fallback, dispatches once per
+non-repeated keydown, and retains release ownership across selection/modifier release.
+Native blur/close ends that ownership. Menus retain click commands without tab accelerators.
+Launchers, popups and background contents cannot activate runtime tabs.
+The adapter reads Core's ordered non-hidden tabs and submits one `embeddedTabActivate`
+under the exact focused host, generation, selection and topology fence.
+Only explicit selection of an exact loading/attaching/activating projection hands
+keyboard input to the foreground host's local chrome after hiding the previous Role.
+This never activates/reveals the window or repeats for passive readiness/layout projections.
+The selected Role retains its existing revocable readiness claim.

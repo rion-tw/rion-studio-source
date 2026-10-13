@@ -51,6 +51,11 @@ parent handle, and the selected-detach successor before and after restart.
 Windows also resizes two exact hosts and proves content bounds equal the Chromium
 viewport, then minimizes and visibly restores without a resize event. Debug
 bridges only read these receipts and never perform a tab mutation.
+The seed phase reports its failed-launch/loading/first-paint/window-reuse matrix
+separately from the ordered tab lifecycle. Both cases are mandatory in the same
+process and retain the existing per-action and per-case failure bounds. Only a
+successfully verified launch cohort can enter the lifecycle case; splitting the
+cases does not skip an outcome or infer completion from elapsed time.
 
 The paired `chromium-workspace-gap-dividers-seed` / `restart` phases create a
 `main_left_stack_right` Workspace with two Roles and one Website, open it with a

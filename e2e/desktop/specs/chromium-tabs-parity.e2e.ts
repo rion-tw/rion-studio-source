@@ -1169,13 +1169,14 @@ async function tearoutPhase(input: { mainWindowHandle: string; platform: Platfor
   expect(await runtimeTabShellErrors()).toEqual([]);
 }
 
-async function seedPhase(input: Readonly<{
+async function prepareSeedPhase(input: Readonly<{
   mainWindowHandle: string;
   platform: Platform;
   processId: number;
-}>): Promise<void> {
+}>): Promise<Awaited<ReturnType<typeof createEntitiesThroughVisibleUi>>> {
   await fixtureRequest("/api/reset", {});
-  const { gameWindow, roles, targetWindow } = await createEntitiesThroughVisibleUi();
+  const entities = await createEntitiesThroughVisibleUi();
+  const { roles } = entities;
   await exerciseFailedRoleCreationCleanup(input, roles);
   await exerciseLauncherDuringLoading({
     ...input, window: await createGameWindowThroughVisibleUi("Native Launcher Loading Window"), roles,
@@ -1186,6 +1187,15 @@ async function seedPhase(input: Readonly<{
   await exerciseWindowLaunchReuse({ ...input, roles,
     window: await createGameWindowThroughVisibleUi("Window Launch Reuse"),
     launchRole: (role, window) => launchRoleIntoWindow(role, window) });
+  expect(await runtimeTabShellErrors()).toEqual([]);
+  return entities;
+}
+
+async function seedPhase(input: Readonly<{
+  mainWindowHandle: string;
+  platform: Platform;
+  processId: number;
+}>, { gameWindow, roles, targetWindow }: Awaited<ReturnType<typeof prepareSeedPhase>>): Promise<void> {
   const sourceRoles = roles.slice(0, SOURCE_ROLE_DEFINITIONS.length);
   const tabIds: string[] = [];
   let independentTabId: string | undefined;
@@ -1584,31 +1594,39 @@ async function restartPhase(input: Readonly<{
   await waitForDormantWindow(targetWindow.id);
 }
 
+async function prepareTabCase() {
+  const probe = await electronDesktopE2eProbe();
+  expect(probe.runtimeTarget).toBe(required("RION_STUDIO_E2E_RUNTIME_TARGET"));
+  await ensureEnglishUi();
+  await acceptLegalAndSkipFirstRun();
+  await installRuntimeTabShellErrorJournal();
+  return { mainWindowHandle: await browser.getWindowHandle(),
+    platform: probe.platform, processId: probe.processId };
+}
+
 describe("Chromium native tab lifecycle parity", () => {
+  let seedEntities: Awaited<ReturnType<typeof prepareSeedPhase>> | undefined;
+
   it("hands fullscreen tab keyboard focus to content without a page click", async function () {
-    const probe = await electronDesktopE2eProbe();
     if (required("RION_STUDIO_E2E_PHASE") !== "chromium-tabs-visible-seed") this.skip();
-    await ensureEnglishUi();
-    await acceptLegalAndSkipFirstRun();
-    await installRuntimeTabShellErrorJournal();
-    await runTabFocusRegression({ platform: probe.platform, mainWindowHandle: await browser.getWindowHandle(),
+    await runTabFocusRegression({ ...await prepareTabCase(),
       createWindow: createGameWindowThroughVisibleUi, launchRole: launchRoleIntoWindow });
   });
 
+  it("recovers failed launches and verifies loading, first paint, and window reuse", async function () {
+    if (required("RION_STUDIO_E2E_PHASE") !== "chromium-tabs-visible-seed") this.skip();
+    // The launch matrix and topology lifecycle are separate bounded cases in
+    // the same phase. Publish this cohort only after every launch assertion passes.
+    seedEntities = await prepareSeedPhase(await prepareTabCase());
+  });
+
   it("keeps exact visible, dormant, ordered, and generation-fenced native tabs", async () => {
-    const probe = await electronDesktopE2eProbe();
-    expect(probe.runtimeTarget).toBe(required("RION_STUDIO_E2E_RUNTIME_TARGET"));
-    await ensureEnglishUi();
-    await acceptLegalAndSkipFirstRun();
-    await installRuntimeTabShellErrorJournal();
-    const mainWindowHandle = await browser.getWindowHandle();
+    const input = await prepareTabCase();
     const phase = required("RION_STUDIO_E2E_PHASE");
-    const input = {
-      mainWindowHandle,
-      platform: probe.platform,
-      processId: probe.processId
-    };
-    if (phase === "chromium-tabs-visible-seed") await seedPhase(input);
+    if (phase === "chromium-tabs-visible-seed") {
+      if (!seedEntities) throw new Error("The visible launch matrix did not complete successfully");
+      await seedPhase(input, seedEntities);
+    }
     else if (phase === "chromium-tab-tearout") await tearoutPhase(input);
     else if (phase === "chromium-tabs-visible-restart") await restartPhase(input);
     else throw new Error(`Unexpected Chromium tabs phase ${phase}`);

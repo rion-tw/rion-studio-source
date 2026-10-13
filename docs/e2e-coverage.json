@@ -553,7 +553,7 @@
         "success",
         "cancel"
       ],
-      "description": "Open a Role through visible UI, seed a generic extension fixture into its existing compatibility host as a deterministic precondition, dismiss one real native context menu with Escape without dispatching onClicked, then reopen and select the visible menu item, and verify onClicked carries the exact Role tab and top-frame identity. Unload the fixture and visibly stop the Role. No store network dependency or production E2E controls are added."
+      "description": "Open a Role through visible UI, seed a generic extension fixture into its existing compatibility host as a deterministic precondition, dismiss one real native context menu with Escape without dispatching onClicked, then reopen and select the visible menu item, and verify onClicked carries the exact Role tab and top-frame identity. Scope native accessibility lookup to top-level windows owned by the exact Electron process, including native menu popup windows. Unload the fixture and visibly stop the Role. No store network dependency or production E2E controls are added."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-EXTENSION-CONTEXT-MENU-001",

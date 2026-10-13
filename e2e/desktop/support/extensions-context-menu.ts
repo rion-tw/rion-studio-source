@@ -63,15 +63,32 @@ export async function verifyGenericExtensionContextMenu(input: {
       })], { timeout: 15_000 });
     } else {
       await withRolePageTarget(input.url, input.main, async () => { await $('body').click({ button: 2 }); }, false);
-      await runEncodedPowerShellJson(String.raw`
+      try { await runEncodedPowerShellJson(String.raw`
+[Console]::Error.WriteLine('extension-menu-stage: load-accessibility')
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+$processCondition = New-Object System.Windows.Automation.PropertyCondition(
+  [System.Windows.Automation.AutomationElement]::ProcessIdProperty, [int]$payload.processId)
 $condition = New-Object System.Windows.Automation.AndCondition(
-  (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, [int]$payload.processId)),
+  (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::MenuItem)),
   (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, [string]$payload.label))
 )
-$items = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+function FindOwnedMenuItems {
+  # Never traverse unrelated desktop providers: native popup menus can be
+  # separate top-level windows, but must belong to the exact Electron process.
+  $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+    [System.Windows.Automation.TreeScope]::Children, $processCondition)
+  foreach ($window in $windows) {
+    if ($window.Current.IsOffscreen) { continue }
+    foreach ($item in $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)) {
+      if (-not $item.Current.IsOffscreen -and $item.Current.IsEnabled) { $item }
+    }
+  }
+}
+[Console]::Error.WriteLine('extension-menu-stage: find-owned-menu')
+$items = @(FindOwnedMenuItems)
 if ($items.Count -ne 1 -or $items[0].Current.IsOffscreen -or -not $items[0].Current.IsEnabled) { throw 'Exact visible extension menu item missing' }
+[Console]::Error.WriteLine('extension-menu-stage: act-on-visible-menu')
 if ($payload.cancel) {
   Add-Type -AssemblyName System.Windows.Forms
   Add-Type @'
@@ -87,7 +104,7 @@ public static class RionMenuForeground {
   if ($owner -ne $payload.processId) { throw 'Extension menu lost foreground ownership' }
   [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
   for ($attempt = 0; $attempt -lt 100; $attempt++) {
-    $remaining = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+    $remaining = @(FindOwnedMenuItems)
     if ($remaining.Count -eq 0) { break }
     Start-Sleep -Milliseconds 50
   }
@@ -97,7 +114,16 @@ public static class RionMenuForeground {
   $invoke.Invoke()
 }
 @{ completed = $true } | ConvertTo-Json -Compress
-`, { processId: probe.processId, label: LABEL, cancel }, { timeoutMilliseconds: 15_000 });
+`, { processId: probe.processId, label: LABEL, cancel }, {
+        // DeadlineBound external UI Automation call; only exact visible menu
+        // state and the extension's click receipt can establish success.
+        timeoutMilliseconds: 30_000
+      }); } catch (error) {
+        const failure = error as { code?: unknown; signal?: unknown; killed?: unknown; stderr?: unknown };
+        throw new Error(`Windows extension menu ${cancel ? 'dismiss' : 'select'} failed: ` +
+          JSON.stringify({ code: failure.code, signal: failure.signal, killed: failure.killed,
+            stderr: String(failure.stderr ?? '').slice(-4096) }), { cause: error });
+      }
     }
     await browser.switchToWindow(input.main);
     if (cancel) {

@@ -7,6 +7,7 @@ import { electronDesktopE2eProbe } from "./electron-driver";
 import { windowsNativeDialogDeclarations } from "./windows-native-dialog";
 import { captureNativeProcessAttribution } from "./native-process-attribution";
 import { focusWindowsLauncherForVisibleLaunch } from "./windows-launcher-foreground";
+import { selectWindowsNativeMenuItem } from "./windows-native-menu";
 
 const executeFile = promisify(execFile);
 const nativeFocusScript = fileURLToPath(new URL("./macos-native-focus.swift", import.meta.url));
@@ -662,13 +663,16 @@ if ($modifier) { $scanCodes.Add($ctrlScan) }
 if ($shiftModifier) { $scanCodes.Add($shiftScan) }
 if ($altModifier) { $scanCodes.Add($altScan) }
 $scanCodes.Add($keyScan)
-[Console]::WriteLine([RionNativeShortcutInput]::FocusEvidence($foregroundWindow))
+if ($command -eq 'toggleFullscreen') {
+  @{ nativeWindowHandle = [string]$foregroundWindow.ToInt64();
+     focusEvidence = [RionNativeShortcutInput]::FocusEvidence($foregroundWindow) } | ConvertTo-Json -Compress
+} else { [Console]::WriteLine([RionNativeShortcutInput]::FocusEvidence($foregroundWindow)) }
 [Console]::Error.WriteLine('shortcut-stage: submit-native-chord')
-# Fullscreen uses the visible View > Toggle Full Screen menu mnemonic. F11
-# is game input; it must never be used as a presentation test shortcut.
+# Open View only. The caller waits for and invokes its exact visible native
+# menu item; a following key could otherwise overtake the menu's creation.
+# F11 is game input, never a presentation test shortcut.
 $submitted = if ($command -eq 'toggleFullscreen') {
-  [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray()) -and
-    [RionNativeShortcutInput]::SendScanChord(@([uint16][RionNativeShortcutInput]::MapVirtualKey(0x46, 0)))
+  [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())
 } elseif ($command -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap')) {
   [RionNativeShortcutInput]::SendAltSequence($command)
 } elseif ($command -in @('shiftDigit3TapHoldShift', 'digit3Tap', 'shiftDigit5Hold', 'shiftDigit5Release', 'shiftDigit2ThenDigit3Hold', 'shiftDigit3ThenDigit2Hold', 'shiftUp')) {
@@ -692,6 +696,11 @@ if (-not $submitted) {
       timeoutMilliseconds: 30_000
     });
     console.info(`Windows native shortcut ${input.command}: ${focusEvidence.slice(0, 512)}`);
+    if (input.command === "toggleFullscreen") {
+      const owner = JSON.parse(focusEvidence) as { nativeWindowHandle: string };
+      await selectWindowsNativeMenuItem({ processId: input.processId,
+        nativeWindowHandle: owner.nativeWindowHandle, path: ["Toggle Full Screen"] });
+    }
   } catch (error) {
     // Avoid forwarding the rejected process message because it contains the
     // entire encoded command; retain bounded native stdout/stderr instead.

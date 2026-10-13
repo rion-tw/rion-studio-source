@@ -552,13 +552,6 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   // AppKit owns top-edge tracking and the menu-bar/toolbar reveal lifecycle.
   BOOL autoHide = !RionShouldPinFullscreenToolbar(
       self.alwaysShowInFullScreen, self.revealLocked);
-  __weak RionRuntimeTabsController *weakSelf = self;
-  RionBindFullscreenReveal(_window, active && _fullscreenHostReady, !autoHide, ^{
-    RionRuntimeTabsController *controller = weakSelf;
-    if (!controller || controller->_destroyed) return;
-    [controller refreshFullscreenTrafficLightVisibility];
-    [controller scheduleContentLayoutNotification];
-  });
   // Keep the marker armed in windowed mode as well:
   // AppKit can ask the delegate for fullscreen presentation options before it
   // emits NSWindowWillEnterFullScreenNotification. Explicitly add or remove
@@ -568,6 +561,14 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   RionSetFullscreenPresentationPolicyMarker(_window, YES, autoHide);
   RionSetFullscreenToolbarPresentationRequest((__bridge const void *)self,
                                               _window, active, autoHide);
+  __weak RionRuntimeTabsController *weakSelf = self;
+  RionBindFullscreenReveal(_window, _accessoryController.view.window,
+                          active && _fullscreenHostReady, !autoHide, ^{
+    RionRuntimeTabsController *controller = weakSelf;
+    if (!controller || controller->_destroyed) return;
+    [controller refreshFullscreenTrafficLightVisibility];
+    [controller scheduleContentLayoutNotification];
+  });
 }
 
 - (void)setAlwaysShowInFullScreen:(BOOL)alwaysShow {
@@ -696,7 +697,7 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   NSView *view = _accessoryController.view;
   NSWindow *host = view.window;
   NSScreen *screen = host.screen;
-  if (!view || !host || !screen || !host.isVisible ||
+  if (!view || !host || !screen || !host.isVisible || host.alphaValue <= 0.01 ||
       view.isHiddenOrHasHiddenAncestor) {
     return 0;
   }

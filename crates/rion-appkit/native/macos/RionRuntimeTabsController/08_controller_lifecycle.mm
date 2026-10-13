@@ -495,7 +495,7 @@ NS_ASSUME_NONNULL_BEGIN
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:_fullscreenSpaceObserver];
     _fullscreenSpaceObserver = nil;
   }
-  RionBindFullscreenReveal(_window, NO, NO, nil);
+  RionBindFullscreenReveal(_window, nil, NO, NO, nil);
   _destroyed = YES;
   [self stopTabDragEdgeScroll];
   if (_tabShortcutMonitor) {

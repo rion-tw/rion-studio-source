@@ -125,22 +125,30 @@ async function waitForToolbar(
   let inspection: ElectronDesktopE2eFullscreenToolbarRuntimeInspection | undefined;
   let stableSamples = 0;
   let failure: unknown;
-  await browser.waitUntil(async () => {
-    try {
-      inspection = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
-    } catch {
-      stableSamples = 0;
-      return false;
-    }
-    try {
-      inspect?.(inspection);
-    } catch (error) {
-      failure = error;
-      return true;
-    }
-    stableSamples = predicate(inspection) ? stableSamples + 1 : 0;
-    return stableSamples >= 3;
-  }, { interval: 100, timeout: 20_000, timeoutMsg: message });
+  let lastReadFailure: unknown;
+  try {
+    await browser.waitUntil(async () => {
+      try {
+        inspection = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
+        lastReadFailure = undefined;
+      } catch (error) {
+        lastReadFailure = error;
+        stableSamples = 0;
+        return false;
+      }
+      try {
+        inspect?.(inspection);
+      } catch (error) {
+        failure = error;
+        return true;
+      }
+      stableSamples = predicate(inspection) ? stableSamples + 1 : 0;
+      return stableSamples >= 3;
+    }, { interval: 100, timeout: 20_000, timeoutMsg: message });
+  } catch (error) {
+    throw new Error(`${message}; last native observation: ${JSON.stringify(inspection)}; ` +
+      `last read failure: ${String(lastReadFailure)}`, { cause: error });
+  }
   if (failure) throw failure;
   return inspection!;
 }
@@ -327,6 +335,9 @@ function hiddenToolbar(
     inspection.native.appKit?.fullscreenHostReady === true &&
     inspection.native.appKit.presentationAutoHideToolbar &&
     !inspection.native.appKit.accessoryOnScreen &&
+    inspection.native.appKit.accessoryVisibleHeight === 0 &&
+    inspection.native.appKit.nativeLifecycle?.toolbarReveal === 0 &&
+    inspection.native.appKit.nativeLifecycle.menuBarReveal === 0 &&
     !inspection.native.appKit.tabStripOnScreen &&
     !inspection.native.appKit.toolbarPinned &&
     inspection.native.appKit.visibleTrafficLightCount === 0
@@ -431,10 +442,7 @@ async function seedPhase(input: Readonly<{
     expectUnmovedMacosContent(motion, input.role.id, hiddenRole.bounds);
   }
 
-  if (input.platform !== "windows") {
-    await clickVisibleElectronRolePageButton(input.role.launchUrl, input.mainWindowHandle);
-  }
-  // Windows must hide from native pointer motion across the View boundary,
+  // Both hosts must hide from native pointer motion across the View boundary,
   // before any page click could change focus or trigger another hide path.
   hidden = await waitForToolbar(
     input.windowId,

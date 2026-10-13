@@ -8,6 +8,8 @@ static char RionFullscreenRevealPropertyContext;
 @interface RionRuntimeFullscreenRevealObservation : NSObject
 @property(nonatomic, weak) NSWindow *window;
 @property(nonatomic, weak) NSObject *companion;
+@property(nonatomic, weak) NSWindow *toolbarHost;
+@property(nonatomic) CGFloat previousHostAlpha;
 @property(nonatomic) BOOL active;
 @property(nonatomic) BOOL pinned;
 @property(nonatomic) BOOL delivering;
@@ -18,7 +20,7 @@ static char RionFullscreenRevealPropertyContext;
 @property(nonatomic, strong) NSMutableArray<NSString *> *observedKeys;
 - (BOOL)start;
 - (void)stop;
-- (void)reconcile;
+- (void)reconcileLayout:(BOOL)layoutChanged;
 @end
 
 @implementation RionRuntimeFullscreenRevealObservation
@@ -49,6 +51,8 @@ static char RionFullscreenRevealPropertyContext;
 - (void)stop {
   self.active = NO;
   self.handler = nil;
+  self.toolbarHost.alphaValue = self.previousHostAlpha;
+  self.toolbarHost = nil;
   for (NSString *key in self.observedKeys) {
     [self.companion removeObserver:self forKeyPath:key
                            context:&RionFullscreenRevealPropertyContext];
@@ -56,7 +60,7 @@ static char RionFullscreenRevealPropertyContext;
   [self.observedKeys removeAllObjects];
 }
 
-- (void)reconcile {
+- (void)reconcileLayout:(BOOL)layoutChanged {
   if (!self.active || self.delivering || !self.window || !self.companion) return;
   self.delivering = YES;
   double menuBar = [[self.companion valueForKey:@"menuBarReveal"] doubleValue];
@@ -72,10 +76,15 @@ static char RionFullscreenRevealPropertyContext;
         self.toolbarReveal != toolbar;
     self.menuBarReveal = menuBar;
     self.toolbarReveal = toolbar;
+    // On notched displays AppKit parks the hidden companion above the
+    // fullscreen content frame, inside the display's camera-safe band. Its
+    // window can remain on screen at reveal zero. Hide that companion only;
+    // native reveal animation and the game window retain their geometry.
+    self.toolbarHost.alphaValue = toolbar > 0 ? 1.0 : 0.0;
     if (changed) {
       self.sequence += 1;
-      if (self.handler) self.handler();
     }
+    if ((changed || layoutChanged) && self.handler) self.handler();
   }
   self.delivering = NO;
 }
@@ -84,7 +93,7 @@ static char RionFullscreenRevealPropertyContext;
                        change:(NSDictionary<NSKeyValueChangeKey, id> *)change
                       context:(void *)context {
   if (context == &RionFullscreenRevealPropertyContext) {
-    [self reconcile];
+    [self reconcileLayout:NO];
     return;
   }
   [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
@@ -93,7 +102,8 @@ static char RionFullscreenRevealPropertyContext;
 - (void)dealloc { [self stop]; }
 @end
 
-static void RionBindFullscreenReveal(NSWindow *window, BOOL active, BOOL pinned,
+static void RionBindFullscreenReveal(NSWindow *window, NSWindow *toolbarHost,
+                                     BOOL active, BOOL pinned,
                                      void (^handler)(void)) {
   if (!window) return;
   NSObject *companion = active ? RionFullscreenToolbarCompanionController(window) : nil;
@@ -117,5 +127,11 @@ static void RionBindFullscreenReveal(NSWindow *window, BOOL active, BOOL pinned,
   observation.active = YES;
   observation.pinned = pinned;
   observation.handler = handler;
-  [observation reconcile];
+  NSWindow *host = toolbarHost != window ? toolbarHost : nil;
+  if (observation.toolbarHost != host) {
+    observation.toolbarHost.alphaValue = observation.previousHostAlpha;
+    observation.toolbarHost = host;
+    observation.previousHostAlpha = host.alphaValue;
+  }
+  [observation reconcileLayout:YES];
 }

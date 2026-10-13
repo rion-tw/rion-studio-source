@@ -11,6 +11,7 @@ import type {
   RoleStatus
 } from "../../../src/shared/types";
 import {
+  electronDesktopE2eFocusMainWindow,
   electronDesktopE2eProbe,
   electronDesktopE2eRoleSessionRuntime,
   electronDesktopE2eWorkspaceWebRuntime
@@ -309,6 +310,7 @@ async function findMacro(name: string): Promise<Macro> {
 }
 
 async function openSection(label: string, route: string): Promise<void> {
+  await electronDesktopE2eFocusMainWindow();
   const sidebar = await $(".app-main-sidebar");
   await sidebar.waitForDisplayed({ timeout: 20_000 });
   await sidebar.$(`button*=${label}`).click();
@@ -322,6 +324,9 @@ async function clickEntityMenuAction(
 ): Promise<void> {
   const entity = await $(`[data-selection-id='${entityId}']`);
   await entity.waitForDisplayed({ timeout: 10_000 });
+  // Native window focus is a precondition for Chromium's CSS hover state.
+  // The menu action itself still uses the displayed button and menu item.
+  await electronDesktopE2eFocusMainWindow();
   await entity.scrollIntoView({ block: "center", inline: "center" });
   await entity.moveTo();
   let trigger;

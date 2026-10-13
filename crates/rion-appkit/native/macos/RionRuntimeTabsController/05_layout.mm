@@ -255,7 +255,7 @@ NS_ASSUME_NONNULL_BEGIN
                      isEqualToString:NSWindowWillExitFullScreenNotification]) {
         strongSelf->_fullscreenHostReady = NO;
         [strongSelf detachTitlebarWidgetInsetOverrides];
-        RionBindFullscreenReveal(strongSelf->_window, NO, NO, nil);
+        RionBindFullscreenReveal(strongSelf->_window, nil, NO, NO, nil);
         [strongSelf removeTrafficLightObservationRestoringState:NO];
         strongSelf->_toolbar.visible = NO;
         [strongSelf detachAccessoryController];

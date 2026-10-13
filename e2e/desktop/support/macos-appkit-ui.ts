@@ -200,9 +200,26 @@ guard let source = CGEventSource(stateID: .hidSystemState) else {
   fatalError("system pointer source unavailable")
 }
 let point = CGPoint(x: ${pointX}, y: ${pointY})
-CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-  mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+let start = CGEvent(source: nil)!.location
+var previous = start
+for step in 1...12 {
+  let progress = CGFloat(step) / 12.0
+  let next = CGPoint(x: start.x + (point.x - start.x) * progress,
+                     y: start.y + (point.y - start.y) * progress)
+  let event = CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
+    mouseCursorPosition: next, mouseButton: .left)!
+  event.flags = []
+  event.setIntegerValueField(.mouseEventDeltaX, value: Int64(next.x - previous.x))
+  event.setIntegerValueField(.mouseEventDeltaY, value: Int64(next.y - previous.y))
+  event.post(tap: .cghidEventTap)
+  previous = next
+  usleep(40_000)
+}
 usleep(100_000)
+guard let settled = CGEvent(source: nil)?.location,
+      abs(settled.x - point.x) <= 2, abs(settled.y - point.y) <= 2 else {
+  fatalError("system pointer missed the exact AppKit content target")
+}
 `;
   await executeFile("/usr/bin/xcrun", ["swift", "-e", script], {
     encoding: "utf8",

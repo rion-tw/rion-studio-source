@@ -30,8 +30,14 @@ if ($buttons.Count -eq 1) { break }
 if ([DateTime]::UtcNow -gt $expiry) { throw 'Exact visible runtime window control is not unique' }
 Start-Sleep -Milliseconds 50
 } while ($true)
-$invoke = $buttons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-$invoke.Invoke()
+if ($payload.command -eq 'toggleFullscreen') {
+  # aria-pressed exposes the real fullscreen button as a UIA toggle button.
+  $toggle = $buttons[0].GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+  $toggle.Toggle()
+} else {
+  $invoke = $buttons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+  $invoke.Invoke()
+}
 @{ submitted = $true } | ConvertTo-Json -Compress
 `, { ...input, controlNames }, { timeoutMilliseconds: 30_000 });
 }

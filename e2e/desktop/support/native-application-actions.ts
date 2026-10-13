@@ -434,6 +434,20 @@ public static class RionNativeShortcutInput {
       available ? GetAncestor(info.focus, 2).ToInt64() : 0, info.flags,
       available ? 0 : Marshal.GetLastWin32Error());
   }
+  public static bool WaitForSystemMenu(IntPtr hwnd) {
+    uint pid;
+    uint thread = GetWindowThreadProcessId(hwnd, out pid);
+    var clock = System.Diagnostics.Stopwatch.StartNew();
+    // Test-only external UI observation. The mnemonic must wait for the exact
+    // native menu loop; SendInput submission alone does not establish it.
+    while (clock.ElapsedMilliseconds < 5000) {
+      var info = new GuiThreadInfo { size = (uint)Marshal.SizeOf(typeof(GuiThreadInfo)) };
+      if (GetGUIThreadInfo(thread, ref info) && (info.flags & 4) != 0 &&
+          (info.menuOwner == hwnd || GetAncestor(info.menuOwner, 2) == hwnd)) return true;
+      System.Threading.Thread.Sleep(25);
+    }
+    throw new InvalidOperationException("Exact native system menu did not open: " + FocusEvidence(hwnd));
+  }
 
   public delegate bool EnumProc(IntPtr hwnd, IntPtr value);
   [StructLayout(LayoutKind.Sequential)]
@@ -673,6 +687,7 @@ $submitted = if ($command -eq 'toggleFullscreen') {
   # Alt+Space, C closes through the visible Windows system menu. Alt+F4 is
   # function-key input and is intentionally protected on game surfaces.
   [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray()) -and
+    [RionNativeShortcutInput]::WaitForSystemMenu($foregroundWindow) -and
     [RionNativeShortcutInput]::SendScanChord(@([uint16][RionNativeShortcutInput]::MapVirtualKey(0x43, 0)))
 } elseif ($command -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap')) {
   [RionNativeShortcutInput]::SendAltSequence($command)

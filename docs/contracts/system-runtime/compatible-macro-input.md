@@ -92,6 +92,12 @@ not remove a page-held modifier early. Core/native inheritance remains intact.
 Shift-adjusted key text comes from the existing main-process descriptor mapping.
 Receipt validation checks the resulting mask against these separate snapshots.
 
+Managed source replacements inherit live physical flags. A rapid physical
+release before compatible delivery may clear the modifier on either replacement
+edge; it must agree with the consumer's observed state and never recreate the
+captured chord. A macro step explicitly owning that modifier still delivers its
+complete chord independently of source replacement timing.
+
 Optional `compatibleModifierEvidence` retains those snapshots, the observed
 physical codes, actual event mask (null when no event was dispatched), disposition,
 and the latest 64 ordered modifier transitions per document with a dropped count.

@@ -70,6 +70,46 @@ describe.each(["darwin", "win32"] as const)("%s compatible game input", platform
         expect([...held]).toEqual([]);
       });
 
+      it.each(["before", "between", "after"])(
+        `uses live physical ${code} for replacement keys released %s delivery`, releaseAt => {
+          const { canvas, key } = setup();
+          const held = new Set<string>();
+          const sourceFlags: boolean[] = [];
+          const outputFlags: boolean[] = [];
+          const modifierEdges: string[] = [];
+          for (const type of ["keydown", "keyup"] as const) {
+            canvas.addEventListener(type, event => {
+              if (type === "keydown") held.add(event.code);
+              else held.delete(event.code);
+              if (event.code === code) modifierEdges.push(type);
+              if (event.code !== "Digit1" && event.code !== "Digit3") return;
+              const observed = Boolean(event[flag as keyof KeyboardEvent]);
+              expect(observed).toBe(held.has(code));
+              (event.code === "Digit1" ? sourceFlags : outputFlags).push(observed);
+            });
+          }
+          const release = () => canvas.dispatchEvent(new KeyboardEvent("keyup", { code, key: modifier, bubbles: true }));
+          canvas.dispatchEvent(new KeyboardEvent("keydown", { code, key: modifier, [flag]: true, bubbles: true }));
+          if (releaseAt === "before") release();
+          expect(key("Digit1", "rawKeyDown", ["Digit1"]).status).toBe("applied");
+          if (releaseAt === "between") release();
+          expect(key("Digit1", "keyUp", []).status).toBe("applied");
+          if (releaseAt === "after") release();
+          expect(sourceFlags).toEqual([releaseAt !== "before", releaseAt === "after"]);
+          expect(modifierEdges).toEqual(["keydown", "keyup"]);
+          expect([...held]).toEqual([]);
+          // The macro's explicit modifier is a separate Core owner even when
+          // the original physical shortcut has already been fully released.
+          key(code, "rawKeyDown", [code]);
+          key("Digit3", "rawKeyDown", [code, "Digit3"]);
+          key("Digit3", "keyUp", [code]);
+          key(code, "keyUp", []);
+          expect(outputFlags).toEqual([true, true]);
+          expect(modifierEdges).toEqual(["keydown", "keyup", "keydown", "keyup"]);
+          expect([...held]).toEqual([]);
+        }
+      );
+
       it.each(["before", "between", "after-main", "after-cleanup"])(
         `preserves ${code} ownership when physical release occurs %s`, releaseAt => {
           const { canvas, key } = setup();

@@ -56,7 +56,9 @@ export async function exerciseCompatibleAltShortcuts(input: Readonly<{
         expect(phase.keyCode).toBe(code === "Digit1" ? 49 : 51);
         expect(phase.which).toBe(phase.keyCode);
         expect(phase.modifiers?.alt).toBe(phase.consumerPressedCodes?.includes("AltLeft"));
-        if (kind === "consumer-keydown" || code === "Digit3" || held) {
+        // The source replacement inherits live physical flags; a quick Alt-up
+        // can precede either replacement edge. Only the macro output owns Alt.
+        if (code === "Digit3" || held) {
           expect(phase.modifiers?.alt).toBe(true);
         }
       }

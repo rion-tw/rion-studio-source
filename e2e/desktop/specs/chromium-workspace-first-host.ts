@@ -19,21 +19,33 @@ export async function armFirstWorkspaceHost(windowId: string): Promise<void> {
 
 /** First visible host, zero loaded content. Barriers establish preconditions only. */
 export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
+  try {
+    await exerciseGatedFirstWorkspaceHost(input);
+  } finally {
+    for (const phase of ["before", "mounted"]) await fixtureRequest("/api/release", {roleId:`first-host-${input.windowId}-${phase}`});
+  }
+}
+
+async function exerciseGatedFirstWorkspaceHost(input: Input): Promise<void> {
   const layout = async () => JSON.parse(await readFile(resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!,
     `first-host-${input.windowId}-layout.json`), "utf8")) as { roles: Record<string, Bounds>; contentBounds: Bounds };
-  const baseline = (await inspect(input.windowId)).workspaceTabs.find(t => t.tabId === input.tabId)!.slots;
-  const { processId } = await electronDesktopE2eProbe();
-  let expectedGap = 1;
-  let expectedBackground: "material" | "black" = "material";
-  const capture = async (name: string, heldFrame?: HeldFrame) => {
+  const coherentInspection = async (name: string) => {
     let current: Awaited<ReturnType<typeof inspect>> | undefined;
-    // Native frame acknowledgement can precede the corresponding Core/chrome
-    // projection. Observe the exact existing fence before sampling any pixels.
+    // Launch and native frame acknowledgement can precede the corresponding
+    // Core/chrome projection. Require the existing fences even for the baseline.
     await browser.waitUntil(async () => {
       current = await inspect(input.windowId);
       return true;
     }, { timeout: 20_000, timeoutMsg: `First host ${name} did not reach a coherent native projection` });
     if (!current) throw new Error("The first host projection was not observed");
+    return current;
+  };
+  const baseline = (await coherentInspection("baseline")).workspaceTabs.find(t => t.tabId === input.tabId)!.slots;
+  const { processId } = await electronDesktopE2eProbe();
+  let expectedGap = 1;
+  let expectedBackground: "material" | "black" = "material";
+  const capture = async (name: string, heldFrame?: HeldFrame) => {
+    const current = await coherentInspection(name);
     expect(current.workspaceTabs.find(t => t.tabId === input.tabId)!.slots).toEqual(baseline);
     // A held resize keeps rewriting the layout, so geometry read while it is
     // still moving describes a window the screenshot no longer shows: the
@@ -90,8 +102,7 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
     else await pressVisibleWindowsApplicationShortcut({command:"toggleFullscreen",processId,
       nativeWindowHandle:(await inspect(input.windowId)).nativeWindowHandle,targetMode:"focused-runtime"});
   };
-  try {
-    for (const phase of ["before", "mounted"]) {
+  for (const phase of ["before", "mounted"]) {
       const waiting = await fetch(`${process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN}/api/gates/first-host-${input.windowId}-${phase}/waiting`, {signal:AbortSignal.timeout(30_000)});
       expect(waiting.ok).toBe(true);
       await capture(`first-host-${phase}-shown`);
@@ -204,8 +215,5 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
       }
       await input.setAppearance(1,"material"); expectedBackground = "material"; expectedGap = 1;
       await fixtureRequest("/api/release", {roleId:`first-host-${input.windowId}-${phase}`});
-    }
-  } finally {
-    for (const phase of ["before","mounted"]) await fixtureRequest("/api/release", {roleId:`first-host-${input.windowId}-${phase}`});
   }
 }

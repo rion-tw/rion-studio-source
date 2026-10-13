@@ -47,26 +47,25 @@ if phase == "start" {
   if edge == "top" { point = CGPoint(x: origin.x + extent.width / 2, y: origin.y + 1) }
   postMouse(.mouseMoved, point)
 }
-if phase == "move" && input["rapid"] as? Bool == true {
+if phase == "move" {
   let previous = previousPoint
-  for fraction in [0.25,0.9,0.4,1.0,0.25,1.0] {
+  let rapid = input["rapid"] as? Bool ?? false
+  let fractions = rapid ? [0.25,0.9,0.4,1.0,0.25,1.0] : [1.0/6,2.0/6,3.0/6,4.0/6,5.0/6]
+  for fraction in fractions {
     let sample = CGPoint(x: previous.x + (point.x-previous.x)*fraction,
                          y: previous.y + (point.y-previous.y)*fraction)
     // Keep cursor position and physical deltas in one input stream. Warping
     // before each event can let AppKit consume a reversal without its movement.
     postMouse(.leftMouseDragged, sample)
-    usleep(8_000)
+    usleep(rapid ? 8_000 : 30_000)
   }
 }
-// Ordinary moves submit one complete physical delta. Interpolating a short
-// edge reversal allows AppKit to coalesce away a relative resize sample.
 usleep(50_000) // Input pacing only; assertions use native geometry and actual pixels.
 let type: CGEventType = phase == "start" ? .leftMouseDown : phase == "end" ? .leftMouseUp : .leftMouseDragged
 postMouse(type, point)
 usleep(100_000)
 let expected = input["expected"] as? [String: NSNumber]
 let deadline = Date().addingTimeInterval(10)
-var lastDragAt = Date.distantPast
 while true {
   guard let currentSize = attribute(window, "AXSize"),
         let currentPosition = attribute(window, "AXPosition") else {
@@ -78,15 +77,11 @@ while true {
   if abs(extent.width - expected["x"]!.doubleValue) <= 1 &&
       abs(extent.height - expected["y"]!.doubleValue) <= 1 { break }
   if Date() >= deadline {
-    fatalError("native resize did not reach requested frame: \(expected), actual \(extent), initial \(initialExtent), pointer \(initialPointer) -> \(point), edge \(input["edge"]!)")
+    fatalError("native resize did not reach requested frame: \(expected), actual \(extent), initial \(initialExtent), pointer \(initialPointer) -> \(point), observed pointer \(CGEvent(source: nil)!.location), edge \(input["edge"]!)")
   }
-  // A busy AppKit run loop can coalesce the short initial drag stream before
-  // its final sample is handled. Keep the real button-held stream at the exact
-  // destination until the native window acknowledges the requested frame.
-  if phase == "move" && Date().timeIntervalSince(lastDragAt) >= 0.15 {
-    postMouse(.leftMouseDragged, point)
-    lastDragAt = Date()
-  }
+  // Observe the submitted physical stream without injecting stationary drags;
+  // those events can replace a queued relative movement before AppKit handles it.
   usleep(10_000)
 }
-print(String(decoding: try JSONSerialization.data(withJSONObject: ["x": point.x, "y": point.y, "width": extent.width, "height": extent.height, "windowX":origin.x, "windowY":origin.y]), as: UTF8.self))
+let observedPointer = CGEvent(source: nil)!.location
+print(String(decoding: try JSONSerialization.data(withJSONObject: ["x": point.x, "y": point.y, "pointerX": observedPointer.x, "pointerY": observedPointer.y, "width": extent.width, "height": extent.height, "windowX":origin.x, "windowY":origin.y]), as: UTF8.self))

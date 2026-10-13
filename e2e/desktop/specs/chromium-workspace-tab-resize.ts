@@ -10,7 +10,7 @@ export async function resizeWorkspaceWithLoadingSibling(windowId: string, tabId:
   // A wide window can already reach the screen's right edge. Shrink it there;
   // grow narrower windows that may be at the native tracking minimum.
   const delta = width >= 800 ? -96 : 96;
-  await resizeWorkspaceWindow({ inspection: before, edge: "right", moves:[{x:delta,y:0}],
+  await resizeWorkspaceWindow({ inspection: before, edge: "right", requireRequestedFrame: true, moves:[{x:delta,y:0}],
     whileHeld: async () => {
       await browser.waitUntil(async () => {
         const resizedWidth = Math.max(...(await inspect(windowId)).surfaces
@@ -45,7 +45,7 @@ export async function resizeActiveWebsiteTab(windowId: string, tabId: string, ex
     for(const [r,g,b] of evidence.samples.slice(1)) expect(g!>180 && b!>180 && g!-r!>100).toBe(true);
     expect(evidence.labels).toEqual([]);
   };
-  await resizeWorkspaceWindow({ inspection:before, edge:"right", moves:[{x:48,y:0}], whileHeld:async()=>{
+  await resizeWorkspaceWindow({ inspection:before, edge:"right", requireRequestedFrame: true, moves:[{x:48,y:0}], whileHeld:async()=>{
     await browser.waitUntil(async()=>Math.max(...(await inspect(windowId)).surfaces.filter(s=>s.tabId===tabId)
       .map(s=>s.bounds.x+s.bounds.width))>expectedWidth,{timeout:20_000});
     await check("resize-b-active-held");

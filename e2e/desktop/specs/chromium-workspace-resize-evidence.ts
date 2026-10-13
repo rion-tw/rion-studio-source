@@ -64,6 +64,7 @@ export async function exerciseWorkspaceResize(input: ResizeInput): Promise<void>
       whileHeld: step => check(`resize-range-${step}-held`) });
     await check("resize-range-ended");
     await resizeWorkspaceWindow({ inspection: await inspectProjected(input.windowId), edge: "bottomRight", rapid: true,
+      requireRequestedFrame: "all",
       moves: [{x:-96,y:-72}, {x:0,y:0}],
       whileHeld: step => check(`resize-rapid-reversal-${step}-held`) });
     await check("resize-rapid-reversal-ended");

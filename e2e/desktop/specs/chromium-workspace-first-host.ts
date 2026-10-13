@@ -128,7 +128,9 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
         const move = { x: edge === "top" || edge === "bottom" ? 0 : edge === "left" ? 64 : -64,
           y: edge === "left" || edge === "right" ? 0 : edge === "top" ? 48 : -48 };
         await resizeWorkspaceWindow({inspection:await inspect(input.windowId),edge,moves:[move,{x:0,y:0}],
-          requireRequestedFrame:true,
+          // Both shrink and return stay inside the initial frame. An interim
+          // AX size must not become the basis of the held-layout assertion.
+          requireRequestedFrame:"all",
           whileHeld: async (step, frame, initialFrame) => {
             // The layout plateaus on an intermediate size before catching up, so
             // waiting for it to merely change, or merely hold still, samples a
@@ -151,6 +153,7 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
         const normal = (await layout()).contentBounds;
         for (const rapid of [false,true]) {
           await resizeWorkspaceWindow({inspection:await inspect(input.windowId),edge:"bottomRight",rapid,
+            requireRequestedFrame:rapid ? "all" : undefined,
             // Keep the range inside the initial frame: the Windows CI display
             // is only 1024x768, but min -> near-normal -> normal still proves
             // that the content tracks the full native resize range.

@@ -38,20 +38,26 @@ fn graphics_settings_persist_and_bootstrap_read_without_writes_on_both_platforms
                 .unwrap(),
             saved
         );
-        let updates: Vec<_> = events
-            .try_iter()
-            .flatten()
-            .filter_map(|event| match event {
-                CoreEvent::GraphicsSettingsChanged { snapshot } => Some(snapshot),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(updates.len(), 1);
         assert_eq!(
             serde_json::to_value(read_graphics_settings_at_startup(dir.path()).unwrap()).unwrap(),
             saved
         );
-        core.shutdown();
+        core.shutdown_checked().unwrap();
+        // Command return only enqueues events. Shutdown is ordered after both
+        // replacements, so observing it also proves the no-op emitted no update.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut updates = Vec::new();
+        'events: loop {
+            for event in events.recv_deadline(deadline).unwrap() {
+                match event {
+                    CoreEvent::GraphicsSettingsChanged { snapshot } => updates.push(snapshot),
+                    CoreEvent::Shutdown => break 'events,
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!(updates.len(), 1);
+        assert_eq!(serde_json::to_value(&updates[0]).unwrap(), saved);
     }
 }
 

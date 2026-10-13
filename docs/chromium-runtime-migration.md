@@ -1145,8 +1145,9 @@ preserving its DOM focus target. Passive layout/restore projections and duplicat
 or superseded activations do not grant focus. Native blur/hide/close/failure,
 cancellation, a newer selection, or replaced ownership revokes pending handoff;
 readiness never reactivates a background host. Physical Ctrl+Tab/Shift release
-continues through the existing native modifier handoff. Windows native menu
-Ctrl+Tab/Shift+Ctrl+Tab uses this same exact selected-Role handoff, including a
+continues through the existing native modifier handoff. Windows main-process
+`before-input-event` owns Ctrl+Tab/Shift+Ctrl+Tab before the Role overlay or native
+menu fallback and uses this same exact selected-Role handoff, including a
 selection made while that Role is loading. No Escape interception
 or DOM canvas focus is introduced.
 Missing persisted window names project as empty

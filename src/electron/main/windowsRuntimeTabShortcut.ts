@@ -3,7 +3,7 @@ import type { ElectronCoreCommandPort } from "./coreApiDispatcher";
 import type { ChromiumRuntimeExecutorSnapshot } from "./chromiumRuntimeSnapshot";
 import { RionBridgeError } from "../ipc/errors";
 
-/** Native menu admission also works while the selected document is loading. */
+/** Native input/menu admission also works while the selected document is loading. */
 export async function executeWindowsRuntimeTabShortcut(input: {
   core: ElectronCoreCommandPort;
   native: () => ChromiumRuntimeExecutorSnapshot;

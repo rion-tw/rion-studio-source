@@ -206,7 +206,13 @@ cannot become destinations merely because they appeared in an earlier batch.
 Empty floating hosts are hidden on re-entry, retained through the physical
 terminal callback, and retired through the existing exact Core provision fence.
 
-Windows native menu accelerators own Ctrl+Tab and Ctrl+Shift+Tab even while a
-selected document is loading. The adapter reads Core's ordered non-hidden tabs
+Windows Electron main owns Ctrl+Tab and Ctrl+Shift+Tab through `before-input-event`
+on the focused WebContents of the exact visible, focused runtime host, including
+local chrome and loading documents. It consumes Tab before document handlers or
+menu fallback, dispatches once per non-repeated keydown, and consumes the matching
+keyup across selected WebContents and modifier release. Native blur/close ends
+that physical-edge ownership. Menus retain click commands without duplicate tab
+accelerators; launchers, popups and background contents cannot activate a runtime
+tab. The adapter reads Core's ordered non-hidden tabs
 and submits one `embeddedTabActivate` under the exact focused host, generation,
 selection and topology fence; the launcher is not a runtime shortcut target.

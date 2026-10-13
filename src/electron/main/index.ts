@@ -3,6 +3,7 @@ import { dispatchRuntimeTabShortcut } from "./runtimeTabShortcutDispatch";
 import { readWindowsShortcutDiagnostic } from "./windowsRuntimeShortcutDiagnostics";
 import { startChromiumDrm } from "./chromiumDrmStartup";
 import { executeWindowsRuntimeTabShortcut } from "./windowsRuntimeTabShortcut";
+import { installWindowsRuntimeTabInput } from "./windowsRuntimeTabInput";
 import { createElectronApplicationMenuDispatch } from "./electronApplicationMenuDispatch";
 import { capturePassiveAppKitHosts, closeAppKitInputHost } from "./macosAppKitRuntimeEventPorts";
 import { createRuntimeTabDragBootstrap } from "./runtimeTabDragBootstrap";
@@ -1305,9 +1306,15 @@ async function bootstrapReadyPhase(
   const { executeShortcut: executeNativeApplicationShortcut, executeQuickAccess: executeNativeQuickAccessShortcut } =
     createElectronApplicationMenuDispatch(focusedApplicationShortcuts, revealShellError);
   if (runtimePlatform === "win32") {
-    installWindowsApplicationMenu(Menu, executeNativeApplicationShortcut, (direction, focusedWindow) => {
+    const activateAdjacent = (direction: "next" | "previous", focusedWindow?: BaseWindow) => {
       void executeWindowsRuntimeTabShortcut({ core: activeCore(), native: readChromiumRuntimeSnapshot,
         direction, focusedWindow }).catch(error => revealShellError(normalizeRionBridgeError(error)));
+    };
+    installWindowsApplicationMenu(Menu, executeNativeApplicationShortcut, activateAdjacent);
+    installWindowsRuntimeTabInput({ app, contents: () => webContents.getAllWebContents(),
+      windowFor: contents => BrowserWindow.fromWebContents(contents), activateAdjacent,
+      isRuntimeWindow: window => readChromiumRuntimeSnapshot().windows.some(candidate =>
+        candidate.parentNativeHostId === window.id && candidate.visible && candidate.focused)
     });
   } else {
     installMacosApplicationMenu(

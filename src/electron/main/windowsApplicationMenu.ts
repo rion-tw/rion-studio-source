@@ -32,9 +32,9 @@ export function installWindowsApplicationMenu(
     {
       label: "&View",
       submenu: [...commands.view, { type: "separator" },
-        { label: "Next Tab", accelerator: "Ctrl+Tab",
+        { label: "Next Tab",
           click: (_item, focusedWindow) => activateAdjacent("next", focusedWindow) },
-        { label: "Previous Tab", accelerator: "Ctrl+Shift+Tab",
+        { label: "Previous Tab",
           click: (_item, focusedWindow) => activateAdjacent("previous", focusedWindow) },
         ...zoomAliases.map(([key, index]) => ({ ...commands.view[index],
           accelerator: `Ctrl+${key}`, visible: false }))]

@@ -51,6 +51,7 @@ export async function exerciseTabContentFocus(input: {
     { command: "nextTab" as const, role: first, tabId: input.tabIds[0]!, element: "tab-focus-input" },
     { command: "previousTab" as const, role: last, tabId: input.tabIds.at(-1)!, element: "game-input-canvas" }
   ]) {
+    const switchCursor = await fixtureCursor();
     await shortcut(step.command);
     await browser.waitUntil(async () => {
       const inspection = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
@@ -62,6 +63,11 @@ export async function exerciseTabContentFocus(input: {
     const fixtureId = new URL(step.role.launchUrl).pathname.split("/").at(-1)!;
     await waitFixtureEvent({ afterSequence: cursor, kind: "keyup", roleId: fixtureId });
     const events = await fixtureEvents({ afterSequence: cursor });
+    if (input.platform === "windows") {
+      const switchEvents = await fixtureEvents({ afterSequence: switchCursor });
+      expect(switchEvents.filter(event => event.code === "Tab" &&
+        ["keydown", "keyup"].includes(event.kind))).toEqual([]);
+    }
     const escape = events.filter(event => event.code === "Escape" && ["keydown", "keyup"].includes(event.kind));
     expect(escape.map(event => event.kind)).toEqual(["keydown", "keyup"]);
     for (const event of escape) expect(event).toMatchObject({ roleId: fixtureId, isTrusted: true,

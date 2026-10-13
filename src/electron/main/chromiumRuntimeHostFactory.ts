@@ -906,7 +906,13 @@ implements ChromiumRuntimeHostFactoryPort {
     record.listeners = {
       pageTitleUpdated: (event) => event.preventDefault(),
       beforeInputEvent: (event, input) => {
-        preserveChromiumFunctionKeyInput(record.contents, input);
+        // An empty local shell has no game input owner. Keep the native close
+        // gesture there; active Role/Web contents retain function-key protection.
+        const emptyHostClose = record.chrome.readActiveTabId() === null &&
+          (input.code === "F4" || input.key === "F4") && input.alt &&
+          !input.control && !input.meta && !input.shift;
+        if (emptyHostClose) record.contents.setIgnoreMenuShortcuts(false);
+        else preserveChromiumFunctionKeyInput(record.contents, input);
         if (isChromiumRoleQuickAccessShortcut(input, "win32")) {
           event.preventDefault();
           if (input.type === "keyDown" && !input.isAutoRepeat) {

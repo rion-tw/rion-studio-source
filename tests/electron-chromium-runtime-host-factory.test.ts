@@ -789,6 +789,47 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(window.webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
   });
 
+  it("admits native Alt+F4 only while the committed local shell has no active tab", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32", browserWindows: browserWindows.port, displays, runtimeDocumentPath
+    });
+    const creation = factory.create(target(), tab(target()));
+    const window = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, window);
+    const empty = (topologyRevision: number) => host.applyWindowsChromeProjection?.({
+      activeTabId: null, contentBounds: { x: 0, y: 40, width: 960, height: 640 },
+      moveTargets: [], tabs: [], topologyRevision, windowGeneration: 4,
+      workspaceDividers: [], windowId: "window-1"
+    });
+    const send = (code: string, alt: boolean, control = false) => {
+      for (const type of ["keyDown", "keyUp"] as const) {
+        const event = preventableEvent();
+        window.webContents.emit("before-input-event", event, {
+          type, code, key: code, alt, control, meta: false, shift: false, isAutoRepeat: false
+        });
+        expect(event.preventDefault).not.toHaveBeenCalled();
+      }
+    };
+    await empty(9);
+    send("F4", true);
+    expect(window.webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+    for (const [code, alt, control] of [["F4", false, true], ["F11", false, false]] as const) {
+      send(code, alt, control);
+      expect(window.webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+    }
+    await applyWindowFence(host, 4, 10);
+    send("F4", true);
+    expect(window.webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+    // A rejected stale empty projection must not release the game owner.
+    await expect(empty(9)).rejects.toMatchObject({ code: "ELECTRON_WINDOWS_RUNTIME_CHROME_PROJECTION_STALE" });
+    send("F4", true);
+    expect(window.webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+    await empty(11);
+    send("F4", true);
+    expect(window.webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+  });
+
   it("streams exact native state events and retires observers before replacement", async () => {
     const browserWindows = new FakeBrowserWindows();
     const foreground = new FakeRuntimeForegroundProbe();

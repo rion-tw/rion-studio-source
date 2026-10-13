@@ -1,3 +1,30 @@
+// Convert only a captured Kernel snapshot; never combine tabs from one revision
+// with placement or ownership metadata from a later snapshot.
+fn runtime_window_tab_snapshot(
+    window: &crate::RuntimeLiveWindowRecord,
+    ownership_tab_by_id: &std::collections::HashMap<&str, &crate::model::BrowserRuntimeTabRecord>,
+) -> crate::model::RuntimeWindowTabSnapshotRecord {
+    crate::model::RuntimeWindowTabSnapshotRecord {
+        window_id: window.window_id.clone(),
+        window_generation: window.window_generation,
+        revision: window.revision,
+        window_zoom_factor: window.window_zoom_factor.unwrap_or(1.0),
+        presentation: window.placement.as_ref().map(|placement| placement.presentation.clone()),
+        tabs: window.tabs.iter().map(|tab| crate::model::GameWindowTabRecord {
+            id: tab.id.clone(),
+            tab_type: tab.tab_type.clone(),
+            source_id: tab.source_id.clone(),
+            name: tab.title.clone(),
+            role_slots: tab.role_slots.clone(),
+            workspace_slots: tab.workspace_slots.clone(),
+            hidden: window.hidden_tab_ids.contains(&tab.id),
+            audio_muted: ownership_tab_by_id.get(tab.id.as_str())
+                .map_or(tab.audio_muted, |ownership| ownership.audio_muted),
+        }).collect(),
+        active_tab_id: window.selected_tab_id.clone(),
+    }
+}
+
 impl AppCore {
     pub fn commit_runtime_window_snapshots(
         &self,

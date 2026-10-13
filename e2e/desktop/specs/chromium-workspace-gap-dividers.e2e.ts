@@ -645,6 +645,9 @@ async function restartPhase(): Promise<void> {
     tabId,
     windowId: gameWindow.id
   });
+  // Role readiness can advance Core revisions while native placement persists.
+  // A restored cohort must not turn that accepted placement into a shell error.
+  expect(await runtimeTabShellErrors()).toEqual([]);
   await expectWorkspacePixels({ inspection: restored, tabId, name: "gap-restart", background: "black" });
   expect(await runtimeTabShellErrors()).toEqual([]);
 }

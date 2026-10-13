@@ -249,6 +249,15 @@ current work area. Legacy `Monitor #<number>` and pre-fingerprint records retain
 their unique-evidence requirement and never select an arbitrary display. The
 frozen topology revision and native placement receipt remain the terminal
 authority; SQLite and public bridge shapes are unchanged.
+
+Windows native placement validates its source fence, commits the mutation and
+captures its logical window snapshot under the same Core authority barrier.
+SQLite persists that captured revision after the barrier is released. A later
+Role-ready or other runtime revision cannot make this accepted snapshot fail
+merely because a second read would be newer. Persistence retains its generation
+and revision fence, so an already persisted newer snapshot supersedes the older
+write. Native projection and SQLite work never run under the authority barrier.
+
 Workspace Website `lastUrl` updates remain live RuntimeKernel metadata but do
 not advance the window topology revision, so ordinary browsing cannot stale the
 exact parent fence used by a later controlled popup.

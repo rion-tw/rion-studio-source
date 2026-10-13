@@ -279,3 +279,57 @@ fn windows_native_placement_of_unsaved_window_does_not_create_saved_definition()
     assert_eq!(runtime.windows[&event.window_id].placement.as_ref().unwrap().normal_bounds.x, 180);
     core.shutdown();
 }
+
+#[test]
+fn windows_native_placement_persists_its_commit_after_an_unrelated_revision_advances() {
+    let (_directory, core) = core_for_runtime_contract("win32", 23);
+    let window = seed_windows_runtime_placement(&core, true);
+    let event = windows_runtime_placement_event(
+        &window, "00000000-0000-4000-8000-000000000337", 1, 310,
+    );
+    let commit = core.apply_runtime_intent(crate::RuntimeIntent::CommitPlacement(
+        crate::RuntimeWindowPlacementCommitInput {
+            operation_id: event.event_id.clone(),
+            placement: event.placement.clone(),
+            placement_sequence: event.adapter_sequence,
+            source: "chromiumWindowsHost".to_owned(),
+            target_display: event.target_display.clone(),
+            window_generation: event.window_generation,
+            window_id: event.window_id.clone(),
+        },
+    )).unwrap();
+    let captured = core.app_snapshot().unwrap().logical_windows.into_iter()
+        .find(|logical| logical.window_id == event.window_id).unwrap();
+    assert_eq!(captured.revision, commit.revision);
+    core.apply_runtime_intent(crate::RuntimeIntent::SetWindowZoomFactor {
+        expected_revision: Some(commit.revision),
+        operation_id: "concurrent-window-update".to_owned(),
+        window_id: event.window_id.clone(),
+        zoom_factor: 1.25,
+    }).unwrap();
+    assert_eq!(core.persist_windows_runtime_window_placement(&event, commit.revision, captured.clone())
+        .unwrap(), "applied");
+    let saved = core.invoke(CoreCommand::GameWindowGet { id: event.window_id.clone() }).unwrap();
+    assert_eq!(saved["placement"]["normalBounds"]["x"], 310);
+    let latest = core.app_snapshot().unwrap().logical_windows.into_iter()
+        .find(|logical| logical.window_id == event.window_id).unwrap();
+    assert!(latest.revision > captured.revision);
+    assert_eq!(latest.window_zoom_factor, 1.25);
+    let mut placement = event.placement.clone();
+    placement.normal_bounds.x = 420;
+    core.commit_runtime_window_snapshot_batch_inner(vec![GameWindowRuntimeSnapshotCommitInputRecord {
+        snapshot: latest,
+        name: "Windows placement receipt".to_owned(),
+        target_display: event.target_display.clone(),
+        placement,
+    }]).unwrap();
+    assert_eq!(core.persist_windows_runtime_window_placement(&event, commit.revision, captured.clone())
+        .unwrap(), "superseded");
+    let saved = core.invoke(CoreCommand::GameWindowGet { id: event.window_id.clone() }).unwrap();
+    assert_eq!(saved["placement"]["normalBounds"]["x"], 420);
+    let mut mismatched = captured;
+    mismatched.window_generation += 1;
+    assert_eq!(core.persist_windows_runtime_window_placement(&event, commit.revision, mismatched)
+        .unwrap_err().code(), "WINDOWS_RUNTIME_PLACEMENT_COMMIT_STALE");
+    core.shutdown();
+}

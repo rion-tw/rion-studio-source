@@ -67,19 +67,10 @@ impl AppCore {
         &self,
         event: &crate::model::WindowsRuntimeWindowPlacementEventRecord,
         committed_revision: u64,
+        logical: crate::model::RuntimeWindowTabSnapshotRecord,
     ) -> CoreResult<String> {
-        let app = self.app_snapshot()?;
-        let logical = app
-            .logical_windows
-            .iter()
-            .find(|window| window.window_id == event.window_id)
-            .ok_or_else(|| {
-                windows_runtime_placement_error(
-                    "WINDOWS_RUNTIME_PLACEMENT_LOGICAL_WINDOW_MISSING",
-                    "The committed Windows placement lost its logical window snapshot.",
-                )
-            })?;
-        if logical.window_generation != event.window_generation
+        if logical.window_id != event.window_id
+            || logical.window_generation != event.window_generation
             || logical.revision != committed_revision
             || logical.presentation.as_deref()
                 != Some(event.placement.presentation.as_str())
@@ -91,13 +82,14 @@ impl AppCore {
         }
         // Like other runtime UI actions, placement of an unsaved live window
         // updates Core topology without creating a saved Game Window definition.
-        let Some(saved) = app.state.game_windows.iter()
+        let state = self.read_typed_snapshot()?;
+        let Some(saved) = state.game_windows.iter()
             .find(|window| window.id == event.window_id) else {
                 return Ok("notRequired".to_owned());
             };
         let batch = self.commit_runtime_window_snapshot_batch_inner(vec![
             crate::model::GameWindowRuntimeSnapshotCommitInputRecord {
-                snapshot: logical.clone(),
+                snapshot: logical,
                 name: saved.name.clone(),
                 target_display: event.target_display.clone(),
                 placement: event.placement.clone(),
@@ -145,56 +137,75 @@ impl AppCore {
         }
 
         let _lane = self.embedded_runtime_sequence.acquire()?;
-        let before = self.browser_runtime.snapshot()?;
-        let Some(window) = before.windows.get(&event.window_id) else {
-            return Ok(windows_runtime_placement_receipt(
-                &event,
-                event.topology_revision,
-                "superseded",
-                "superseded",
-                false,
-                Some("WINDOWS_RUNTIME_PLACEMENT_STALE".to_owned()),
-            ));
-        };
-        if window.window_generation != event.window_generation
-            || window.revision != event.topology_revision
-            || event.adapter_sequence <= window.placement_sequence
-        {
-            return Ok(windows_runtime_placement_receipt(
-                &event,
-                window.revision,
-                "superseded",
-                "superseded",
-                false,
-                Some("WINDOWS_RUNTIME_PLACEMENT_STALE".to_owned()),
-            ));
-        }
+        let (commit, logical) = {
+            // Launch completion can advance Kernel revisions outside the UI lane.
+            // Fence validation, mutation and snapshot capture together, then drop
+            // the authority guard before SQLite or native projection work.
+            let _authority_guard = self.runtime_authority_barrier.write()
+                .map_err(|_| CoreError::Internal("runtime authority barrier poisoned".to_owned()))?;
+            let before = self.browser_runtime.snapshot()?;
+            let Some(window) = before.windows.get(&event.window_id) else {
+                return Ok(windows_runtime_placement_receipt(
+                    &event,
+                    event.topology_revision,
+                    "superseded",
+                    "superseded",
+                    false,
+                    Some("WINDOWS_RUNTIME_PLACEMENT_STALE".to_owned()),
+                ));
+            };
+            if window.window_generation != event.window_generation
+                || window.revision != event.topology_revision
+                || event.adapter_sequence <= window.placement_sequence
+            {
+                return Ok(windows_runtime_placement_receipt(
+                    &event,
+                    window.revision,
+                    "superseded",
+                    "superseded",
+                    false,
+                    Some("WINDOWS_RUNTIME_PLACEMENT_STALE".to_owned()),
+                ));
+            }
 
-        let commit = self.apply_runtime_intent(crate::RuntimeIntent::CommitPlacement(
-            crate::RuntimeWindowPlacementCommitInput {
-                operation_id: event.event_id.clone(),
-                placement: event.placement.clone(),
-                placement_sequence: event.adapter_sequence,
-                source: "chromiumWindowsHost".to_owned(),
-                target_display: event.target_display.clone(),
-                window_generation: event.window_generation,
-                window_id: event.window_id.clone(),
-            },
-        ))?;
-        if commit.status == crate::RuntimeCommitStatus::Superseded {
-            return Ok(windows_runtime_placement_receipt(
-                &event,
-                commit.revision,
-                "superseded",
-                "superseded",
-                false,
-                Some("WINDOWS_RUNTIME_PLACEMENT_STALE".to_owned()),
-            ));
-        }
+            let commit = self.browser_runtime.apply(crate::RuntimeIntent::CommitPlacement(
+                crate::RuntimeWindowPlacementCommitInput {
+                    operation_id: event.event_id.clone(),
+                    placement: event.placement.clone(),
+                    placement_sequence: event.adapter_sequence,
+                    source: "chromiumWindowsHost".to_owned(),
+                    target_display: event.target_display.clone(),
+                    window_generation: event.window_generation,
+                    window_id: event.window_id.clone(),
+                },
+            ))?;
+            if commit.status == crate::RuntimeCommitStatus::Superseded {
+                return Ok(windows_runtime_placement_receipt(
+                    &event,
+                    commit.revision,
+                    "superseded",
+                    "superseded",
+                    false,
+                    Some("WINDOWS_RUNTIME_PLACEMENT_STALE".to_owned()),
+                ));
+            }
+
+            let snapshot = self.browser_runtime.snapshot()?;
+            let window = snapshot.windows.get(&event.window_id).ok_or_else(|| {
+                windows_runtime_placement_error(
+                    "WINDOWS_RUNTIME_PLACEMENT_LOGICAL_WINDOW_MISSING",
+                    "The committed Windows placement lost its logical window snapshot.",
+                )
+            })?;
+            let ownership = snapshot.browser_runtime.tabs.iter()
+                .map(|tab| (tab.id.as_str(), tab)).collect();
+            (commit, runtime_window_tab_snapshot(window, &ownership))
+        };
 
         let persistence = self.persist_windows_runtime_window_placement(
             &event,
             commit.revision,
+            logical,
         );
         let projection = self.project_embedded_runtime_snapshot_without_persistence(
             Some(&event.event_id),

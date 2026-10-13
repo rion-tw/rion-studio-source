@@ -49,8 +49,9 @@ it.skipIf(process.platform !== "win32")("compares Chromium F11 ownership APIs ab
     expect(report.functionKeyOutcomes).toHaveLength(96);
     for (const outcome of report.functionKeyOutcomes) {
       expect(outcome.fullscreen, JSON.stringify(outcome)).toBe(false);
-      expect(outcome.events.some((event: { kind: string }) => event.kind === "unexpected-menu-command")).toBe(false);
-      expect(outcome.pageEvents).toEqual([
+      expect(outcome.events.some((event: { kind: string }) => event.kind === "unexpected-menu-command"),
+        JSON.stringify(outcome)).toBe(false);
+      expect(outcome.pageEvents, JSON.stringify(outcome)).toEqual([
         expect.objectContaining({ type: "keydown", code: outcome.code, trusted: true, control: outcome.control }),
         expect.objectContaining({ type: "keyup", code: outcome.code, trusted: true, control: outcome.control }),
         expect.objectContaining({ type: "keydown", code: "Digit3", trusted: true, control: false }),

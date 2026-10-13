@@ -21,6 +21,10 @@ const policyPath = join(resolve(userData), "function-key-policy.cjs");
 require("esbuild").buildSync({ entryPoints: [join(root, "src/electron/main/chromiumFunctionKeyInput.ts")],
   outfile: policyPath, bundle: true, platform: "node", format: "cjs" });
 const { preserveChromiumFunctionKeyInput } = require(policyPath);
+const menuPath = join(resolve(userData), "windows-application-menu.cjs");
+require("esbuild").buildSync({ entryPoints: [join(root, "src/electron/main/windowsApplicationMenu.ts")],
+  outfile: menuPath, bundle: true, platform: "node", format: "cjs" });
+const { installWindowsApplicationMenu } = require(menuPath);
 const fixture = "data:text/html," + encodeURIComponent(
   '<!doctype html><title>Shortcut probe</title><body tabindex="0">Isolated shortcut surface</body>'
 );
@@ -232,10 +236,13 @@ async function probe() {
     }
     mode = "game-function-keys";
     for (const surface of surfaces) {
-      Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: "Probe", submenu: [{
-        label: "Conflicting legacy fullscreen", accelerator: "F11",
-        click: () => record("unexpected-menu-command")
-      }] }]));
+      // Test the actual production menu. The comparison above deliberately
+      // registers F11; production must remove it. setIgnoreMenuShortcuts is a
+      // mutable preference consulted after renderer ACK, not a per-event fence:
+      // a queued ordinary key can reset it before an earlier F11 is unhandled.
+      installWindowsApplicationMenu(Menu,
+        command => record("unexpected-menu-command", { command }),
+        direction => record("unexpected-menu-command", { direction }));
       activeHost = surface.host;
       role.setVisible(surface.view === role);
       web.setVisible(surface.view === web);

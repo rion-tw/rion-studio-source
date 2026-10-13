@@ -319,6 +319,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Upload native function key evidence
+        if: ${{ always() && runner.os == 'Windows' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: chromium-shortcuts-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .desktop-e2e-artifacts/chromium-input/chromium-shortcuts-win32.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload production CDP input evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

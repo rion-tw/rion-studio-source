@@ -32,36 +32,38 @@ exit $LASTEXITCODE
   $taskExecutable = Join-Path $PSHOME 'pwsh.exe'
   $taskLiteral = 'space '' apostrophe " double ; $([IO.File]::WriteAllText("injected","bad")) ` tick'
   $taskResults = @()
-  foreach ($taskCode in @('0', '7', 'throw')) {
-    $taskMarker = Join-Path $taskRoot "$taskCode.json"
-    $taskErrorPath = Join-Path $taskRoot "$taskCode.error.txt"
-    $taskArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $taskScript,
-      '-Marker', $taskMarker, '-Literal', $taskLiteral, '-Empty', '', '-Code', $taskCode)
-    $taskEnvelope = @{commandPath=$taskExecutable; arguments=$taskArguments;
-      invokePowerShellFileInProcess=$true; workingDirectory=$taskRoot} | ConvertTo-Json -Compress
-    $taskTrap = "trap { [IO.File]::WriteAllText('" + $taskErrorPath.Replace("'", "''") + "', (`$_ | Out-String)); exit 1 }; "
-    $taskCommand = $taskTrap + '$ErrorActionPreference = "Stop"; ' + $taskFunction +
-      '; $envelope = ConvertFrom-Json -InputObject ''' + $taskEnvelope.Replace("'", "''") + "'; " + $taskBody
-    $taskEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($taskCommand))
-    $taskJob = [InlinePowerShellTestJob]::CreateJobObject([IntPtr]::Zero, $null)
-    if ($taskJob -eq [IntPtr]::Zero) { throw 'Fixture Job creation failed.' }
-    $taskObserver = [RionWindowsJobProcessDiagnostics]::new($taskJob)
-    try {
-      $taskResult = [InlinePowerShellTestJob]::Run($taskJob, $taskExecutable, $taskEncoded, $taskRoot, $taskObserver)
-      $taskConsoleIds = @($taskObserver.Snapshot() | Where-Object { $_.ImagePath -like '*\conhost.exe' } | ForEach-Object ProcessId)
-      $taskPinnedConsoleHosts = @($taskConsoleIds | ForEach-Object { $taskObserver.IsPinnedConsoleHost($_) })
-      $taskObserver.Dispose()
-      $taskResults += @{code=$taskCode;exitCode=$taskResult[0];rootPid=$taskResult[1];
-        totalProcesses=$taskResult[2];activeAfterConsoleDrain=$taskResult[3];
-        activeAtRootExit=$taskResult[4];drainedConsoleHostProcessId=$taskResult[5];
-        joinedExitedRootAccounting=($taskResult[6] -eq 1);
-        pinnedConsoleHosts=$taskPinnedConsoleHosts;
-        pinnedAfterDispose=@($taskConsoleIds | ForEach-Object { $taskObserver.IsPinnedConsoleHost($_) });
-        marker=(Get-Content -LiteralPath $taskMarker -Raw | ConvertFrom-Json);
-        error=$(if (Test-Path -LiteralPath $taskErrorPath) {Get-Content -LiteralPath $taskErrorPath -Raw} else {$null});
-        observations=@($taskObserver.Snapshot());notificationError=$taskObserver.NotificationError;
-        truncated=$taskObserver.Truncated}
-    } finally { $taskObserver.Dispose(); [void][InlinePowerShellTestJob]::CloseHandle($taskJob) }
+  foreach ($taskInline in @($true, $false)) {
+    foreach ($taskCode in @('0', '7', 'throw')) {
+      $taskMarker = Join-Path $taskRoot "$taskCode.json"
+      $taskErrorPath = Join-Path $taskRoot "$taskCode.error.txt"
+      $taskArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $taskScript,
+        '-Marker', $taskMarker, '-Literal', $taskLiteral, '-Empty', '', '-Code', $taskCode)
+      $taskEnvelope = @{commandPath=$taskExecutable; arguments=$taskArguments;
+        invokePowerShellFileInProcess=$taskInline; workingDirectory=$taskRoot} | ConvertTo-Json -Compress
+      $taskTrap = "trap { [IO.File]::WriteAllText('" + $taskErrorPath.Replace("'", "''") + "', (`$_ | Out-String)); exit 1 }; "
+      $taskCommand = $taskTrap + '$ErrorActionPreference = "Stop"; ' + $taskFunction +
+        '; $envelope = ConvertFrom-Json -InputObject ''' + $taskEnvelope.Replace("'", "''") + "'; " + $taskBody
+      $taskEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($taskCommand))
+      $taskJob = [InlinePowerShellTestJob]::CreateJobObject([IntPtr]::Zero, $null)
+      if ($taskJob -eq [IntPtr]::Zero) { throw 'Fixture Job creation failed.' }
+      $taskObserver = [RionWindowsJobProcessDiagnostics]::new($taskJob)
+      try {
+        $taskResult = [InlinePowerShellTestJob]::Run($taskJob, $taskExecutable, $taskEncoded, $taskRoot, $taskObserver)
+        $taskConsoleIds = @($taskObserver.Snapshot() | Where-Object { $_.ImagePath -like '*\conhost.exe' } | ForEach-Object ProcessId)
+        $taskPinnedConsoleHosts = @($taskConsoleIds | ForEach-Object { $taskObserver.IsPinnedConsoleHost($_) })
+        $taskObserver.Dispose()
+        $taskResults += @{inline=$taskInline;code=$taskCode;exitCode=$taskResult[0];rootPid=$taskResult[1];
+          totalProcesses=$taskResult[2];activeAfterConsoleDrain=$taskResult[3];
+          activeAtRootExit=$taskResult[4];drainedConsoleHostProcessId=$taskResult[5];
+          joinedExitedRootAccounting=($taskResult[6] -eq 1);
+          pinnedConsoleHosts=$taskPinnedConsoleHosts;
+          pinnedAfterDispose=@($taskConsoleIds | ForEach-Object { $taskObserver.IsPinnedConsoleHost($_) });
+          marker=(Get-Content -LiteralPath $taskMarker -Raw | ConvertFrom-Json);
+          error=$(if (Test-Path -LiteralPath $taskErrorPath) {Get-Content -LiteralPath $taskErrorPath -Raw} else {$null});
+          observations=@($taskObserver.Snapshot());notificationError=$taskObserver.NotificationError;
+          truncated=$taskObserver.Truncated}
+      } finally { $taskObserver.Dispose(); [void][InlinePowerShellTestJob]::CloseHandle($taskJob) }
+    }
   }
   $taskRejected = @()
   foreach ($taskCase in @('host','options','pairs','duplicate','parameter','file')) {

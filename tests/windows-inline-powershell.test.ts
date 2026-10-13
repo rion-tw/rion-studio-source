@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import { expect, it } from "vitest";
 
 it.skipIf(process.platform !== "win32")(
-  "executes the attested PowerShell file without a duplicate host and retains exact failure exits",
+  "joins exact console exit for inline and child commands while retaining exact failure exits",
   async () => {
     const { stdout } = await promisify(execFile)("pwsh.exe", [
       "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
@@ -12,7 +12,7 @@ it.skipIf(process.platform !== "win32")(
     ], { windowsHide: true, maxBuffer: 1024 * 1024 });
     const result = JSON.parse(stdout) as {
       platform: string; literal: string; rejected: string[]; injected: boolean;
-      cases: { code: string; exitCode: number; totalProcesses: number;
+      cases: { inline: boolean; code: string; exitCode: number; totalProcesses: number;
         activeAtRootExit: number; activeAfterConsoleDrain: number;
         joinedExitedRootAccounting: boolean;
         pinnedConsoleHosts: boolean[]; pinnedAfterDispose: boolean[];
@@ -23,8 +23,8 @@ it.skipIf(process.platform !== "win32")(
     expect(result.platform).toBe("win32");
     expect(result.injected).toBe(false);
     expect(result.rejected).toEqual(["host", "options", "pairs", "duplicate", "parameter", "file"]);
-    expect(result.cases.map(({ code, exitCode }) => [code, exitCode]), JSON.stringify(result.cases))
-      .toEqual([["0", 0], ["7", 7], ["throw", 1]]);
+    expect(result.cases.map(({ inline, code, exitCode }) => [inline, code, exitCode]), JSON.stringify(result.cases))
+      .toEqual([true, false].flatMap(inline => [[inline, "0", 0], [inline, "7", 7], [inline, "throw", 1]]));
     for (const entry of result.cases) {
       expect(entry.marker).toEqual({ literal: result.literal, empty: "", code: entry.code });
       expect(entry.activeAfterConsoleDrain, JSON.stringify(entry)).toBe(0);
@@ -37,8 +37,8 @@ it.skipIf(process.platform !== "win32")(
       expect(entry.observations).toHaveLength(entry.totalProcesses);
       expect(entry.observations.every(({ InJobAtObservation }) => InJobAtObservation)).toBe(true);
       expect(entry.observations.filter(({ ImagePath }) => ImagePath.endsWith("\\pwsh.exe")))
-        .toHaveLength(1);
-      if (entry.code !== "throw") expect(entry.totalProcesses).toBe(3);
+        .toHaveLength(entry.inline ? 1 : 2);
+      if (entry.code !== "throw") expect(entry.totalProcesses).toBe(entry.inline ? 3 : 4);
     }
   }
 );

@@ -622,7 +622,7 @@ if ($command -match '^(Ctrl\+)?F([1-9]|1[0-2])$') {
   $key = [byte](0x6F + [int]$Matches[2]); $modifier = $command.StartsWith('Ctrl+')
 } else {
 switch ($command) {
-  'closeWindow' { $key = [byte]0x73; $modifier = $false; $altModifier = $true }
+  'closeWindow' { $key = [byte]0x20; $modifier = $false; $altModifier = $true }
   { $_ -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap') } { $key = [byte]0x31; $modifier = $false }
   'nextTab' { $key = [byte]0x09 }
   'previousTab' { $key = [byte]0x09; $shiftModifier = $true }
@@ -669,6 +669,11 @@ $scanCodes.Add($keyScan)
 $submitted = if ($command -eq 'toggleFullscreen') {
   [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray()) -and
     [RionNativeShortcutInput]::SendScanChord(@([uint16][RionNativeShortcutInput]::MapVirtualKey(0x46, 0)))
+} elseif ($command -eq 'closeWindow') {
+  # Alt+Space, C closes through the visible Windows system menu. Alt+F4 is
+  # function-key input and is intentionally protected on game surfaces.
+  [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray()) -and
+    [RionNativeShortcutInput]::SendScanChord(@([uint16][RionNativeShortcutInput]::MapVirtualKey(0x43, 0)))
 } elseif ($command -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap')) {
   [RionNativeShortcutInput]::SendAltSequence($command)
 } elseif ($command -in @('shiftDigit3TapHoldShift', 'digit3Tap', 'shiftDigit5Hold', 'shiftDigit5Release', 'shiftDigit2ThenDigit3Hold', 'shiftDigit3ThenDigit2Hold', 'shiftUp')) {

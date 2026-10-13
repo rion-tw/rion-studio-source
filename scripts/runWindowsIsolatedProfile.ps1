@@ -563,7 +563,10 @@ try {
       $CommandTimeoutSeconds * 1000,
       $ephemeralPrivateKeyForChild,
       $ephemeralPrivateKeyPasswordForChild,
-      [bool] $InvokePowerShellFileInProcess
+      # Every isolated command can leave its exact console host in native exit
+      # accounting. Join its terminal event; arbitrary surviving children still
+      # fail the Job active-zero gate, irrespective of invocation mode.
+      $true
     )
   } finally {
     $ephemeralPrivateKeyForChild = $null

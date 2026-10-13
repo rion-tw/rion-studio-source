@@ -17,20 +17,23 @@ export function installWindowsRuntimeTabInput(input: {
     if (contents.isDestroyed() || attached.has(contents)) return;
     attached.add(contents);
     contents.on("before-input-event", (event, key: Input) => {
-      if (key.code !== "Tab" || !["keyDown", "keyUp"].includes(key.type) ||
-          contents.isDestroyed() || !contents.isFocused()) return;
+      if (key.code !== "Tab" || !["keyDown", "keyUp"].includes(key.type) || contents.isDestroyed()) return;
       const window = input.windowFor(contents);
       if (!window || window.isDestroyed() || !window.isFocused() || !input.isRuntimeWindow(window)) return;
+      const chord = key.control && !key.alt && !key.meta;
+      if (key.type === "keyUp") {
+        // Chromium may already have addressed the release to the old view when
+        // Core commits the selection. Consume that admitted edge there too.
+        if (!contents.isFocused() && !heldTabs.has(window)) return;
+        const held = heldTabs.delete(window);
+        if (chord || held) event.preventDefault();
+        return;
+      }
+      if (!contents.isFocused()) return;
       if (!observedWindows.has(window)) {
         observedWindows.add(window);
         window.on("blur", () => heldTabs.delete(window));
         window.on("closed", () => heldTabs.delete(window));
-      }
-      const chord = key.control && !key.alt && !key.meta;
-      if (key.type === "keyUp") {
-        const held = heldTabs.delete(window);
-        if (chord || held) event.preventDefault();
-        return;
       }
       if (key.isAutoRepeat && heldTabs.has(window)) {
         event.preventDefault();

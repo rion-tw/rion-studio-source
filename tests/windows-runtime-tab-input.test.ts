@@ -58,6 +58,15 @@ describe("Windows main-process tab chord ownership", () => {
     expect(h.emit({ type: "keyUp", control: false })).toHaveBeenCalledOnce();
     expect(h.emit({ control: false })).not.toHaveBeenCalled();
   });
+  it("consumes a matching release already addressed to the old now-unfocused view", () => {
+    const h = harness();
+    h.emit();
+    h.first.isFocused.mockReturnValue(false);
+    expect(h.emit({ type: "keyUp", control: false })).toHaveBeenCalledOnce();
+    expect(h.emit({ type: "keyUp" })).not.toHaveBeenCalled();
+    expect(h.emit()).not.toHaveBeenCalled();
+    expect(h.activateAdjacent).toHaveBeenCalledOnce();
+  });
   it("does not initiate selection from an orphan repeated chord", () => {
     const h = harness();
     expect(h.emit({ isAutoRepeat: true })).toHaveBeenCalledOnce();

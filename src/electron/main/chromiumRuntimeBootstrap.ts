@@ -355,7 +355,7 @@ export interface ChromiumRuntimeBootstrapInput {
     runtimeHostPreloadPath: string;
     onWindowControl: (
       windowId: string,
-      action: "closeWindow" | "toggleMaximizeWindow"
+      action: "closeWindow" | "toggleMaximizeWindow" | "toggleFullscreen"
     ) => Promise<void>;
     onTabDrag?: (start: import("./runtimeTabDragController").RuntimeTabDragStart) => void;
     onTabControl?: (

@@ -124,7 +124,7 @@ export class ChromiumRuntimeNativeWindowController {
 
   async requestWindowControl(
     windowId: string,
-    action: "closeWindow" | "toggleMaximizeWindow"
+    action: "closeWindow" | "toggleMaximizeWindow" | "toggleFullscreen"
   ): Promise<void> {
     if (action === "closeWindow") {
       const receipt = await this.#executeNativeAction({
@@ -145,7 +145,9 @@ export class ChromiumRuntimeNativeWindowController {
     );
     await this.#setPresentation(
       windowId,
-      native?.presentation === "normal" ? "maximized" : "normal"
+      action === "toggleFullscreen"
+        ? native?.presentation === "fullscreen" ? "normal" : "fullscreen"
+        : native?.presentation === "normal" ? "maximized" : "normal"
     );
   }
 

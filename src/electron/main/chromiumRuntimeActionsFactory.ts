@@ -75,7 +75,7 @@ export interface ChromiumRuntimeActionsServices {
   readonly showGameWindow: (windowId: string) => Promise<void>;
   readonly requestRuntimeWindowControl: (
     windowId: string,
-    action: "closeWindow" | "toggleMaximizeWindow"
+    action: "closeWindow" | "toggleMaximizeWindow" | "toggleFullscreen"
   ) => Promise<void>;
   readonly requestRuntimeTabControl: (
     tabId: string,
@@ -154,7 +154,7 @@ export function createCoreOwnedChromiumRuntimeActions(
     showGameWindow: (windowId: string) => savedWindows.show(windowId),
     requestRuntimeWindowControl: (
       windowId: string,
-      action: "closeWindow" | "toggleMaximizeWindow"
+      action: "closeWindow" | "toggleMaximizeWindow" | "toggleFullscreen"
     ) =>
       nativeWindows.requestWindowControl(windowId, action),
     requestRuntimeTabControl: (

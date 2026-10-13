@@ -6,6 +6,7 @@ import {
   electronDesktopE2eArmApplicationShortcutFullscreenExit,
   electronDesktopE2eApplicationShortcutRuntime,
   electronDesktopE2eGameWindowRuntime,
+  electronDesktopE2eFullscreenToolbarRuntime,
   electronDesktopE2eProbe,
   type ElectronDesktopE2eApplicationShortcutRuntimeInspection
 } from "../support/electron-driver";
@@ -77,6 +78,7 @@ async function pressApplicationShortcut(input: Readonly<{
   platform: ChromiumShellPlatform;
   processId: number;
   runtimeTabName?: string;
+  runtimeWindowId?: string;
   targetMode?: "focused-runtime";
 }>): Promise<void> {
   const nativeInput = {
@@ -88,7 +90,8 @@ async function pressApplicationShortcut(input: Readonly<{
   if (input.platform === "macos") {
     await pressVisibleMacosApplicationShortcut(nativeInput);
   } else {
-    await pressVisibleWindowsApplicationShortcut(nativeInput);
+    await pressVisibleWindowsApplicationShortcut({ ...nativeInput,
+      ...(input.runtimeWindowId ? { nativeWindowHandle: (await electronDesktopE2eFullscreenToolbarRuntime(input.runtimeWindowId)).nativeWindowHandle } : {}) });
   }
 }
 
@@ -483,6 +486,7 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
   await pressApplicationShortcut({
     ...input,
     command: "toggleFullscreen",
+    runtimeWindowId: windowId,
     runtimeTabName: SHORTCUT_ROLE_NAME,
     targetMode: "focused-runtime"
   });
@@ -507,6 +511,7 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
   await pressApplicationShortcut({
     ...input,
     command: "toggleFullscreen",
+    runtimeWindowId: windowId,
     runtimeTabName: SHORTCUT_ROLE_NAME,
     targetMode: "focused-runtime"
   });

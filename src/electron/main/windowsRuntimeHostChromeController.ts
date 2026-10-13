@@ -113,7 +113,7 @@ export class WindowsRuntimeHostChromeController {
   readonly #readProjection: () => ChromiumRuntimeHostProjection;
   readonly #send: (channel: string, projection: WindowsRuntimeHostProjection) => void;
   readonly #requestWindowControl: (
-    action: "closeWindow" | "toggleMaximizeWindow"
+    action: "closeWindow" | "toggleMaximizeWindow" | "toggleFullscreen"
   ) => Promise<void>;
   readonly #requestTabControl: (
     tabId: string,
@@ -176,7 +176,7 @@ export class WindowsRuntimeHostChromeController {
     readProjection: () => ChromiumRuntimeHostProjection;
     readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>;
     requestWindowControl: (
-      action: "closeWindow" | "toggleMaximizeWindow"
+      action: "closeWindow" | "toggleMaximizeWindow" | "toggleFullscreen"
     ) => Promise<void>;
     requestTabControl?: (
       tabId: string,
@@ -808,7 +808,7 @@ export class WindowsRuntimeHostChromeController {
     }
     if (
       command.type === "closeWindow" ||
-      command.type === "toggleMaximizeWindow"
+      command.type === "toggleMaximizeWindow" || command.type === "toggleFullscreen"
     ) {
       if (command.type === "closeWindow") {
         await this.#drainWorkspaceDividerGesturesNow();

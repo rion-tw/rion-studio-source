@@ -6,7 +6,7 @@ import { ChromiumRuntimeNativeWindowController } from
 const windowId = "10000000-0000-4000-8000-000000000001";
 const tabId = "20000000-0000-4000-8000-000000000001";
 
-function nativeSnapshot(presentation: "maximized" | "normal" = "normal") {
+function nativeSnapshot(presentation: "maximized" | "normal" | "fullscreen" = "normal") {
   return {
     roles: [],
     tabs: [{ audioMuted: false, audible: false, tabId, windowId }],
@@ -48,7 +48,7 @@ const explicitTarget = {
   windowId
 } as const;
 
-function appSnapshot(presentation: "maximized" | "normal" = "normal") {
+function appSnapshot(presentation: "maximized" | "normal" | "fullscreen" = "normal") {
   return {
     logicalWindows: [{
       activeTabId: tabId,
@@ -180,6 +180,20 @@ describe("Core-owned native runtime-window controls", () => {
       type: "embeddedWindowPresentation",
       windowGeneration: 4,
       windowId
+    }));
+  });
+
+  it.each(["normal", "maximized", "fullscreen"] as const)("routes the fullscreen toolbar control through Core from %s", async presentation => {
+    const invoke = vi.fn(async (command: { type: string }) => command.type === "appSnapshot"
+      ? appSnapshot(presentation) : { status: "applied" });
+    const subject = new ChromiumRuntimeNativeWindowController({
+      backend: { execute: vi.fn() } as never, core: { invoke } as never,
+      platform: "win32", readNativeSnapshot: () => nativeSnapshot(presentation)
+    });
+    await subject.requestWindowControl(windowId, "toggleFullscreen");
+    expect(invoke).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "embeddedWindowPresentation", windowId, topologyRevision: 9, windowGeneration: 4,
+      presentation: presentation === "fullscreen" ? "normal" : "fullscreen"
     }));
   });
 

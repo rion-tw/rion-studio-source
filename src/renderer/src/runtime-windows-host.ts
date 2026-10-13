@@ -91,6 +91,9 @@ function openTabMenu(event: MouseEvent | KeyboardEvent, tabId: string): void {
 const tabDrag = createRuntimeTabDrag({ toolbar, tabs, current: () => current,
   submit: command => bridge!.submit(command), closeMenu: () => undefined });
 
+const fullscreenControl = document.querySelector<HTMLButtonElement>("[data-runtime-fullscreen]");
+fullscreenControl?.addEventListener("click", () => submit("toggleFullscreen"));
+
 const tabToolbar = createRuntimeTabToolbar(tabs, () => submit("openLauncher"), () => tabDrag.geometry());
 
 function dividerKey(
@@ -303,6 +306,12 @@ function render(projection: WindowsRuntimeHostProjection): void {
     toggleMaximizeWindow: projection.windowMaximized || projection.fullscreen ? labels.restoreWindow : labels.maximizeWindow })) {
     const button = windowControls!.querySelector<HTMLButtonElement>(`[data-window-command="${command}"]`);
     if (button) { button.setAttribute("aria-label", label); button.title = label; }
+  }
+  if (fullscreenControl) {
+    const label = projection.fullscreen ? labels.exitFullscreen : labels.enterFullscreen;
+    fullscreenControl.setAttribute("aria-label", label);
+    fullscreenControl.setAttribute("aria-pressed", String(projection.fullscreen));
+    fullscreenControl.title = label;
   }
   workspaceBackground.style.background = projection.workspaceBackground === "black" ? "#000" : "transparent";
   toolbar!.hidden = !projection.toolbarVisible;

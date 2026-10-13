@@ -63,7 +63,8 @@ export type WindowsRuntimeHostToolbarCommand = Readonly<{
     | "minimizeWindow"
     | "openLauncher"
     | "revealToolbar"
-    | "toggleMaximizeWindow";
+    | "toggleMaximizeWindow"
+    | "toggleFullscreen";
   windowId: string;
 }>;
 
@@ -328,7 +329,8 @@ export function isWindowsRuntimeHostCommand(
       "hideToolbar",
       "minimizeWindow",
       "revealToolbar",
-      "toggleMaximizeWindow"
+      "toggleMaximizeWindow",
+      "toggleFullscreen"
     ]).has(String(value.type));
   }
   const phase = String(value.phase);

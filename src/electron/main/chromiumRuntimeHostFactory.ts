@@ -140,7 +140,7 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
       runtimeHostPreloadPath?: string;
       onWindowControl?: (
         windowId: string,
-        action: "closeWindow" | "toggleMaximizeWindow"
+        action: "closeWindow" | "toggleMaximizeWindow" | "toggleFullscreen"
       ) => Promise<void>;
       onTabDrag?: (start: RuntimeTabDragStart) => void;
       onTabControl?: (
@@ -407,7 +407,7 @@ implements ChromiumRuntimeHostFactoryPort {
   readonly #runtimeHostPreloadPath: string;
   readonly #onWindowControl: (
     windowId: string,
-    action: "closeWindow" | "toggleMaximizeWindow"
+    action: "closeWindow" | "toggleMaximizeWindow" | "toggleFullscreen"
   ) => Promise<void>;
   readonly #onTabDrag: ((start: RuntimeTabDragStart) => void) | undefined;
   readonly #onTabControl: (
@@ -448,7 +448,7 @@ implements ChromiumRuntimeHostFactoryPort {
     ),
     onWindowControl: (
       windowId: string,
-      action: "closeWindow" | "toggleMaximizeWindow"
+      action: "closeWindow" | "toggleMaximizeWindow" | "toggleFullscreen"
     ) => Promise<void> = () => Promise.reject(hostError(
       "ELECTRON_RUNTIME_HOST_WINDOW_CONTROL_UNAVAILABLE",
       "The Core-owned Windows control lane is unavailable."
@@ -511,7 +511,7 @@ implements ChromiumRuntimeHostFactoryPort {
     runtimeHostPreloadPath: string,
     onWindowControl?: (
       windowId: string,
-      action: "closeWindow" | "toggleMaximizeWindow"
+      action: "closeWindow" | "toggleMaximizeWindow" | "toggleFullscreen"
     ) => Promise<void>,
     onWorkspaceDividerPointer?: (
       event: BrowserWorkspaceDividerPointerRecord

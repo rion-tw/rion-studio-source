@@ -35,6 +35,7 @@ describe("Windows runtime-host renderer", () => {
         <img data-runtime-brand src="/src/assets/app-icon.png" alt="" aria-hidden="true" />
         <span data-runtime-window-name hidden></span>
         <div data-runtime-tabs></div>
+        <button type="button" data-runtime-fullscreen></button>
         <div data-runtime-window-controls></div>
       </header>
       <div data-runtime-reveal-edge></div>
@@ -284,6 +285,7 @@ describe("Windows runtime-host renderer", () => {
         <img data-runtime-brand src="/src/assets/app-icon.png" alt="" aria-hidden="true" />
         <span data-runtime-window-name hidden></span>
         <div data-runtime-tabs></div>
+        <button type="button" data-runtime-fullscreen></button>
         <div data-runtime-window-controls>
           <button type="button" data-window-command="minimizeWindow">
             <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 8.5h10" /></svg>
@@ -313,6 +315,16 @@ describe("Windows runtime-host renderer", () => {
     const brand = document.querySelector<HTMLElement>("[data-runtime-brand]")!;
     const tabRow = document.querySelector<HTMLElement>("[data-runtime-tabs]")!;
 
+    project(value);
+    const fullscreen = document.querySelector<HTMLButtonElement>("[data-runtime-fullscreen]")!;
+    expect(fullscreen.getAttribute("aria-label")).toBe("Enter full screen");
+    fullscreen.click();
+    expect(submit).toHaveBeenLastCalledWith({ type: "toggleFullscreen", projectionRevision: 5, windowId });
+    project({ ...value, fullscreen: true, projectionRevision: 6 });
+    expect(fullscreen.getAttribute("aria-label")).toBe("Exit full screen");
+    expect(fullscreen.getAttribute("aria-pressed")).toBe("true");
+    fullscreen.click();
+    expect(submit).toHaveBeenLastCalledWith({ type: "toggleFullscreen", projectionRevision: 6, windowId });
     project(value);
     expect(name.textContent).toBe("Raid Window");
     const maximize = document.querySelector<HTMLButtonElement>("[data-window-command='toggleMaximizeWindow']")!;

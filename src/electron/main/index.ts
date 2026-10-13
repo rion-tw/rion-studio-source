@@ -749,7 +749,7 @@ async function bootstrapReadyPhase(
   let beginRuntimeTabQuickAccess: ((tabId: string) => void) | null = null;
   let requestRuntimeWindowControl: ((
     windowId: string,
-    action: "closeWindow" | "toggleMaximizeWindow"
+    action: "closeWindow" | "toggleMaximizeWindow" | "toggleFullscreen"
   ) => Promise<void>) | null = null;
   let requestRuntimeTabControl: ((
     tabId: string,

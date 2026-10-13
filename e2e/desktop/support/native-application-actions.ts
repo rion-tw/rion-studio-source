@@ -7,7 +7,8 @@ import { electronDesktopE2eProbe } from "./electron-driver";
 import { windowsNativeDialogDeclarations } from "./windows-native-dialog";
 import { captureNativeProcessAttribution } from "./native-process-attribution";
 import { focusWindowsLauncherForVisibleLaunch } from "./windows-launcher-foreground";
-import { selectWindowsNativeMenuItem } from "./windows-native-menu";
+import { pressWindowsRuntimeWindowControl } from "./windows-runtime-window-control";
+import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
 
 const executeFile = promisify(execFile);
 const nativeFocusScript = fileURLToPath(new URL("./macos-native-focus.swift", import.meta.url));
@@ -409,6 +410,13 @@ export async function pressVisibleWindowsApplicationShortcut(input: Readonly<{
   if (process.platform !== "win32" || !validProcessId(input.processId)) {
     throw new Error("The native Windows shortcut requires one exact app PID");
   }
+  if (input.command === "toggleFullscreen") {
+    if (!input.nativeWindowHandle) throw new Error("Fullscreen requires an exact runtime HWND");
+    const owner = { processId: input.processId, nativeWindowHandle: input.nativeWindowHandle };
+    await focusWindowsRuntimeNativeWindow({ ...owner, pointerTarget: "reveal-edge" });
+    await pressWindowsRuntimeWindowControl({ ...owner, command: "toggleFullscreen" });
+    return;
+  }
   const script = String.raw`
 [Console]::Error.WriteLine('shortcut-stage: compile-native-input')
 Add-Type @'
@@ -639,7 +647,6 @@ switch ($command) {
   'escape' { $key = [byte]0x1B; $modifier = $false }
   'newGameWindow' { $key = [byte]0x4E }
   'quickAccess' { $key = [byte]0x4B }
-  'toggleFullscreen' { $key = [byte]0x56; $modifier = $false; $altModifier = $true }
   'zoomIn' { $key = [byte]0xBB; $shiftModifier = $true }
   'zoomOut' { $key = [byte]0xBD }
   'zoomInEqual' { $key = [byte]0xBB }
@@ -663,17 +670,9 @@ if ($modifier) { $scanCodes.Add($ctrlScan) }
 if ($shiftModifier) { $scanCodes.Add($shiftScan) }
 if ($altModifier) { $scanCodes.Add($altScan) }
 $scanCodes.Add($keyScan)
-if ($command -eq 'toggleFullscreen') {
-  @{ nativeWindowHandle = [string]$foregroundWindow.ToInt64();
-     focusEvidence = [RionNativeShortcutInput]::FocusEvidence($foregroundWindow) } | ConvertTo-Json -Compress
-} else { [Console]::WriteLine([RionNativeShortcutInput]::FocusEvidence($foregroundWindow)) }
+[Console]::WriteLine([RionNativeShortcutInput]::FocusEvidence($foregroundWindow))
 [Console]::Error.WriteLine('shortcut-stage: submit-native-chord')
-# Open View only. The caller waits for and invokes its exact visible native
-# menu item; a following key could otherwise overtake the menu's creation.
-# F11 is game input, never a presentation test shortcut.
-$submitted = if ($command -eq 'toggleFullscreen') {
-  [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())
-} elseif ($command -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap')) {
+$submitted = if ($command -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap')) {
   [RionNativeShortcutInput]::SendAltSequence($command)
 } elseif ($command -in @('shiftDigit3TapHoldShift', 'digit3Tap', 'shiftDigit5Hold', 'shiftDigit5Release', 'shiftDigit2ThenDigit3Hold', 'shiftDigit3ThenDigit2Hold', 'shiftUp')) {
   [RionNativeShortcutInput]::SendShiftSequence($command, $shiftScan, $keyScan)
@@ -696,11 +695,7 @@ if (-not $submitted) {
       timeoutMilliseconds: 30_000
     });
     console.info(`Windows native shortcut ${input.command}: ${focusEvidence.slice(0, 512)}`);
-    if (input.command === "toggleFullscreen") {
-      const owner = JSON.parse(focusEvidence) as { nativeWindowHandle: string };
-      await selectWindowsNativeMenuItem({ processId: input.processId,
-        nativeWindowHandle: owner.nativeWindowHandle, path: ["Toggle Full Screen"] });
-    }
+
   } catch (error) {
     // Avoid forwarding the rejected process message because it contains the
     // entire encoded command; retain bounded native stdout/stderr instead.

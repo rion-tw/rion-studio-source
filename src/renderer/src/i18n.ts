@@ -14,6 +14,8 @@ type RuntimeTabStripLabels = {
   automaticInputRestartRequired: string;
   closeWindow: string;
   closeTab: string;
+  enterFullscreen: string;
+  exitFullscreen: string;
   maximizeWindow: string;
   minimizeWindow: string;
   openLauncher: string;
@@ -36,6 +38,8 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     automaticInputRestartRequired: "Automatic input is paused. Restart the role.",
     closeWindow: "Close window",
     closeTab: "Stop and close tab",
+    enterFullscreen: "Enter full screen",
+    exitFullscreen: "Exit full screen",
     maximizeWindow: "Maximize window",
     minimizeWindow: "Minimize window",
     openLauncher: "Open role or workspace",
@@ -56,6 +60,8 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     automaticInputRestartRequired: "自動輸入已暫停，需重啟角色。",
     closeWindow: "關閉視窗",
     closeTab: "停止並關閉分頁",
+    enterFullscreen: "進入全螢幕",
+    exitFullscreen: "離開全螢幕",
     maximizeWindow: "最大化視窗",
     minimizeWindow: "最小化視窗",
     openLauncher: "開啟角色或工作區",
@@ -76,6 +82,8 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     automaticInputRestartRequired: "自动输入已暂停，需要重启角色。",
     closeWindow: "关闭窗口",
     closeTab: "停止并关闭标签页",
+    enterFullscreen: "进入全屏",
+    exitFullscreen: "退出全屏",
     maximizeWindow: "最大化窗口",
     minimizeWindow: "最小化窗口",
     openLauncher: "打开角色或工作区",
@@ -96,6 +104,8 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     automaticInputRestartRequired: "自動入力を一時停止しました。ロールを再起動してください。",
     closeWindow: "ウインドウを閉じる",
     closeTab: "停止してタブを閉じる",
+    enterFullscreen: "フルスクリーンにする",
+    exitFullscreen: "フルスクリーンを解除",
     maximizeWindow: "ウインドウを最大化",
     minimizeWindow: "ウインドウを最小化",
     openLauncher: "ロールまたはワークスペースを開く",

@@ -1206,6 +1206,19 @@ describe("Windows runtime-host chrome controller", () => {
     expect(subject.controller.hasActiveWorkspaceDividerGestures).toBe(false);
   });
 
+  it("admits fullscreen only from the current visible toolbar projection", async () => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    const projectionRevision = subject.send.mock.calls.at(-1)![1].projectionRevision;
+    await subject.controller.handleCommand(documentUrl, { type: "toggleFullscreen", windowId, projectionRevision });
+    expect(subject.requestWindowControl).toHaveBeenCalledExactlyOnceWith("toggleFullscreen");
+    await expect(subject.controller.handleCommand(documentUrl, {
+      type: "toggleFullscreen", windowId, projectionRevision: projectionRevision - 1
+    })).rejects.toMatchObject({ code: "ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE" });
+    expect(subject.requestWindowControl).toHaveBeenCalledOnce();
+  });
+
   it("terminalizes fullscreen only from native events and relayouts reveal/pin live", async () => {
     const subject = harness();
     await subject.controller.applyCoreProjection({

@@ -520,7 +520,29 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
   *state = {};
   if (_destroyed || !_window || !_toolbar) return NO;
 
-  const NSSize minimumFrameSize = _window.minSize;
+  const NSSize rawMinimum = _window.minSize;
+  const NSSize contentMinimum = _window.contentMinSize;
+  const NSSize frameSize = _window.frame.size;
+  const NSSize layoutSize = _window.contentLayoutRect.size;
+  if (!std::isfinite(rawMinimum.width) || rawMinimum.width <= 0 ||
+      !std::isfinite(rawMinimum.height) || rawMinimum.height <= 0 ||
+      !std::isfinite(contentMinimum.width) || contentMinimum.width < 0 ||
+      !std::isfinite(contentMinimum.height) || contentMinimum.height < 0 ||
+      !std::isfinite(frameSize.width) || frameSize.width <= 0 ||
+      !std::isfinite(frameSize.height) || frameSize.height <= 0 ||
+      !std::isfinite(layoutSize.width) || layoutSize.width <= 0 ||
+      !std::isfinite(layoutSize.height) || layoutSize.height <= 0) {
+    return NO;
+  }
+  // This host's native toolbar can reserve space beyond minSize and the
+  // content/frame conversion. Its real corner setFrame clamps to the minimum
+  // unobscured layout instead. Measure the current native chrome; do not guess
+  // its height or make a general NSWindow constraint claim.
+  const NSSize minimumFrameSize = NSMakeSize(
+      MAX(rawMinimum.width, contentMinimum.width +
+          MAX(0.0, frameSize.width - layoutSize.width)),
+      MAX(rawMinimum.height, contentMinimum.height +
+          MAX(0.0, frameSize.height - layoutSize.height)));
   if (!std::isfinite(minimumFrameSize.width) || minimumFrameSize.width <= 0 ||
       !std::isfinite(minimumFrameSize.height) || minimumFrameSize.height <= 0) {
     return NO;

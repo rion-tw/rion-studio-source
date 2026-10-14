@@ -9,6 +9,7 @@ import {
 } from "../core/coreAddonClient";
 import type {
   WindowsRuntimeForegroundProbePort,
+  WindowsRuntimeInactivePresentationPort,
   WindowsRuntimeShortcutOwnerDiagnosticPort,
   WindowsRuntimeShortcutOwnerPort
 } from "./chromiumRuntimeHostFactory";
@@ -32,6 +33,7 @@ export interface LoadedRionNodeAddon
   extends RawNodeApiCoreFactory<NativeAppCoreOptions>, RawAppKitRuntimeAddon,
     RawChromiumUpdaterFactory,
     WindowsRuntimeForegroundProbePort, WindowsRuntimeShortcutOwnerPort,
+    WindowsRuntimeInactivePresentationPort,
     WindowsRuntimeShortcutOwnerDiagnosticPort {
   /** Same clock domain as Core Macro scheduledAtMs and deadlineMs. */
   startWindowsTabDrag: (handle: Buffer, sessionId: string, wake: (sessionId: string) => void) => void;

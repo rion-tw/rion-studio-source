@@ -27,6 +27,10 @@ export function captureChromiumRuntimeSnapshot(input: SnapshotInput): ChromiumRu
       windows: Object.freeze(sortedSnapshot([...input.windows.entries()].map(
         ([windowId, record]) => {
           const projection = record.host.readProjection();
+          const pending = record.host.readPendingInitialPresentation?.();
+          const stagedMaximized = pending === "maximized" && projection.presentation === "normal" &&
+            !projection.visible && !projection.focused && !record.host.appKitIdentity &&
+            record.windowGeneration > 0 && record.topologyRevision > 0;
           return Object.freeze({
             windowId,
             activeTabId: record.activeTabId,
@@ -40,6 +44,10 @@ export function captureChromiumRuntimeSnapshot(input: SnapshotInput): ChromiumRu
             topologyRevision: record.topologyRevision,
             windowZoomFactor: record.windowZoomFactor ?? 1,
             parentNativeHostId: record.host.id,
+            ...(stagedMaximized ? { pendingInitialPresentation: Object.freeze({
+              presentation: "maximized" as const, nativeHostId: record.host.id,
+              windowGeneration: record.windowGeneration, topologyRevision: record.topologyRevision
+            }) } : {}),
             ...(record.host.appKitIdentity
               ? { appKitIdentity: Object.freeze({ ...record.host.appKitIdentity }) }
               : {}),
@@ -47,7 +55,7 @@ export function captureChromiumRuntimeSnapshot(input: SnapshotInput): ChromiumRu
               ...record.hostTarget,
               displayId: projection.displayId,
               bounds: Object.freeze({ ...projection.bounds }),
-              presentation: projection.presentation
+              presentation: stagedMaximized ? "maximized" as const : projection.presentation
             })
           });
         }

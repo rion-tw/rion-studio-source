@@ -70,6 +70,11 @@ describe("Chromium recovery parity replacement source", () => {
     expect(mixed).toContain('inspection.phase === "ready"');
     expect(mixed).toContain("navigateVisibleElectronWorkspaceWebChrome");
     expect(mixed).toContain("rion-start://home/");
+    expect(mixed).toContain('kind: "visibility", roleId: ROLE_TAB_FIXTURE');
+    expect(mixed).toContain("requestAnimationFrame(() => requestAnimationFrame(() => done({");
+    expect(mixed).toContain("viewportActivation");
+    expect(mixed.indexOf('"chromium-mixed-recovery-runtime.json"'))
+      .toBeLessThan(mixed.indexOf("expect(viewport.visibility)"));
     expect(windows).toContain("CHROMIUM-MACOS-APPKIT-WINDOW-RECOVERY-UI-022");
     expect(windows).toContain("CHROMIUM-WINDOWS-WINDOW-RECOVERY-UI-022");
     expect(windows).toContain("waitForSavedRoleTopology(roles, targets)");

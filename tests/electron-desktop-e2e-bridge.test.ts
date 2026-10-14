@@ -1494,6 +1494,35 @@ describe("Electron desktop E2E-only bridge", () => {
     })]);
   });
 
+  it.each(["appkit", "windows"] as const)(
+    "accepts an exact empty %s host and rejects mismatched native fences",
+    async hostKind => {
+      const { appKit, ...commonNative } = fullscreenToolbarInspection.native;
+      const candidate = {
+        ...fullscreenToolbarInspection, hostKind, surfaces: [], tabIds: [],
+        native: hostKind === "appkit" ? {
+          ...commonNative, appKit: { ...appKit, tabCloseButtonEnabledCount: 0 }
+        } : { ...commonNative, workspaceBackground: "material" },
+        ...(hostKind === "windows" ? { nativeWindowHandle: "4242" } : {})
+      };
+      const api = createElectronDesktopE2ePreloadApi({
+        invoke: vi.fn(async () => candidate)
+      });
+      await expect(api.fullscreenToolbarRuntime(TOKEN, WINDOW_ID)).resolves.toEqual(candidate);
+      for (const native of [
+        { ...candidate.native, topologyRevision: candidate.topologyRevision + 1 },
+        { ...candidate.native, windowGeneration: candidate.windowGeneration + 1 },
+        { ...candidate.native, fullscreen: false }
+      ]) {
+        const malformed = createElectronDesktopE2ePreloadApi({
+          invoke: vi.fn(async () => ({ ...candidate, native }))
+        });
+        await expect(malformed.fullscreenToolbarRuntime(TOKEN, WINDOW_ID))
+          .rejects.toThrow("fullscreen-toolbar inspection is invalid");
+      }
+    }
+  );
+
   it("rejects forged fullscreen-toolbar native evidence", async () => {
     const forged = [
       {

@@ -1,4 +1,5 @@
 import { applyChromiumRuntimeRoleZoom } from "./chromiumRuntimeRoleZoom";
+import { revealChromiumRuntimeRestoredWindow } from "./chromiumRuntimeInitialPresentation";
 import { setChromiumRuntimeTabAudioMuted } from "./chromiumRuntimeTabAudioEffect";
 import { ChromiumRuntimePlaceholderFollower } from "./chromiumRuntimePlaceholderFollower";
 import { chromiumRuntimeEffectScopes } from "./chromiumRuntimeEffectScopes";
@@ -214,7 +215,7 @@ export class ChromiumRuntimeEffectExecutor {
     this.#savedWindowRestorePresentations.set(windowId, foreground);
   }
 
-  finishSavedWindowRestore(windowId: string): void {
+  async finishSavedWindowRestore(windowId: string): Promise<void> {
     requireIdentifier(windowId, "saved-window restore");
     if (
       this.#state !== "open" ||
@@ -238,7 +239,7 @@ export class ChromiumRuntimeEffectExecutor {
       // Explicit Show already revealed this host before hydration. Preserve a
       // subsequent user hide/minimize instead of revealing it again at completion.
       if (foreground) this.#applyWindowVisibility(windowRecord);
-      else this.#revealRestoredWindow(windowRecord);
+      else await this.#revealRestoredWindow(windowRecord);
     } catch (error) {
       this.#savedWindowRestorePresentations.set(windowId, foreground);
       throw error;
@@ -1610,14 +1611,8 @@ export class ChromiumRuntimeEffectExecutor {
     }, windowRecord, windowRecord.host.isVisible());
   }
 
-  #revealRestoredWindow(windowRecord: RuntimeWindowRecord): void {
-    if (!windowRecord.host.isVisible()) windowRecord.host.showInactive!();
-    if (!windowRecord.host.isVisible()) {
-      throw runtimeError(
-        "ELECTRON_CHROMIUM_WINDOW_REVEAL_NOT_OBSERVED",
-        "The loaded Chromium host did not acknowledge its exact native reveal."
-      );
-    }
+  async #revealRestoredWindow(windowRecord: RuntimeWindowRecord): Promise<void> {
+    await revealChromiumRuntimeRestoredWindow(windowRecord);
     this.#applyWindowVisibility(windowRecord);
   }
 

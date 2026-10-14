@@ -33,6 +33,7 @@ mod physical_key_evidence;
 mod updater;
 mod windows_native_handle;
 pub mod windows_runtime_foreground;
+pub mod windows_runtime_presentation;
 pub mod windows_runtime_shortcut_owner;
 
 pub use macro_input_clock::macro_input_epoch_millis;

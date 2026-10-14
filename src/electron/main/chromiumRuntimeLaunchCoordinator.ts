@@ -1,4 +1,5 @@
 import { inspectLaunchWindowFence, type LaunchWindowRevision } from "./chromiumRuntimeLaunchWindowFence";
+import { pendingInitialPresentationMatches } from "./chromiumRuntimeSnapshot";
 import { recordRuntimeTransition } from "./runtimeOperationJournal";
 import { canonicalWebSurfaceIdentities } from "./chromiumRuntimeLaunchWebIdentity";
 import { recordLaunchAdmission, runRecordedLaunch } from "./runtimeLaunchJournal";
@@ -587,7 +588,10 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         presentedLogical.activeTabId !== activeTabId ||
         presentedNative.activeTabId !== activeTabId ||
         presentedLogical.windowGeneration !== presentedNative.windowGeneration ||
-        presentedLogical.revision !== presentedNative.topologyRevision
+        presentedLogical.revision !== presentedNative.topologyRevision ||
+        presentedNative.pendingInitialPresentation !== undefined ||
+        (presentedLogical.presentation !== undefined &&
+          presentedLogical.presentation !== presentedNative.presentation)
       ) {
         throw launchError(
           "ELECTRON_CHROMIUM_RESTORE_PRESENTATION_STALE",
@@ -849,7 +853,10 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         runtime.tabIds.length !== 0 || runtime.activeTabId !== undefined ||
         native.tabIds.length !== 0 || native.activeTabId !== "" ||
         native.displayId !== target.displayId ||
-        native.presentation !== target.presentation ||
+        (native.presentation !== target.presentation && !(
+          target.presentation === "maximized" &&
+          pendingInitialPresentationMatches(native, logical.windowGeneration, logical.revision)
+        )) ||
         !sameNormalBounds(native.bounds, currentTarget.bounds) ||
         logical.windowGeneration !== native.windowGeneration ||
         logical.revision !== native.topologyRevision

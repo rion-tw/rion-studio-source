@@ -21,7 +21,7 @@ let sink: ((entry: RuntimeOperationObservation) => void) | undefined;
 
 export function setRuntimeOperationJournalSink(next: typeof sink): void { sink = next; }
 
-/** Identity-only bounded evidence. No URLs, page data, or effect payloads. */
+/** Bounded identity and presentation evidence. No URLs, page data, or arbitrary payloads. */
 export function observeRuntimeEffect(effect: CoreEffectRequest, stage: string, errorCode?: string): void {
   recordRuntimeTransition({
     operationId: effect.operationId, effectId: effect.effectId,
@@ -53,6 +53,9 @@ function effectIdentityFences(action: CoreEffectRequest["action"]): Record<strin
   const capture = (value: object, prefix = ""): void => {
     for (const [key, field] of Object.entries(value)) {
       if (keys.includes(key) && (typeof field === "string" || typeof field === "number")) result[prefix + key] = field;
+      if (key === "presentation" && (field === "normal" || field === "maximized" || field === "fullscreen")) {
+        result[prefix + key] = field;
+      }
     }
   };
   capture(action);

@@ -23,6 +23,50 @@ function sameValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+async function validatePresentationStages({ phase, phaseDirectory, platform, windowId }) {
+  const stages = JSON.parse(await readFile(
+    resolve(phaseDirectory, "game-window-presentation-stages.json"), "utf8"
+  ));
+  const baselinePresentation = platform === "windows" ? "maximized" : "fullscreen";
+  const expectedStages = phase === "chromium-game-window-ui-restart"
+    ? ["restart-restored"]
+    : ["normal-baseline", "fullscreen-applied", "fullscreen-closed", "fullscreen-reopened",
+      "normal-restored", "maximized-applied", "maximized-closed", "maximized-reopened",
+      ...(platform === "macos"
+        ? ["normal-after-maximize", "fullscreen-baseline"]
+        : [])];
+  requireRuntime(Array.isArray(stages) && sameValue(stages.map(({ stage }) => stage), expectedStages),
+    `${phase}: visible presentation/close/reopen stages are incomplete or reordered`);
+  const normalBounds = stages[0]?.saved?.placement?.normalBounds;
+  requireRuntime(exactKeys(normalBounds, ["x", "y", "width", "height"]) &&
+    Object.values(normalBounds).every(Number.isSafeInteger) &&
+    normalBounds.width > 0 && normalBounds.height > 0,
+  `${phase}: saved normal bounds are missing or malformed`);
+  for (const entry of stages) {
+    const presentation = entry.stage.startsWith("normal-") ? "normal"
+      : entry.stage.startsWith("fullscreen-") ? "fullscreen"
+        : entry.stage.startsWith("maximized-") ? "maximized" : baselinePresentation;
+    requireRuntime(entry.saved?.id === windowId &&
+      entry.saved?.name === "Chromium E2E Game Window" &&
+      sameValue(entry.saved?.tabs, []) &&
+      entry.saved?.placement?.presentation === presentation &&
+      sameValue(entry.saved?.placement?.normalBounds, normalBounds),
+    `${phase}: ${entry.stage} lost the saved presentation or normal bounds`);
+    if (entry.stage.endsWith("-closed")) {
+      requireRuntime(entry.runtime === null,
+        `${phase}: ${entry.stage} did not retire the exact native owner`);
+    } else {
+      requireRuntime(entry.runtime?.windowId === windowId &&
+        entry.runtime?.hostKind === (platform === "macos" ? "appkit-chromium" : "bundled-chromium") &&
+        entry.runtime?.visible === true && entry.runtime?.focused === true &&
+        sameValue(entry.runtime?.coreTabIds, []) && sameValue(entry.runtime?.nativeTabIds, []) &&
+        entry.runtime?.nativeDisplay?.presentation === presentation,
+      `${phase}: ${entry.stage} lacks matching native presentation`);
+    }
+  }
+  return { baselinePresentation, normalBounds, stages: expectedStages };
+}
+
 export async function validateChromiumGameWindowRuntimeEvidence({
   phase,
   phaseDirectory,
@@ -39,6 +83,9 @@ export async function validateChromiumGameWindowRuntimeEvidence({
   );
   const observation = observations[0];
   const runtime = observation?.currentRuntime;
+  const presentationEvidence = await validatePresentationStages({
+    phase, phaseDirectory, platform, windowId: observation?.windowId
+  });
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
   requireRuntime(
     exactKeys(observation, ["currentRuntime", "windowId"])
@@ -87,7 +134,7 @@ export async function validateChromiumGameWindowRuntimeEvidence({
       && Number.isSafeInteger(runtime.nativeDisplay.displayId)
       && Number.isFinite(runtime.nativeDisplay.scaleFactor)
       && runtime.nativeDisplay.scaleFactor > 0
-      && runtime.nativeDisplay.presentation === "normal",
+      && runtime.nativeDisplay.presentation === presentationEvidence.baselinePresentation,
     `${phase}: empty Game Window lacks exact focused Core/native ownership`
   );
   if (platform === "macos") {
@@ -121,6 +168,9 @@ export async function validateChromiumGameWindowRuntimeEvidence({
     hostKind: runtime.hostKind,
     nativeTabIds: runtime.nativeTabIds,
     parentNativeHostId: runtime.parentNativeHostId,
+    presentation: runtime.nativeDisplay.presentation,
+    presentationStages: presentationEvidence.stages,
+    savedNormalBounds: presentationEvidence.normalBounds,
     topologyRevision: runtime.topologyRevision,
     visible: runtime.visible,
     windowGeneration: runtime.windowGeneration,
@@ -140,7 +190,8 @@ export function validateChromiumGameWindowSqliteEvidence(phase, entities) {
   requireSqlite(
     Array.isArray(gameWindow.payload?.tabs)
       && gameWindow.payload.tabs.length === 0
-      && gameWindow.payload.activeTabId === undefined,
+      && gameWindow.payload.activeTabId === undefined
+      && ["fullscreen", "maximized"].includes(gameWindow.payload.placement?.presentation),
     `${phase}: permanent Chromium Game Window did not remain empty`
   );
   const evidence = {
@@ -159,6 +210,7 @@ export function validateChromiumGameWindowSqliteEvidence(phase, entities) {
   }
   return {
     emptyTabSetPersisted: true,
+    savedPresentation: gameWindow.payload.placement.presentation,
     restartVerified: phase === "chromium-game-window-ui-restart",
     windowId: gameWindow.id
   };

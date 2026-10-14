@@ -997,6 +997,29 @@ session; exact sender URL, WebContents, generation, and projection revision are
 required for reveal and minimize/maximize/close commands. Native enter/leave or
 maximize/unmaximize events terminalize presentation, and a superseded Core
 commit explicitly compensates the native host back to the latest Core state.
+After exact native acknowledgement, Core persists the committed presentation
+and its retained normal bounds for an existing saved Game Window before
+reporting success. A persistence failure keeps the accepted live presentation
+and reports a degraded outcome. Programmatic presentation advances the window
+revision without consuming the native move/resize placement sequence, so the
+next native placement event retains its independent ordering fence.
+AppKit native placement events persist their exact accepted placement and
+captured window snapshot through the same durable receipt boundary.
+Windows stages a saved maximized mode while its new host remains hidden;
+Electron's `maximize()` would otherwise reveal that provisional host. Native
+readback continues to report the actual normal mode during hydration, while an
+explicit pending marker retains the Core target under exact host, generation
+and revision fences. An authorized reveal first shows the owned host inactive,
+then awaits the native maximize and layout acknowledgement before content
+visibility or successful restore completion. For that pending initial background
+maximize, the process/UI-thread-owned HWND uses native maximum placement under
+a synchronous current-thread activation veto for that exact parent only. All
+other windows and event codes pass through. The scope removes its veto before
+returning, and its native receipt requires unchanged foreground/active/focus
+identity, real maximum state and retained normal bounds. It never reclaims the
+previous foreground window. Foreground initial presentation and ordinary user
+maximize retain the existing Electron path. Visible, focused or stale hosts
+cannot use the pending-mode exception during snapshot admission.
 The paired `CHROMIUM-*-FULLSCREEN-TOOLBAR-012` journeys preserve transition
 history as read-only evidence while their preference, fullscreen, and pointer
 actions remain visible UI.

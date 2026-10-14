@@ -18,6 +18,7 @@ fn intent_trace_identity(intent: &RuntimeIntent) -> (&'static str, &'static str)
             ("replaceTabWorkspaceSlots", "command")
         }
         RuntimeIntent::SetWindowZoomFactor { .. } => ("setWindowZoomFactor", "command"),
+        RuntimeIntent::SetWindowPresentation { .. } => ("setWindowPresentation", "command"),
         RuntimeIntent::SeedDormantTabs { .. } => ("seedDormantTabs", "restore"),
         RuntimeIntent::BeginTabActivation { .. } => ("beginTabActivation", "appCore"),
         RuntimeIntent::ActivateTab { .. } => ("activateTab", "command"),
@@ -110,6 +111,12 @@ fn intent_trace_context(intent: &RuntimeIntent) -> RuntimeTraceContext {
         },
         RuntimeIntent::FailEventStream { .. } => RuntimeTraceContext {
             phase: Some("indeterminate".to_owned()),
+            ..RuntimeTraceContext::default()
+        },
+        RuntimeIntent::SetWindowPresentation {
+            window_generation, ..
+        } => RuntimeTraceContext {
+            window_generation: Some(*window_generation),
             ..RuntimeTraceContext::default()
         },
         RuntimeIntent::SetTabAudioMuted { tab_id, .. }

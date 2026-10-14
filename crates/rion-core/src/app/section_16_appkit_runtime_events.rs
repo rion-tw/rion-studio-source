@@ -1280,37 +1280,6 @@ impl AppCore {
         )
     }
 
-    fn apply_appkit_window_state(
-        &self,
-        event: crate::model::AppKitRuntimeEventRecord,
-        primary: crate::model::AppKitRuntimeHostObservationRecord,
-        placement_sequence: u64,
-    ) -> CoreResult<AppKitEventReceipt> {
-        let commit = self.apply_runtime_intent(crate::RuntimeIntent::CommitPlacement(
-            crate::RuntimeWindowPlacementCommitInput {
-                operation_id: event.event_id.clone(),
-                placement: crate::model::GameWindowPlacementRecord {
-                    normal_bounds: primary.normal_bounds.clone(),
-                    saved_work_area: primary.saved_work_area.clone(),
-                    presentation: primary.presentation.clone(),
-                },
-                placement_sequence,
-                source: "appKit".to_owned(),
-                target_display: primary.target_display.clone(),
-                window_generation: primary.window_generation,
-                window_id: primary.identity.logical_window_id.clone(),
-            },
-        ))?;
-        if commit.status == crate::RuntimeCommitStatus::Superseded {
-            return self.reconcile_appkit_superseded(
-                &event,
-                &primary,
-                Some("APPKIT_PLACEMENT_STALE"),
-            );
-        }
-        self.finish_appkit_projection(event, primary, false)
-    }
-
     fn finish_appkit_durable_projection(
         &self,
         event: crate::model::AppKitRuntimeEventRecord,

@@ -8,6 +8,7 @@ import type {
 import { RionBridgeError } from "../ipc/errors";
 import type { ChromiumRuntimeExecutorSnapshot } from
   "./chromiumRuntimeEffectExecutor";
+import { pendingInitialPresentationMatches } from "./chromiumRuntimeSnapshot";
 
 export interface ElectronDisplayDescriptor {
   id: number;
@@ -234,6 +235,12 @@ function projectOwnedRuntime(
         "Core logical topology and the Electron Chromium host disagree on a window owner."
       );
     }
+    if (nativeWindow.pendingInitialPresentation !== undefined && (
+      !pendingInitialPresentationMatches(nativeWindow, logicalWindow.windowGeneration, logicalWindow.revision) ||
+      logicalWindow.presentation !== "maximized"
+    )) {
+      projectionNotReady(`The staged presentation lost its exact hidden window fence for ${windowId}.`);
+    }
     const logicalTabIds = logicalWindow.tabs.map((tab) => tab.id);
     const activeTabId = coreWindow.activeTabId ?? "";
     if (
@@ -384,7 +391,9 @@ function projectOwnedRuntime(
       visible: nativeWindow?.visible ?? false, focused: nativeWindow?.focused ?? false,
       ...(window.activeTabId ? { activeTabId: window.activeTabId } : {}),
       tabCount: window.tabIds.length,
-      presentation: nativeWindow?.presentation ?? logical?.presentation ?? "normal" as const,
+      presentation: nativeWindow && logical?.presentation === "maximized" &&
+        pendingInitialPresentationMatches(nativeWindow, logical.windowGeneration, logical.revision)
+        ? "maximized" as const : nativeWindow?.presentation ?? logical?.presentation ?? "normal" as const,
       ...(observed ? { projectionPending: !nativeWindow ||
         nativeWindow.windowGeneration !== logical?.windowGeneration ||
         nativeWindow.topologyRevision !== logical?.revision ||

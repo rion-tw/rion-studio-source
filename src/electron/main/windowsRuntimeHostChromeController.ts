@@ -164,6 +164,7 @@ export class WindowsRuntimeHostChromeController {
   #pendingMinimize: Deferred<void> | null = null;
   #pending: {
     readonly request: ChromiumRuntimeWindowPresentationRequest;
+    readonly maximizeNative?: (request: ChromiumRuntimeWindowPresentationRequest) => void;
     readonly completion: Deferred<ChromiumRuntimeHostProjection>;
     expectedEvent: WindowsNativePresentationEvent | null;
   } | null = null;
@@ -585,7 +586,8 @@ export class WindowsRuntimeHostChromeController {
   }
 
   async setPresentation(
-    request: ChromiumRuntimeWindowPresentationRequest
+    request: ChromiumRuntimeWindowPresentationRequest,
+    maximizeNative?: (request: ChromiumRuntimeWindowPresentationRequest) => void
   ): Promise<ChromiumRuntimeHostProjection> {
     if (
       request.windowId !== this.#windowId ||
@@ -609,7 +611,7 @@ export class WindowsRuntimeHostChromeController {
       return this.#readProjection();
     }
     const completion = deferred<ChromiumRuntimeHostProjection>();
-    this.#pending = { request, completion, expectedEvent: null };
+    this.#pending = { request, completion, expectedEvent: null, maximizeNative };
     try {
       this.#drivePendingPresentation();
     } catch (error) {
@@ -641,6 +643,16 @@ export class WindowsRuntimeHostChromeController {
     if (nativePresentation(this.#native) === pending.request.presentation) {
       this.#pending = null;
       pending.completion.resolve(this.#readProjection());
+      return;
+    }
+    // A later native mode may supersede a final maximize during layout. That
+    // exhausts this submission; intermediate fullscreen exit may still advance.
+    if (event === "maximized") {
+      this.#pending = null;
+      pending.completion.reject(chromeError(
+        "ELECTRON_WINDOWS_RUNTIME_PRESENTATION_READBACK_STALE",
+        "The acknowledged maximize changed before its layout completed."
+      ));
       return;
     }
     try {
@@ -1161,7 +1173,8 @@ export class WindowsRuntimeHostChromeController {
       this.#setNativeFullscreen(false);
     } else if (desired === "maximized") {
       pending.expectedEvent = "maximized";
-      this.#native.maximize();
+      if (pending.maximizeNative) pending.maximizeNative(pending.request);
+      else this.#native.maximize();
     } else {
       pending.expectedEvent = "unmaximized";
       this.#native.unmaximize();

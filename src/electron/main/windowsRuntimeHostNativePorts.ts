@@ -9,6 +9,15 @@ import type {
 import type { ChromiumRoleSurfaceBounds } from "./chromiumRoleSurfacePorts";
 import type { ChromiumRuntimeHostPort } from "./chromiumRuntimeHostPorts";
 import type { WindowsRuntimeHostProjection } from "../../shared/windowsRuntimeHost";
+import type { WindowsRuntimeForegroundReadback } from "./windowsRuntimeWindowState";
+
+/** One synchronous, exact-parent background maximize; never a focus claim. */
+export interface WindowsRuntimeInactivePresentationPort {
+  readWindowsRuntimeForeground: (handle: Buffer) => WindowsRuntimeForegroundReadback;
+  maximizeWindowsRuntimeParentInactive: (
+    handle: Buffer, expectedParentIdentity: string
+  ) => WindowsRuntimeForegroundReadback;
+}
 
 export interface RuntimeHostSessionPort {
   readonly storagePath: string | null;

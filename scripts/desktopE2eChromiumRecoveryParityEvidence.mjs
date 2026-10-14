@@ -79,6 +79,21 @@ function requireNativeHost(runtime, platform, windowId, label) {
   }
 }
 
+function requireMixedPlacement(candidate, lifecycle, label) {
+  requireEvidence(lifecycle.placement?.presentation === "maximized" &&
+    candidate?.presentation === "maximized" && same(candidate, lifecycle.placement),
+  `${label}: saved maximized placement or normal bounds drifted`);
+  const bounds = candidate.normalBounds;
+  requireEvidence(bounds && [bounds.x, bounds.y, bounds.width, bounds.height]
+    .every(Number.isSafeInteger) && bounds.width > 0 && bounds.height > 0,
+  `${label}: saved normal bounds are invalid`);
+}
+
+function canonicalMixedSlots(slots) {
+  return slots?.map(({ id, rect, roleId, web }) => ({ id, rect,
+    roleId: roleId ?? null, web: web ?? null }));
+}
+
 async function readLifecycle(phaseDirectory, basename) {
   const lifecycle = JSON.parse(await readFile(
     resolve(dirname(phaseDirectory), basename),
@@ -105,7 +120,7 @@ async function validateMixedRuntime({ phase, phaseDirectory, platform }) {
   );
   requireEvidence(lifecycle.platform === platform, `${phase}: platform drifted`);
   requireEvidence(same(observation.lifecycle, lifecycle), `${phase}: lifecycle drifted`);
-  const { gameWindow, roleTab, roleWorkspace, web } = observation.native ?? {};
+  const { gameWindow, roleTab, roleWorkspace, web, toolbar } = observation.native ?? {};
   requireNativeHost(roleTab?.currentRuntime, platform, lifecycle.windowId, `${phase}: Role tab`);
   requireNativeHost(
     roleWorkspace?.currentRuntime,
@@ -149,10 +164,97 @@ async function validateMixedRuntime({ phase, phaseDirectory, platform }) {
       && same(gameWindow.currentRuntime.nativeTabIds, tabIds),
     `${phase}: Core/native mixed tab topology drifted`
   );
+  requireMixedPlacement(observation.saved?.placement, lifecycle, phase);
+  requireEvidence(observation.saved?.id === lifecycle.windowId &&
+    observation.saved?.activeTabId === lifecycle.workspace.tabId &&
+    observation.runtimeState?.activeTabId === lifecycle.workspace.tabId &&
+    observation.runtimeState?.visible === true && observation.runtimeState?.projectionPending === false &&
+    same(observation.runtimeState?.restoreInProgressWindowIds, []),
+  `${phase}: populated restore did not reach its exact terminal cohort`);
+  requireEvidence(gameWindow.currentRuntime.nativeDisplay?.presentation === "maximized" &&
+    web.presentation === "maximized" && toolbar?.presentation === "maximized" &&
+    toolbar.windowId === lifecycle.windowId &&
+    toolbar.windowGeneration === gameWindow.currentRuntime.windowGeneration &&
+    toolbar.topologyRevision === gameWindow.currentRuntime.topologyRevision &&
+    same(toolbar.tabIds, tabIds),
+  `${phase}: native populated maximize or ownership fence drifted`);
+  requireEvidence(Array.isArray(lifecycle.workspace.slots) && lifecycle.workspace.slots.length === 2 &&
+    lifecycle.workspace.slots.every(({ rect }) => rect &&
+      [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) &&
+      rect.x >= 0 && rect.y >= 0 && rect.width > 0 && rect.height > 0 &&
+      rect.x + rect.width <= 1.000_001 && rect.y + rect.height <= 1.000_001) &&
+    same(web.coreSlots, lifecycle.workspace.slots) &&
+    same(toolbar.workspaceTabs?.find(({ tabId }) => tabId === lifecycle.workspace.tabId)?.slots,
+      lifecycle.workspace.slots),
+  `${phase}: normalized Workspace slot layout drifted`);
+  const activation = observation.viewportActivation;
+  const activeRoleToolbar = activation?.roleTab?.toolbar;
+  const activeRoleSurface = activeRoleToolbar?.surfaces?.find(({ id }) => id === lifecycle.roleTab.roleId);
+  const visibleReceipt = (event, afterSequence, fixtureId) =>
+    event?.kind === "visibility" && event.hidden === false && event.roleId === fixtureId &&
+    Number.isSafeInteger(afterSequence) && afterSequence >= 0 &&
+    Number.isSafeInteger(event.sequence) && event.sequence > afterSequence;
+  requireEvidence(activation?.roleTab?.activeTabId === lifecycle.roleTab.tabId &&
+    activeRoleToolbar?.windowId === lifecycle.windowId && activeRoleToolbar.presentation === "maximized" &&
+    Number.isSafeInteger(activeRoleToolbar.windowGeneration) && activeRoleToolbar.windowGeneration > 0 &&
+    Number.isSafeInteger(activeRoleToolbar.topologyRevision) && activeRoleToolbar.topologyRevision > 0 &&
+    activeRoleToolbar.native?.windowGeneration === activeRoleToolbar.windowGeneration &&
+    activeRoleToolbar.native?.topologyRevision === activeRoleToolbar.topologyRevision &&
+    activeRoleSurface?.tabId === lifecycle.roleTab.tabId && activeRoleSurface.visible === true &&
+    visibleReceipt(activation.roleTab.visibilityEvent, activation.roleTab.afterSequence,
+      "chromium-mixed-recovery-role-tab") &&
+    activation.workspace?.activeTabId === lifecycle.workspace.tabId &&
+    web.role?.visible === true && web.web?.visible === true &&
+    visibleReceipt(activation.workspace.visibilityEvents?.roleWorkspace, activation.workspace.afterSequence,
+      "chromium-mixed-recovery-role-workspace") &&
+    visibleReceipt(activation.workspace.visibilityEvents?.web, activation.workspace.afterSequence,
+      "chromium-mixed-recovery-web"),
+  `${phase}: document viewport was not read after its exact visible native tab activation`);
+  const bounds = {
+    roleTab: activeRoleSurface?.bounds,
+    roleWorkspace: web.role?.roleId === lifecycle.roleWorkspace.roleId ? web.role.bounds : null,
+    web: web.web?.contentBounds
+  };
+  for (const [name, expected] of Object.entries(bounds)) {
+    const viewport = observation.viewports?.[name];
+    requireEvidence(expected && Number.isSafeInteger(expected.width) && expected.width > 0 &&
+      Number.isSafeInteger(expected.height) && expected.height > 0 &&
+      viewport?.visibility === "visible" && viewport.renderFrames === 2 &&
+      viewport.width === expected.width && viewport.height === expected.height,
+    `${phase}: ${name} document viewport does not match its native surface`);
+  }
+  requireEvidence(web.web.slotBounds?.height ===
+    web.web.chromeBounds?.height + web.web.contentBounds.height,
+  `${phase}: Workspace Web chrome/content viewport layout drifted`);
+  if (phase === "chromium-mixed-recovery-restore" && platform === "windows") {
+    const background = await readRuntime(phaseDirectory, "mixed-restored-background-native.json");
+    const owner = background.gameWindow?.currentRuntime;
+    const launcher = background.launcherFocus;
+    requireEvidence(owner?.windowId === lifecycle.windowId && owner.visible === true &&
+      owner.focused === false && owner.nativeDisplay?.presentation === "maximized" &&
+      owner.windowGeneration === gameWindow.currentRuntime.windowGeneration &&
+      owner.parentNativeHostId === gameWindow.currentRuntime.parentNativeHostId &&
+      launcher?.launcherFocused === true && launcher.runtimeNativeFocused === false &&
+      launcher.focusedNativeHostId === launcher.launcherNativeHostId &&
+      Number.isSafeInteger(launcher.launcherNativeHostId) && launcher.launcherNativeHostId > 0 &&
+      launcher.launcherNativeHostId !== owner.parentNativeHostId &&
+      launcher.nativeForeground?.launcher?.parentWasForeground === true &&
+      launcher.nativeForeground?.launcher?.parentVisible === true &&
+      launcher.nativeForeground?.launcher?.parentMinimized === false &&
+      launcher.nativeForeground?.runtime?.parentWasForeground === false &&
+      launcher.nativeForeground?.runtime?.parentVisible === true &&
+      launcher.nativeForeground?.runtime?.parentMinimized === false,
+    `${phase}: background native maximize reclaimed the launcher's focus`);
+  }
   return {
     globalWebSessionContinuity: phase !== "chromium-mixed-recovery-seed",
     hostKind: expectedHost(platform),
     roleIds: [lifecycle.roleTab.roleId, lifecycle.roleWorkspace.roleId],
+    savedPresentation: "maximized",
+    savedNormalBounds: lifecycle.placement.normalBounds,
+    populatedDocumentViewportsVerified: true,
+    normalizedWorkspaceSlotsVerified: true,
+    backgroundRestoreFocusNeutralityVerified: phase === "chromium-mixed-recovery-restore" && platform === "windows",
     tabIds,
     windowIds: [lifecycle.windowId]
   };
@@ -235,6 +337,7 @@ async function validateMixedSqlite({ entities, phase, phaseDirectory, settings }
   const gameWindow = entities.gameWindows.find(({ id }) => id === lifecycle.windowId);
   requireEvidence(gameWindow?.name === "Chromium Mixed Recovery Window",
     `${phase}: saved Game Window is missing`);
+  requireMixedPlacement(gameWindow.payload?.placement, lifecycle, phase);
   requireEvidence(gameWindow.payload.activeTabId === lifecycle.workspace.tabId,
     `${phase}: active Workspace tab drifted`);
   requireEvidence(gameWindow.payload.tabs?.length === 2, `${phase}: expected two mixed tabs`);
@@ -253,6 +356,8 @@ async function validateMixedSqlite({ entities, phase, phaseDirectory, settings }
         id === lifecycle.web.slotId && web?.lastUrl?.includes(lifecycle.web.marker)),
     `${phase}: exact Workspace Role/Web topology is missing`
   );
+  requireEvidence(same(canonicalMixedSlots(workspaceTab.workspaceSlots), lifecycle.workspace.slots),
+    `${phase}: saved normalized Workspace slot layout drifted`);
   const session = settings.find(({ key }) => key === "runtimeRestoreSession")?.payload;
   requireSessionJournal(session, phase, {
     cleanExit: phase !== "chromium-mixed-recovery-force",
@@ -261,6 +366,8 @@ async function validateMixedSqlite({ entities, phase, phaseDirectory, settings }
   });
   return {
     cleanExit: session.cleanExit,
+    savedPresentation: gameWindow.payload.placement.presentation,
+    savedNormalBounds: gameWindow.payload.placement.normalBounds,
     liveWindowIds: session.liveWindowIds,
     sessionGeneration: session.sessionGeneration,
     tabIds: [lifecycle.roleTab.tabId, lifecycle.workspace.tabId],

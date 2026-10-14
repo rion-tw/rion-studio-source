@@ -1,4 +1,94 @@
 impl AppCore {
+    fn persist_acknowledged_runtime_window_presentation(
+        &self,
+        snapshot: &crate::RuntimeSnapshot,
+        window_id: &str,
+        window_generation: u64,
+        revision: u64,
+    ) -> CoreResult<bool> {
+        let window = snapshot.windows.get(window_id).ok_or_else(|| {
+            runtime_ui_error(
+                "RUNTIME_WINDOW_PRESENTATION_SNAPSHOT_MISSING",
+                "The acknowledged presentation has no captured logical window.",
+            )
+        })?;
+        if window.window_generation != window_generation || window.revision != revision {
+            return Err(runtime_ui_error(
+                "RUNTIME_WINDOW_PRESENTATION_SNAPSHOT_STALE",
+                "The captured presentation does not match its acknowledged Core revision.",
+            ));
+        }
+        let saved = self.read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?;
+        let Some(saved) = saved.iter().find(|saved| saved.id == window_id) else {
+            // Changing an unsaved host must not create a saved Game Window.
+            return Ok(true);
+        };
+        let placement = window.placement.clone().ok_or_else(|| {
+            runtime_ui_error(
+                "RUNTIME_WINDOW_PRESENTATION_CONTEXT_MISSING",
+                "The acknowledged presentation has no captured placement.",
+            )
+        })?;
+        let target_display = window.target_display.clone().ok_or_else(|| {
+            runtime_ui_error(
+                "RUNTIME_WINDOW_PRESENTATION_CONTEXT_MISSING",
+                "The acknowledged presentation has no captured display.",
+            )
+        })?;
+        let ownership = snapshot
+            .browser_runtime
+            .tabs
+            .iter()
+            .map(|tab| (tab.id.as_str(), tab))
+            .collect();
+        let batch = self.commit_runtime_window_snapshot_batch_inner(vec![
+            GameWindowRuntimeSnapshotCommitInputRecord {
+                snapshot: runtime_window_tab_snapshot(window, &ownership),
+                name: saved.name.clone(),
+                target_display,
+                placement,
+            },
+        ])?;
+        let receipt = batch.receipts.first().ok_or_else(|| {
+            runtime_ui_error(
+                "RUNTIME_WINDOW_PRESENTATION_PERSISTENCE_RECEIPT_MISSING",
+                "The acknowledged presentation has no persistence receipt.",
+            )
+        })?;
+        if receipt.window_id != window_id
+            || receipt.window_generation != window_generation
+            || receipt.revision != revision
+        {
+            return Err(runtime_ui_error(
+                "RUNTIME_WINDOW_PRESENTATION_PERSISTENCE_RECEIPT_INVALID",
+                "The presentation persistence receipt lost its exact Core fence.",
+            ));
+        }
+        if receipt.status == "applied" {
+            return Ok(true);
+        }
+        let revisions = self
+            .runtime_window_persistence_revisions
+            .lock()
+            .map_err(|_| {
+                CoreError::Internal("runtime window persistence revision lock poisoned".to_owned())
+            })?;
+        if receipt.status == "superseded"
+            && revisions
+                .get(window_id)
+                .is_some_and(|(saved_generation, saved_revision)| {
+                    *saved_generation > window_generation
+                        || (*saved_generation == window_generation && *saved_revision > revision)
+                })
+        {
+            return Ok(false);
+        }
+        Err(runtime_ui_error(
+            "RUNTIME_WINDOW_PRESENTATION_PERSISTENCE_NOT_VERIFIED",
+            "The acknowledged presentation has no applied or strictly newer durable revision.",
+        ))
+    }
+
     fn apply_runtime_window_presentation_action(
         &self,
         operation_id: String,
@@ -10,9 +100,7 @@ impl AppCore {
         self.validate_runtime_ui_action_identity(&operation_id, &[&window_id])?;
         match self.platform {
             rion_platform::Platform::Windows
-                if matches!(presentation.as_str(), "normal" | "maximized" | "fullscreen") =>
-            {
-            }
+                if matches!(presentation.as_str(), "normal" | "maximized" | "fullscreen") => {}
             rion_platform::Platform::Windows => {
                 return Err(runtime_ui_error(
                     "RUNTIME_WINDOW_PRESENTATION_INVALID",
@@ -20,9 +108,7 @@ impl AppCore {
                 ));
             }
             rion_platform::Platform::Macos
-                if matches!(presentation.as_str(), "normal" | "fullscreen") =>
-            {
-            }
+                if matches!(presentation.as_str(), "normal" | "fullscreen") => {}
             rion_platform::Platform::Macos if presentation == "maximized" => {
                 return Err(runtime_ui_error(
                     "RUNTIME_WINDOW_PRESENTATION_INVALID",
@@ -96,29 +182,27 @@ impl AppCore {
             }),
             Some(&operation_id),
         );
-        let (status, stage, failure_code, applied_revision) = match native {
-            Ok(_) if already_applied => (
-                crate::model::SystemRuntimeOperationStatus::Applied,
-                "runtimeWindowPresentationNativeReadbackVerified",
-                None,
-                topology_revision,
-            ),
+        let mut persistence_result = None;
+        let (mut status, mut stage, mut failure_code, applied_revision) = match native {
             Ok(_) => {
-                let commit = self.apply_runtime_intent(crate::RuntimeIntent::CommitPlacement(
-                    crate::RuntimeWindowPlacementCommitInput {
-                        operation_id: format!("{operation_id}:commit-presentation"),
-                        placement: crate::model::GameWindowPlacementRecord {
-                            normal_bounds: prior_placement.normal_bounds,
-                            saved_work_area: prior_placement.saved_work_area,
+                let (commit, captured) = {
+                    // Capture placement, tabs and ownership at this exact commit. Launch
+                    // completion may advance Kernel revisions outside the UI lane.
+                    let _authority_guard =
+                        self.runtime_authority_barrier.write().map_err(|_| {
+                            CoreError::Internal("runtime authority barrier poisoned".to_owned())
+                        })?;
+                    let commit = self.browser_runtime.apply(
+                        crate::RuntimeIntent::SetWindowPresentation {
+                            operation_id: format!("{operation_id}:commit-presentation"),
+                            expected_revision: topology_revision,
                             presentation,
+                            window_generation,
+                            window_id: window_id.clone(),
                         },
-                        placement_sequence: window.placement_sequence.saturating_add(1).max(1),
-                        source: "chromiumWindowsHost".to_owned(),
-                        target_display: window.target_display.expect("validated display"),
-                        window_generation,
-                        window_id: window_id.clone(),
-                    },
-                ))?;
+                    )?;
+                    (commit, self.browser_runtime.snapshot()?)
+                };
                 if commit.status == crate::RuntimeCommitStatus::Superseded {
                     let current = self
                         .browser_runtime
@@ -194,12 +278,25 @@ impl AppCore {
                         ),
                     }
                 } else {
+                    // Native acknowledgement and the captured Kernel commit already
+                    // establish placement. A later follower projection cannot undo it.
+                    persistence_result =
+                        Some(self.persist_acknowledged_runtime_window_presentation(
+                            &captured,
+                            &window_id,
+                            window_generation,
+                            commit.revision,
+                        ));
                     match self
                         .project_embedded_runtime_snapshot_without_persistence(Some(&operation_id))
                     {
                         Ok(_) => (
                             crate::model::SystemRuntimeOperationStatus::Applied,
-                            "runtimeWindowPresentationApplied",
+                            if already_applied {
+                                "runtimeWindowPresentationNativeReadbackVerified"
+                            } else {
+                                "runtimeWindowPresentationApplied"
+                            },
                             None,
                             commit.revision,
                         ),
@@ -223,6 +320,24 @@ impl AppCore {
                 topology_revision,
             ),
         };
+        if status == crate::model::SystemRuntimeOperationStatus::Applied
+            && let Some(persistence) = persistence_result
+        {
+            match persistence {
+                Ok(true) => {}
+                Ok(false) => {
+                    status = crate::model::SystemRuntimeOperationStatus::Superseded;
+                    stage = "runtimeWindowPresentationPersistenceSuperseded";
+                }
+                Err(error) => {
+                    // Native success is already authoritative; failed persistence cannot
+                    // reverse the visible presentation or claim it will survive reopening.
+                    status = crate::model::SystemRuntimeOperationStatus::Degraded;
+                    stage = "runtimeWindowPresentationPersistenceFailed";
+                    failure_code = Some(error.code().to_owned());
+                }
+            }
+        }
         let receipt = runtime_ui_action_summary(
             self.platform,
             RuntimeUiSummaryInput {

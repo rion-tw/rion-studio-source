@@ -2258,7 +2258,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create one exact permanent Game Window containing a Role tab and a mixed Role/Rion Website Workspace tab, navigate the Website from the Rion entrance, establish isolated Role cookies, LocalStorage, and per-slot global-Web continuation through a normal clean exit, visibly Show it before exact-PID termination, then use the visible Dashboard Restore session action. SQLite and native evidence require the exact schema-v2 cohort, saved last URL, isolated Sessions, a currently available display identity, and retained AppKit host."
+      "description": "Create one exact permanent Game Window containing a Role tab and a mixed Role/Rion Website Workspace tab, navigate the Website from the Rion entrance, and maximize through the retained native Window menu Zoom control before a normal clean exit. Visibly Show it before exact-PID termination, then use the visible Dashboard Restore session action and require authoritative restore terminality. SQLite and native evidence retain saved maximized presentation, unchanged normal bounds and normalized Workspace slots, matching native bounds and actual viewports for all three documents, the exact schema-v2 cohort, saved last URL, isolated Role cookies and LocalStorage, per-slot global-Web continuation, a currently available display identity, and retained AppKit host."
     },
     {
       "id": "CHROMIUM-WINDOWS-MIXED-RECOVERY-021",
@@ -2286,7 +2286,7 @@
         "failure",
         "restart"
       ],
-      "description": "Run the same Rion-entrance navigation, clean-seed, visible Show, exact-PID termination, and visible Restore sequence for the paired Windows Chromium host. Exact evidence requires the same Role/Workspace-Web topology, per-slot last URL, isolated Sessions, a currently available display identity, and bundled native Windows host ownership; Windows execution remains an independent CI verdict."
+      "description": "Run the same Rion-entrance navigation, visible maximize, clean-seed, visible Show, exact-PID termination, and visible Restore sequence for the paired Windows Chromium host. Require authoritative restore terminality, saved/native maximized presentation, unchanged normal bounds and normalized Workspace slots, and actual document viewports matching native Role-tab, Workspace-Role and Workspace-Web bounds. Before any later tab activation or document-target read, preserve native evidence that background maximized Restore keeps the exact launcher focused and the restored Game Window unfocused. Exact evidence retains the same Role/Workspace-Web topology, per-slot last URL, isolated Sessions, a currently available display identity, and bundled native Windows host ownership; Windows execution remains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WINDOW-RECOVERY-UI-022",
@@ -2372,7 +2372,7 @@
         "success",
         "restart"
       ],
-      "description": "Create and rename an empty permanent Game Window through the visible macOS Chromium route and its labeled standard input, then use the visible Show action before and after restart to prove exact zero-tab Core identity, revision-fenced native ownership, and the retained AppKit Chromium host identity."
+      "description": "Create and rename an empty permanent Game Window through the visible macOS Chromium route and its labeled standard input. Enter fullscreen through the retained native accelerator and maximize through the real Window menu Zoom item; visibly close and Show the native window in each presentation. Require the saved presentation and unchanged normal bounds at every boundary, then return to fullscreen and Show after clean restart to prove the same exact zero-tab Core identity, revision-fenced fullscreen native ownership, and retained AppKit Chromium host identity."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SLOT-016",
@@ -2545,7 +2545,7 @@
         "success",
         "restart"
       ],
-      "description": "Create and rename an empty permanent Game Window through the visible Windows Chromium route and its labeled standard input, then use the visible Show action before and after restart to prove exact zero-tab Core identity and revision-fenced bundled Chromium native ownership."
+      "description": "Create and rename an empty permanent Game Window through the visible Windows Chromium route and its labeled standard input. Use the visible fullscreen and maximize controls, visibly close and Show the native window in each presentation, and preserve the saved presentation plus unchanged normal bounds at every boundary. Clean app restart and visible Show must restore the saved maximized presentation with the same exact zero-tab Core identity and revision-fenced bundled Chromium native ownership."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-SLOT-016",

@@ -122,7 +122,7 @@ describe("Chromium fullscreen-toolbar exact replacement", () => {
     expect(snapshotModel).toContain("pub presentation: Option<String>");
     expect(e2eEntry).toContain("logical.presentation !== inspection.presentation");
     expect(e2eEntry).not.toContain("inspection.surfaces.length === 0");
-    expect(e2eEntry).toContain("coreTabIds.length === 0");
+    expect(e2eEntry).not.toContain("coreTabIds.length === 0");
     expect(e2eEntry).not.toContain(
       '!inspection.surfaces.some((surface) => surface.kind === "role")'
     );

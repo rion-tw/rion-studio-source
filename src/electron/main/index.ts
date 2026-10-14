@@ -858,15 +858,10 @@ async function bootstrapReadyPhase(
             lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,
             readCursorScreenPoint: () => screen.getCursorScreenPoint(),
             runtimeForegroundProbe: nativeAddon,
+            runtimeInactivePresentation: nativeAddon,
             runtimeShortcutOwner: nativeAddon,
-            runtimeDocumentPath: join(
-              import.meta.dirname,
-              "../renderer/runtime-windows-host.html"
-            ),
-            runtimeHostPreloadPath: join(
-              import.meta.dirname,
-              "../preload/runtimeWindowsHost.cjs"
-            ),
+            runtimeDocumentPath: join(import.meta.dirname, "../renderer/runtime-windows-host.html"),
+            runtimeHostPreloadPath: join(import.meta.dirname, "../preload/runtimeWindowsHost.cjs"),
             onWindowControl: (windowId, action) => {
               const request = requestRuntimeWindowControl;
               if (!request) {

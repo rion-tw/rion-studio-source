@@ -271,6 +271,13 @@ pub enum RuntimeIntent {
         window_id: String,
         workspace_slots: Vec<StateWorkspaceSlotRecord>,
     },
+    SetWindowPresentation {
+        expected_revision: u64,
+        operation_id: String,
+        presentation: String,
+        window_generation: u64,
+        window_id: String,
+    },
     SetWindowZoomFactor {
         expected_revision: Option<u64>,
         operation_id: String,
@@ -348,6 +355,7 @@ impl RuntimeIntent {
             | Self::SetRoleZoom { operation_id, .. }
             | Self::ReplaceTabRoleSlots { operation_id, .. }
             | Self::ReplaceTabWorkspaceSlots { operation_id, .. }
+            | Self::SetWindowPresentation { operation_id, .. }
             | Self::SetWindowZoomFactor { operation_id, .. }
             | Self::SeedDormantTabs { operation_id, .. }
             | Self::SetTabActivationPhase { operation_id, .. }

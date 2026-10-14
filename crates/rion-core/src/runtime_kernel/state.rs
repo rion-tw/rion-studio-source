@@ -434,6 +434,19 @@ fn apply_to_candidate(
             }
             basic_commit(state, false, vec![window_id])
         }
+        RuntimeIntent::SetWindowPresentation {
+            expected_revision,
+            presentation,
+            window_generation,
+            window_id,
+            ..
+        } => apply_window_presentation(
+            state,
+            expected_revision,
+            presentation,
+            window_generation,
+            window_id,
+        )?,
         RuntimeIntent::SetWindowZoomFactor {
             expected_revision,
             window_id,
@@ -694,6 +707,7 @@ fn retire_terminal_close_tombstone_for_create(
 }
 
 include!("state/trace.rs");
+include!("state/window_presentation.rs");
 
 include!("state/tab_activation.rs");
 

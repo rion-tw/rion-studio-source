@@ -73,6 +73,10 @@ export interface ChromiumRuntimeHostPort {
   setRuntimeWindowPresentation?: (
     request: ChromiumRuntimeWindowPresentationRequest
   ) => Promise<ChromiumRuntimeHostProjection>;
+  /** Honest staging state: hidden Windows maximize waits for Core visible admission. */
+  readPendingInitialPresentation?: () => "maximized" | null;
+  completeInitialPresentation?: (request: Pick<ChromiumRuntimeWindowPresentationRequest,
+    "windowId" | "windowGeneration" | "topologyRevision">) => Promise<void>;
   desktopE2eShowAppKitTabMenu?: (tabId: string) => boolean;
   desktopE2eStatusPresentation?: () => number;
 }

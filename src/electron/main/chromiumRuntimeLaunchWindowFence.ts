@@ -1,5 +1,6 @@
 import type { CoreAppSnapshotRecord } from "../../shared/generated";
 import type { ChromiumRuntimeExecutorSnapshot } from "./chromiumRuntimeSnapshot";
+import { pendingInitialPresentationMatches } from "./chromiumRuntimeSnapshot";
 import { canonicalWebSurfaceIdentities, reconcileNativeWebSurfaces } from "./chromiumRuntimeLaunchWebIdentity";
 
 export interface LaunchWindowRevision {
@@ -32,6 +33,10 @@ export function inspectLaunchWindowFence(
   else if (previous && previous.windowGeneration !== window.windowGeneration) reason = "generation-changed";
   else if (previous?.windowGeneration === window.windowGeneration && window.revision < previous.topologyRevision) reason = "revision-regressed";
   else if (host.topologyRevision !== window.revision) reason = "topology-revision";
+  else if (host.pendingInitialPresentation !== undefined && (
+    window.presentation !== "maximized" ||
+    !pendingInitialPresentationMatches(host, window.windowGeneration, window.revision)
+  )) reason = "initial-presentation";
   else if (!same(runtime[0]!.tabIds, ids) || !same(host.tabIds, ids)) reason = "ordered-tabs";
   else if (host.activeTabId !== (window.activeTabId ?? "") ||
     runtime[0]!.activeTabId !== window.activeTabId) reason = "active-tab";

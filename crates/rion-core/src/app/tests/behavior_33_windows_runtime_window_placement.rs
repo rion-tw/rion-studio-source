@@ -333,3 +333,97 @@ fn windows_native_placement_persists_its_commit_after_an_unrelated_revision_adva
         .unwrap_err().code(), "WINDOWS_RUNTIME_PLACEMENT_COMMIT_STALE");
     core.shutdown();
 }
+
+#[test]
+fn windows_native_placement_sequence_remains_authoritative_after_core_presentations() {
+    let (_directory, core) = core_for_runtime_contract("win32", 23);
+    core.invoke(CoreCommand::BrowserRuntimeRegister {
+        registration: chromium_registration("win32", true),
+    })
+    .unwrap();
+    let seed = seed_windows_runtime_placement(&core, true);
+    for (index, presentation) in ["maximized", "fullscreen", "normal"]
+        .into_iter()
+        .enumerate()
+    {
+        let before = core.browser_runtime.snapshot().unwrap().windows[&seed.window_id].clone();
+        let (result, _) = drive_command(
+            Arc::clone(&core),
+            runtime_window_presentation_command(
+                &format!("placement-presentation-{index}"),
+                &before,
+                presentation,
+            ),
+            None,
+        );
+        let summary: crate::model::SystemRuntimeOperationSummaryRecord =
+            serde_json::from_value(result.unwrap()).unwrap();
+        assert_eq!(
+            summary.status,
+            crate::model::SystemRuntimeOperationStatus::Applied
+        );
+        let after = core.browser_runtime.snapshot().unwrap().windows[&seed.window_id].clone();
+        assert!(after.revision > before.revision);
+        assert_eq!(after.placement_sequence, 0);
+    }
+    let before_native = core.browser_runtime.snapshot().unwrap().windows[&seed.window_id].clone();
+    let event = windows_runtime_placement_event(
+        &before_native,
+        "00000000-0000-4000-8000-000000000338",
+        1,
+        330,
+    );
+    let (result, _) = drive_command(
+        Arc::clone(&core),
+        CoreCommand::BrowserWindowsRuntimeWindowPlacement { event },
+        None,
+    );
+    let receipt: crate::model::WindowsRuntimeWindowPlacementReceiptRecord =
+        serde_json::from_value(result.unwrap()).unwrap();
+    assert_eq!(receipt.status, "applied", "{receipt:?}");
+    assert_eq!(receipt.persistence_status, "applied");
+    let moved = core.browser_runtime.snapshot().unwrap().windows[&seed.window_id].clone();
+    assert_eq!(moved.placement_sequence, 1);
+    assert_eq!(moved.placement.as_ref().unwrap().normal_bounds.x, 330);
+    let (result, _) = drive_command(
+        Arc::clone(&core),
+        runtime_window_presentation_command(
+            "placement-presentation-after-move",
+            &moved,
+            "maximized",
+        ),
+        None,
+    );
+    let summary: crate::model::SystemRuntimeOperationSummaryRecord =
+        serde_json::from_value(result.unwrap()).unwrap();
+    assert_eq!(
+        summary.status,
+        crate::model::SystemRuntimeOperationStatus::Applied
+    );
+    let maximized = core.browser_runtime.snapshot().unwrap().windows[&seed.window_id].clone();
+    let duplicate =
+        windows_runtime_placement_event(&maximized, "00000000-0000-4000-8000-000000000339", 1, 440);
+    let stale: crate::model::WindowsRuntimeWindowPlacementReceiptRecord = serde_json::from_value(
+        core.invoke(CoreCommand::BrowserWindowsRuntimeWindowPlacement { event: duplicate })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(stale.status, "superseded");
+    let mut next =
+        windows_runtime_placement_event(&maximized, "00000000-0000-4000-8000-00000000033a", 2, 450);
+    next.placement.presentation = "maximized".to_owned();
+    let (result, _) = drive_command(
+        Arc::clone(&core),
+        CoreCommand::BrowserWindowsRuntimeWindowPlacement { event: next },
+        None,
+    );
+    let receipt: crate::model::WindowsRuntimeWindowPlacementReceiptRecord =
+        serde_json::from_value(result.unwrap()).unwrap();
+    assert_eq!(receipt.status, "applied", "{receipt:?}");
+    let saved = core
+        .invoke(CoreCommand::GameWindowGet { id: seed.window_id })
+        .unwrap();
+    assert_eq!(saved["placement"]["normalBounds"]["x"], 450);
+    assert_eq!(saved["placement"]["presentation"], "maximized");
+    core.shutdown();
+}

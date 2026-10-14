@@ -1,12 +1,23 @@
 import { $, browser, expect } from "@wdio/globals";
+import { writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import type { GameWindow } from "../../../src/shared/types";
 import {
   electronDesktopE2eGameWindowRuntime,
+  electronDesktopE2eFullscreenToolbarRuntime,
   electronDesktopE2eProbe,
   type ElectronDesktopE2eGameWindowRuntimeInspection
 } from "../support/electron-driver";
+import { movePointerToWindowsRuntimeHostRevealEdge } from "../support/electron-role-surface";
+import { movePointerToMacosFullscreenRevealEdge } from "../support/macos-appkit-ui";
+import { pressVisibleMacosApplicationShortcut } from "../support/native-application-actions";
+import {
+  clickVisibleRuntimeWindowControl,
+  closeVisibleRuntimeWindow
+} from "../support/native-runtime-tabs";
 import { rendererCall } from "../support/renderer-bridge";
+import { pressWindowsRuntimeWindowControl } from "../support/windows-runtime-window-control";
 import {
   acceptLegalAndSkipFirstRun,
   ensureEnglishUi,
@@ -17,11 +28,19 @@ import {
 // [journey:CHROMIUM-WINDOWS-GAME-WINDOW-UI-016]
 
 const WINDOW_NAME = "Chromium E2E Game Window";
+type Presentation = GameWindow["placement"]["presentation"];
+const presentationStages: unknown[] = [];
 
 function required(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required by the Chromium Game Window journey`);
   return value;
+}
+
+function transientNativeInspectionError(message: string): boolean {
+  return message.includes("has a stale Core/native Chromium fence:") ||
+    message.includes("has stale preference, presentation, or native fences:") ||
+    message.includes("has divergent Core/browser/native");
 }
 
 async function preparePhase(): Promise<"macos" | "windows"> {
@@ -113,23 +132,42 @@ async function showThroughVisibleUi(
   await show.click();
 
   let inspection: ElectronDesktopE2eGameWindowRuntimeInspection | undefined;
-  await browser.waitUntil(async () => {
-    try {
-      inspection = await electronDesktopE2eGameWindowRuntime(gameWindow.id);
-      return inspection.currentRuntime?.visible === true &&
-        inspection.currentRuntime.focused === true;
-    } catch {
-      return false;
-    }
-  }, {
-    interval: 100,
-    timeout: 20_000,
-    timeoutMsg: `Game Window ${gameWindow.id} did not reach exact visible native ownership`
-  });
-  await browser.waitUntil(async () => (await row.getText()).includes("Visible"), {
-    timeout: 10_000,
-    timeoutMsg: `Game Window ${gameWindow.id} did not present Visible status`
-  });
+  let lastInspectionError: string | undefined;
+  try {
+    await browser.waitUntil(async () => {
+      try {
+        inspection = await electronDesktopE2eGameWindowRuntime(gameWindow.id);
+        return inspection.currentRuntime?.visible === true &&
+          inspection.currentRuntime.focused === true;
+      } catch (error) {
+        lastInspectionError = error instanceof Error ? error.message : String(error);
+        if (transientNativeInspectionError(lastInspectionError)) return false;
+        throw error;
+      }
+    }, {
+      interval: 100,
+      timeout: 20_000,
+      timeoutMsg: `Game Window ${gameWindow.id} did not reach exact visible native ownership`
+    });
+    await browser.waitUntil(async () => (await row.getText()).includes("Visible"), {
+      timeout: 10_000,
+      timeoutMsg: `Game Window ${gameWindow.id} did not present Visible status`
+    });
+  } catch (error) {
+    const [saved, visibleRow] = await Promise.allSettled([
+      rendererCall("listGameWindows"), row.getText()
+    ]);
+    await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
+      "game-window-show-failure.json"), `${JSON.stringify({
+      windowId: gameWindow.id, requestedSavedPlacement: gameWindow.placement,
+      latestRuntimeInspection: inspection, lastInspectionError,
+      latestSavedWindow: saved.status === "fulfilled"
+        ? saved.value.find(({ id }) => id === gameWindow.id) : String(saved.reason),
+      visibleRowText: visibleRow.status === "fulfilled" ? visibleRow.value : String(visibleRow.reason)
+    }, null, 2)}\n`);
+    const detail = lastInspectionError ? ` Last inspection error: ${lastInspectionError}` : "";
+    throw new Error(`Visible Show failed for Game Window ${gameWindow.id}.${detail}`, { cause: error });
+  }
   return inspection!;
 }
 
@@ -166,14 +204,115 @@ function expectExactNativeIdentity(
   }
 }
 
+async function recordPresentationStage(
+  stage: string,
+  saved: GameWindow,
+  runtime: ElectronDesktopE2eGameWindowRuntimeInspection["currentRuntime"]
+): Promise<void> {
+  presentationStages.push({ stage, saved, runtime });
+  await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
+    "game-window-presentation-stages.json"), `${JSON.stringify(presentationStages, null, 2)}\n`);
+}
+
+async function waitForSavedPresentation(input: Readonly<{
+  gameWindow: GameWindow;
+  platform: "macos" | "windows";
+  presentation: Presentation;
+  stage: string;
+}>): Promise<void> {
+  let saved: GameWindow | undefined;
+  let runtime: ElectronDesktopE2eGameWindowRuntimeInspection["currentRuntime"] = null;
+  let lastInspectionError: string | undefined;
+  try {
+    await browser.waitUntil(async () => {
+      try {
+        saved = await waitForNamedWindow();
+        runtime = (await electronDesktopE2eGameWindowRuntime(input.gameWindow.id)).currentRuntime;
+        const coherent = await electronDesktopE2eFullscreenToolbarRuntime(input.gameWindow.id);
+        return saved.placement.presentation === input.presentation &&
+          runtime?.nativeDisplay.presentation === input.presentation &&
+          coherent.presentation === input.presentation && runtime.visible && runtime.focused;
+      } catch (error) {
+        lastInspectionError = error instanceof Error ? error.message : String(error);
+        if (transientNativeInspectionError(lastInspectionError)) return false;
+        throw error;
+      }
+    }, { interval: 100, timeout: 45_000,
+      timeoutMsg: `Saved and exact native presentation did not agree at ${input.stage}` });
+  } catch (error) {
+    await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
+      "game-window-presentation-failure.json"), `${JSON.stringify({
+      stage: input.stage, expectedPresentation: input.presentation, saved, runtime,
+      lastInspectionError
+    }, null, 2)}\n`);
+    const detail = lastInspectionError ? ` Last inspection error: ${lastInspectionError}` : "";
+    throw new Error(`Saved/native presentation failed at ${input.stage}.${detail}`, { cause: error });
+  }
+  expect(saved!.placement.normalBounds).toEqual(input.gameWindow.placement.normalBounds);
+  expectExactNativeIdentity({ currentRuntime: runtime, windowId: input.gameWindow.id }, input.platform);
+  await recordPresentationStage(input.stage, saved!, runtime);
+}
+
+async function toggleVisibleFullscreen(windowId: string, platform: "macos" | "windows") {
+  const { processId } = await electronDesktopE2eProbe();
+  if (platform === "macos") {
+    await pressVisibleMacosApplicationShortcut({ command: "toggleFullscreen", processId,
+      runtimeWindowId: windowId, targetMode: "focused-runtime" });
+  } else {
+    const current = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
+    if (current.presentation === "fullscreen") {
+      await revealVisibleFullscreenControls(windowId, platform);
+    }
+    const { nativeWindowHandle } = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
+    if (!nativeWindowHandle) throw new Error("Exact Game Window HWND is unavailable");
+    await pressWindowsRuntimeWindowControl({ command: "toggleFullscreen", processId,
+      nativeWindowHandle });
+  }
+}
+
+async function revealVisibleFullscreenControls(windowId: string, platform: "macos" | "windows") {
+  if (platform === "macos") {
+    await movePointerToMacosFullscreenRevealEdge(windowId);
+  } else {
+    await movePointerToWindowsRuntimeHostRevealEdge(windowId);
+  }
+  await browser.waitUntil(async () => {
+    const inspection = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
+    return inspection.presentation === "fullscreen" && inspection.native.toolbarVisible &&
+      inspection.native.nativeControlsVisible;
+  }, { timeout: 15_000, timeoutMsg: "Fullscreen window controls did not become visible" });
+}
+
+async function closeAndReopenSavedPresentation(input: Readonly<{
+  gameWindow: GameWindow;
+  mainWindowHandle: string;
+  platform: "macos" | "windows";
+  presentation: Presentation;
+}>): Promise<void> {
+  if (input.presentation === "fullscreen") {
+    await revealVisibleFullscreenControls(input.gameWindow.id, input.platform);
+  }
+  await closeVisibleRuntimeWindow({ ...input, windowId: input.gameWindow.id });
+  await browser.waitUntil(async () =>
+    (await electronDesktopE2eGameWindowRuntime(input.gameWindow.id)).currentRuntime === null,
+  { timeout: 20_000, timeoutMsg: "Visible close did not retire the exact native Game Window" });
+  const saved = await waitForNamedWindow();
+  expect(saved.placement.presentation).toBe(input.presentation);
+  expect(saved.placement.normalBounds).toEqual(input.gameWindow.placement.normalBounds);
+  await recordPresentationStage(`${input.presentation}-closed`, saved, null);
+  await showThroughVisibleUi(saved);
+  await waitForSavedPresentation({ ...input, stage: `${input.presentation}-reopened` });
+}
+
 describe("Chromium permanent Game Window UI", () => {
-  it("creates, renames, shows, and reopens one exact empty native Game Window", async () => {
+  it("preserves native presentation through visible close, Show, and clean app restart", async () => {
     const phase = required("RION_STUDIO_E2E_PHASE");
     expect([
       "chromium-game-window-ui-seed",
       "chromium-game-window-ui-restart"
     ]).toContain(phase);
     const platform = await preparePhase();
+    const mainWindowHandle = await browser.getWindowHandle();
     await openGameWindowsThroughVisibleUi();
 
     let gameWindow: GameWindow;
@@ -196,5 +335,39 @@ describe("Chromium permanent Game Window UI", () => {
     const inspection = await showThroughVisibleUi(gameWindow);
     expect(inspection.windowId).toBe(gameWindow.id);
     expectExactNativeIdentity(inspection, platform);
+    const baselinePresentation = platform === "windows" ? "maximized" : "fullscreen";
+    if (phase === "chromium-game-window-ui-restart") {
+      expect(gameWindow.placement.presentation).toBe(baselinePresentation);
+      await waitForSavedPresentation({ gameWindow, platform,
+        presentation: baselinePresentation, stage: "restart-restored" });
+      return;
+    }
+
+    gameWindow = await waitForNamedWindow();
+    await waitForSavedPresentation({ gameWindow, platform,
+      presentation: "normal", stage: "normal-baseline" });
+    await toggleVisibleFullscreen(gameWindow.id, platform);
+    await waitForSavedPresentation({ gameWindow, platform,
+      presentation: "fullscreen", stage: "fullscreen-applied" });
+    await closeAndReopenSavedPresentation({ gameWindow, mainWindowHandle, platform,
+      presentation: "fullscreen" });
+    await toggleVisibleFullscreen(gameWindow.id, platform);
+    await waitForSavedPresentation({ gameWindow, platform,
+      presentation: "normal", stage: "normal-restored" });
+    await clickVisibleRuntimeWindowControl({ command: "maximize", mainWindowHandle,
+      platform, windowId: gameWindow.id });
+    await waitForSavedPresentation({ gameWindow, platform,
+      presentation: "maximized", stage: "maximized-applied" });
+    await closeAndReopenSavedPresentation({ gameWindow, mainWindowHandle, platform,
+      presentation: "maximized" });
+    if (platform === "macos") {
+      await clickVisibleRuntimeWindowControl({ command: "maximize", mainWindowHandle,
+        platform, windowId: gameWindow.id });
+      await waitForSavedPresentation({ gameWindow, platform,
+        presentation: "normal", stage: "normal-after-maximize" });
+      await toggleVisibleFullscreen(gameWindow.id, platform);
+      await waitForSavedPresentation({ gameWindow, platform,
+        presentation: "fullscreen", stage: "fullscreen-baseline" });
+    }
   });
 });

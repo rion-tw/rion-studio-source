@@ -62,6 +62,7 @@ import {
   ChromiumPlatformRuntimeHostFactory,
   type MacosAppKitRuntimeHostFactoryPort,
   type WindowsBrowserWindowFactoryPort,
+  type WindowsRuntimeInactivePresentationPort,
   type WindowsRuntimeForegroundProbePort,
   type WindowsRuntimeHostDisplayResolverPort,
   type WindowsRuntimeShortcutOwnerPort
@@ -363,6 +364,7 @@ export interface ChromiumRuntimeBootstrapInput {
       action: ChromiumRuntimeNativeTabAction
     ) => Promise<void>;
     runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort;
+    runtimeInactivePresentation?: WindowsRuntimeInactivePresentationPort;
     readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>;
     runtimeShortcutOwner: WindowsRuntimeShortcutOwnerPort;
     trustedInput?: WindowsChromiumTrustedInputRuntimeConfiguration;
@@ -680,6 +682,7 @@ export class ChromiumRuntimeBootstrap {
               return windowPlacement!.observe(host);
             },
             runtimeForegroundProbe: input.windows!.runtimeForegroundProbe,
+            runtimeInactivePresentation: input.windows!.runtimeInactivePresentation,
             runtimeShortcutOwner: input.windows!.runtimeShortcutOwner,
             lifecycleEpoch: input.windows!.lifecycleEpoch,
             readCursorScreenPoint: input.windows!.readCursorScreenPoint,
@@ -1406,14 +1409,14 @@ export class ChromiumRuntimeBootstrap {
     this.#executor.beginSavedWindowRestore(windowId, foreground);
   }
 
-  finishSavedWindowRestore(windowId: string): void {
+  finishSavedWindowRestore(windowId: string): Promise<void> {
     if (this.#state !== "open") {
       throw bootstrapError(
         "ELECTRON_CHROMIUM_RUNTIME_DRAINING",
         "The Chromium runtime cannot finish a saved-window restore while draining."
       );
     }
-    this.#executor.finishSavedWindowRestore(windowId);
+    return this.#executor.finishSavedWindowRestore(windowId);
   }
 
   settleCurrentProjection(): Promise<number> {

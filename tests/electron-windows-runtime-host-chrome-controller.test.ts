@@ -1378,6 +1378,41 @@ describe("Windows runtime-host chrome controller", () => {
     expect(subject.relayout).toHaveBeenCalledTimes(5);
   });
 
+  it("arms the exact maximize event before a request-specific native callback and awaits its layout", async () => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    let release!: () => void;
+    const layout = new Promise<void>(resolve => { release = resolve; });
+    subject.controller.bindLayout(() => layout);
+    const request = { windowId, windowGeneration: 1, topologyRevision: 1,
+      presentation: "maximized" as const };
+    const maximize = vi.fn(() => {
+      subject.state.maximized = true;
+      void subject.controller.nativePresentationChanged("maximized");
+    });
+    const terminal = subject.controller.setPresentation(request, maximize);
+    expect(maximize).toHaveBeenCalledExactlyOnceWith(request);
+    expect(subject.native.maximize).not.toHaveBeenCalled();
+    let settled = false;
+    void terminal.then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    await expect(terminal).resolves.toMatchObject({ presentation: "maximized" });
+  });
+
+  it("terminalizes a refused request-specific maximize without another native submission", async () => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    const request = { windowId, windowGeneration: 1, topologyRevision: 1,
+      presentation: "maximized" as const };
+    const maximize = vi.fn(() => { throw new Error("inactive native scope refused"); });
+    await expect(subject.controller.setPresentation(request, maximize)).rejects.toThrow("inactive native scope refused");
+    expect(maximize).toHaveBeenCalledExactlyOnceWith(request);
+    expect(subject.native.maximize).not.toHaveBeenCalled();
+    expect(subject.state.maximized).toBe(false);
+  });
+
   it("awaits Core window controls and recovers after synchronous minimize failure", async () => {
     const subject = harness();
     await subject.controller.applyCoreProjection({

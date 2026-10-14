@@ -6,6 +6,7 @@ import { parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { windowsRuntimePointerLeave } from "./windowsRuntimePointerLeave";
+import { maximizeWindowsRuntimeInitialPresentation } from "./windowsRuntimeInitialPresentation";
 
 import type {
   AppKitRuntimeHostIdentityRecord,
@@ -62,6 +63,7 @@ import type {
   WindowsRuntimeHostDisplayResolverPort,
   WindowsRuntimeHostWebContentsPort,
   WindowsRuntimeHostWindowPort,
+  WindowsRuntimeInactivePresentationPort,
   WindowsRuntimeShortcutOwnerPort,
   WindowsRuntimeShortcutOwnerReceipt
 } from "./windowsRuntimeHostNativePorts";
@@ -76,6 +78,7 @@ export {
   type WindowsRuntimeHostMaterial
 } from "./windowsRuntimeHostWindowOptions";
 export type {
+  WindowsRuntimeInactivePresentationPort,
   WindowsBrowserWindowFactoryPort,
   WindowsRuntimeHostDisplayResolverPort,
   WindowsRuntimeHostWindowPort,
@@ -156,6 +159,7 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
       onRuntimeWindowPlacement?: (host: ChromiumRuntimeHostPort) => Promise<void>;
       onRuntimeTabQuickAccess?: (tabId: string) => void;
       runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort;
+      runtimeInactivePresentation?: WindowsRuntimeInactivePresentationPort;
       runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort;
       readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>;
     }>
@@ -211,6 +215,7 @@ interface WindowsHostRecord {
   state: HostState;
   documentReady: boolean;
   presentationReady: boolean;
+  pendingInitialPresentation: boolean;
   readyToShow: boolean;
   closePromise: Promise<void> | null;
   creationError: RionBridgeError | null;
@@ -425,6 +430,7 @@ implements ChromiumRuntimeHostFactoryPort {
   ) => Promise<void>) | null;
   readonly #onRuntimeTabQuickAccess: (tabId: string) => void;
   readonly #runtimeForegroundProbe: WindowsRuntimeForegroundProbePort | null;
+  readonly #runtimeInactivePresentation: WindowsRuntimeInactivePresentationPort | null;
   readonly #runtimeShortcutOwner: WindowsRuntimeShortcutOwnerPort | null;
   readonly #readCursorScreenPoint: (() => Readonly<{ x: number; y: number }>) | null;
   #windowPreferences: RuntimeWindowPreferencesRecord = Object.freeze({
@@ -475,7 +481,8 @@ implements ChromiumRuntimeHostFactoryPort {
     runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort,
     onRuntimeTabQuickAccess?: (tabId: string) => void,
     readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>,
-    onTabDrag?: (start: RuntimeTabDragStart) => void
+    onTabDrag?: (start: RuntimeTabDragStart) => void,
+    runtimeInactivePresentation?: WindowsRuntimeInactivePresentationPort
   ) {
     this.#onTabDrag = onTabDrag;
     this.#windows = windows;
@@ -496,6 +503,7 @@ implements ChromiumRuntimeHostFactoryPort {
     this.#lifecycleEpoch = lifecycleEpoch ?? (() => 1);
     this.#onCommandError = onCommandError ?? (() => undefined);
     this.#runtimeForegroundProbe = runtimeForegroundProbe ?? null;
+    this.#runtimeInactivePresentation = runtimeInactivePresentation ?? null;
     this.#runtimeShortcutOwner = runtimeShortcutOwner ?? null;
     this.#readCursorScreenPoint = readCursorScreenPoint ?? null;
     this.#onRuntimeTabQuickAccess = onRuntimeTabQuickAccess ?? (() => {
@@ -527,7 +535,8 @@ implements ChromiumRuntimeHostFactoryPort {
     runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort,
     runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort,
     onRuntimeTabQuickAccess?: (tabId: string) => void,
-    readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>
+    readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>,
+    runtimeInactivePresentation?: WindowsRuntimeInactivePresentationPort
   ): WindowsElectronChromiumRuntimeHostFactory {
     return new WindowsElectronChromiumRuntimeHostFactory({
       create: (options) => new BrowserWindowConstructor(options) as unknown as
@@ -536,7 +545,7 @@ implements ChromiumRuntimeHostFactoryPort {
     onWorkspaceDividerPointer, onTabControl, onRuntimeWindowPlacement,
     onTabReload, lifecycleEpoch, onCommandError, runtimeForegroundProbe,
     runtimeShortcutOwner, onRuntimeTabQuickAccess,
-    readCursorScreenPoint);
+    readCursorScreenPoint, undefined, runtimeInactivePresentation);
   }
 
   async applyWindowPreferences(
@@ -779,7 +788,8 @@ implements ChromiumRuntimeHostFactoryPort {
       listeners: undefined as unknown as WindowsHostListeners,
       state: "opening" as HostState,
       documentReady: false,
-      presentationReady: target.presentation === "normal",
+      presentationReady: target.presentation !== "fullscreen",
+      pendingInitialPresentation: target.presentation === "maximized",
       readyToShow: false,
       closePromise: null,
       creationError: null,
@@ -900,11 +910,72 @@ implements ChromiumRuntimeHostFactoryPort {
         request: ChromiumRuntimeWindowPresentationRequest
       ) => this.#withCurrent(
         record,
-        () => record.chrome.setPresentation(request)
-      )
+        async () => {
+          if (record.pendingInitialPresentation && request.presentation === "maximized" &&
+            !native.isVisible()) {
+            throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_FENCE_STALE",
+              "Initial maximize requires Core visible admission before native submission.");
+          }
+          const projection = await record.chrome.setPresentation(request);
+          this.#withCurrent(record, () => {
+            const current = record.chrome.readCoreFence();
+            if (current.windowGeneration !== request.windowGeneration ||
+              current.topologyRevision !== request.topologyRevision) {
+              throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_SUPERSEDED",
+                "A newer Core projection superseded the native presentation acknowledgement.");
+            }
+            if (!native.getNativeWindowHandle().equals(record.nativeHandle)) {
+              throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_READBACK_STALE",
+                "The native presentation acknowledgement lost its exact Windows handle.");
+            }
+            record.pendingInitialPresentation = false;
+          });
+          return projection;
+        }
+      ),
+      readPendingInitialPresentation: () => this.#withCurrent(record,
+        () => record.pendingInitialPresentation ? "maximized" as const : null),
+      completeInitialPresentation: async (request: Pick<ChromiumRuntimeWindowPresentationRequest,
+        "windowId" | "windowGeneration" | "topologyRevision">) => this.#withCurrent(record, async () => {
+        const fence = record.chrome.readCoreFence();
+        if (request.windowId !== record.logicalWindowId ||
+          request.windowGeneration !== fence.windowGeneration ||
+          request.topologyRevision !== fence.topologyRevision ||
+          !native.isVisible() || native.isMinimized()) {
+          throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_FENCE_STALE",
+            "Initial presentation requires the exact visible Core-owned host.");
+        }
+        if (!record.pendingInitialPresentation) return;
+        await record.chrome.setPresentation({ ...request, presentation: "maximized" }, mutation =>
+          maximizeWindowsRuntimeInitialPresentation({ native, nativeHandle: record.nativeHandle, request: mutation,
+            windowId: record.logicalWindowId, port: this.#runtimeInactivePresentation,
+            readCoreFence: () => record.chrome.readCoreFence(),
+            requireCurrent: () => this.#withCurrent(record, () => {
+              if (!record.pendingInitialPresentation) {
+                throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_SUPERSEDED",
+                  "A newer presentation superseded the initial native mutation.");
+              }
+            })
+          }));
+        this.#withCurrent(record, () => {
+          const current = record.chrome.readCoreFence();
+          if (current.windowGeneration !== request.windowGeneration ||
+            current.topologyRevision !== request.topologyRevision) {
+            throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_SUPERSEDED",
+              "A newer Core projection superseded the initial maximize acknowledgement.");
+          }
+          if (!native.isVisible() || !native.isMaximized() ||
+            !native.getNativeWindowHandle().equals(record.nativeHandle)) {
+            throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_READBACK_STALE",
+              "The initial maximize acknowledgement lost its exact visible host.");
+          }
+          record.pendingInitialPresentation = false;
+        });
+      })
     });
     if (this.#onRuntimeWindowPlacement) {
-      record.chrome.bindPlacement(() => this.#onRuntimeWindowPlacement!(record.host));
+      record.chrome.bindPlacement(() => record.pendingInitialPresentation
+        ? Promise.resolve() : this.#onRuntimeWindowPlacement!(record.host));
     }
     record.listeners = {
       pageTitleUpdated: (event) => event.preventDefault(),
@@ -1182,7 +1253,8 @@ implements ChromiumRuntimeHostFactoryPort {
       case "normal":
         return;
       case "maximized":
-        record.native.maximize();
+        // Electron maximize() reveals a hidden Windows HWND. Creation only stages
+        // this intent; the Core-owned visible transition consumes it later.
         return;
       case "fullscreen":
         record.native.setFullScreen(true);
@@ -1354,6 +1426,7 @@ implements ChromiumRuntimeHostFactoryPort {
     // sequence so a receipt overtaken by a newer move or resize retires as
     // superseded instead of reporting a geometry postcondition failure.
     record.nativeLayoutSequence += 1;
+    if (record.pendingInitialPresentation) return;
     void record.chrome.nativeBoundsChanged().catch((error) =>
       this.#onPresentationFailure(record, error)
     );
@@ -1497,7 +1570,8 @@ implements ChromiumRuntimeHostFactoryPort {
           input.runtimeShortcutOwner,
           input.onRuntimeTabQuickAccess,
           input.readCursorScreenPoint,
-          input.onTabDrag
+          input.onTabDrag,
+          input.runtimeInactivePresentation
         )
       : null;
     this.#appKit = input.platform === "darwin" ? input.appKit ?? null : null;

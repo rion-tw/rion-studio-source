@@ -61,7 +61,8 @@ describe("Chromium permanent Game Window exact replacement source", () => {
     expect(evidence).toContain("sameValue(runtime.coreTabIds, [])");
     expect(evidence).toContain("sameValue(runtime.nativeTabIds, [])");
     expect(evidence).toContain('runtime.appKitStatusPresentation === "ready"');
-    expect(evidence).toContain('runtime.nativeDisplay.presentation === "normal"');
+    expect(evidence).toContain("runtime.nativeDisplay.presentation === presentationEvidence.baselinePresentation");
+    expect(evidence).toContain('"game-window-presentation-stages.json"');
     expect(runner).toContain('"chromium-game-window-ui-restart", ["chromium-game-window-ui-seed"]');
     expect(runner).toContain('"chromium-game-window-ui-lifecycle"');
   });

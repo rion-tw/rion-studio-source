@@ -15,6 +15,13 @@ export interface ChromiumRuntimeExecutorSnapshot {
     visible: boolean;
     focused: boolean;
     presentation: EmbeddedLaunchTargetRecord["presentation"];
+    /** Desired mode staged on an exact hidden Windows host; presentation remains native readback. */
+    pendingInitialPresentation?: Readonly<{
+      presentation: "maximized";
+      nativeHostId: number;
+      windowGeneration: number;
+      topologyRevision: number;
+    }>;
     windowGeneration: number;
     topologyRevision: number;
     windowZoomFactor?: number;
@@ -48,4 +55,22 @@ export interface ChromiumRuntimeExecutorSnapshot {
     generation: number;
     zoomFactor?: number;
   }>>;
+}
+
+/** A staged mode cannot authorize a visible, replaced or unprojected host. */
+export function pendingInitialPresentationMatches(
+  window: ChromiumRuntimeExecutorSnapshot["windows"][number],
+  windowGeneration = window.windowGeneration,
+  topologyRevision = window.topologyRevision
+): boolean {
+  const pending = window.pendingInitialPresentation;
+  return pending?.presentation === "maximized" && window.presentation === "normal" &&
+    !window.visible && !window.focused && window.appKitIdentity === undefined &&
+    Number.isSafeInteger(windowGeneration) && windowGeneration > 0 &&
+    Number.isSafeInteger(topologyRevision) && topologyRevision > 0 &&
+    pending.windowGeneration === windowGeneration && window.windowGeneration === windowGeneration &&
+    pending.topologyRevision === topologyRevision && window.topologyRevision === topologyRevision &&
+    Number.isSafeInteger(pending.nativeHostId) && pending.nativeHostId > 0 &&
+    pending.nativeHostId === window.parentNativeHostId &&
+    window.target?.windowId === window.windowId && window.target.presentation === "maximized";
 }

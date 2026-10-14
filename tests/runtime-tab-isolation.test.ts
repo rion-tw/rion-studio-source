@@ -96,6 +96,21 @@ describe("tab lifecycle isolation", () => {
     expect(b.specification).toBe(originalB);
   });
 
+  it.each(["normal", "maximized", "fullscreen"] as const)("records the exact %s presentation and reopen target", presentation => {
+    observeRuntimeEffect(effect("window-a", { type: "embeddedSetRuntimeWindowPresentation",
+      windowId: "window-a", windowGeneration: 3, topologyRevision: 10, presentation }), "completed");
+    expect(runtimeOperationEvidence().entries.at(-1)).toMatchObject({
+      action: "embeddedSetRuntimeWindowPresentation", stage: "completed",
+      fences: { windowId: "window-a", windowGeneration: 3, topologyRevision: 10, presentation }
+    });
+    const restored = tab("tab-a", "window-a");
+    restored.target.presentation = presentation;
+    observeRuntimeEffect(effect("tab-a", { type: "embeddedCreateTab", tab: restored }), "queued");
+    expect(runtimeOperationEvidence().entries.at(-1)?.fences).toMatchObject({
+      "target.windowId": "window-a", "target.presentation": presentation
+    });
+  });
+
   it("bounds journal evidence, retains identity fences, and tolerates a failed log sink", () => {
     setRuntimeOperationJournalSink(() => { throw new Error("log store unavailable"); });
     const request = effect("tab-b", { type: "embeddedCreateTab", tab: tab("tab-b", "window-b") });

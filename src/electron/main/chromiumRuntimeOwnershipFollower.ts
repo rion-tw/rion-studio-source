@@ -1,5 +1,6 @@
 import { handoffChromiumContentFocus, requestChromiumContentFocus } from "./chromiumRuntimeContentFocus";
 import { projectWorkspaceSpecification } from "./chromiumRuntimeWorkspaceSpecification";
+import { completeChromiumRuntimeInitialPresentation } from "./chromiumRuntimeInitialPresentation";
 import type {
   BrowserRuntimeRoleRecord,
   CoreEffectRequest,
@@ -75,7 +76,9 @@ function exactEmptyHostProjection(
   const projection = host.readProjection();
   return host.logicalWindowId === target.windowId &&
     projection.displayId === target.displayId &&
-    projection.presentation === target.presentation &&
+    (projection.presentation === target.presentation ||
+      (target.presentation === "maximized" && projection.presentation === "normal" &&
+        host.readPendingInitialPresentation?.() === "maximized")) &&
     sameBounds(projection.bounds, target.bounds) &&
     !projection.visible && !projection.focused;
 }
@@ -385,8 +388,22 @@ export async function followChromiumRuntimeOwnership(
     throw error;
   }
   return coreEffectEventContinuation(
-    continuation.completion.then((receipt) => {
+    continuation.completion.then(async (receipt) => {
       if (receipt.status === "applied") {
+        for (const windowId of input.revealWindowIds) {
+          const window = input.windows.get(windowId)!;
+          if (window.host.readPendingInitialPresentation?.()) {
+            if (input.signal?.aborted) {
+              throw ownershipError("ELECTRON_CHROMIUM_INITIAL_PRESENTATION_UNAVAILABLE",
+                "The admitted visible host lost its initial presentation lane.");
+            }
+            await completeChromiumRuntimeInitialPresentation(window);
+          }
+        }
+        if (input.signal?.aborted) {
+          throw ownershipError("ELECTRON_CHROMIUM_WINDOW_TRANSITION_CANCELLED",
+            "Core cancelled the ownership projection before content visibility committed.");
+        }
         const observedVisibility = new Map(
           receipt.windows.map((observation) => [
             observation.logicalWindowId,

@@ -317,7 +317,339 @@ fn runtime_window_presentation_preserves_windows_maximized_admission() {
             .map(|placement| placement.presentation.as_str()),
         Some("maximized")
     );
+    assert!(
+        core.read_typed_state_collection::<StateGameWindowRecord>("gameWindows")
+            .unwrap()
+            .is_empty()
+    );
     core.shutdown();
+}
+
+#[test]
+fn saved_runtime_window_presentation_survives_close_and_restart_on_both_platforms() {
+    for (platform, presentation) in [
+        ("win32", "maximized"),
+        ("win32", "fullscreen"),
+        ("darwin", "fullscreen"),
+    ] {
+        let (directory, core) = core_for_runtime_contract(platform, 23);
+        core.invoke(CoreCommand::BrowserRuntimeRegister {
+            registration: chromium_registration(platform, true),
+        })
+        .unwrap();
+        let window = seed_windows_runtime_placement(&core, true);
+        let (result, _) = drive_command(
+            Arc::clone(&core),
+            runtime_window_presentation_command("durable-presentation", &window, presentation),
+            None,
+        );
+        let summary: crate::model::SystemRuntimeOperationSummaryRecord =
+            serde_json::from_value(result.unwrap()).unwrap();
+        assert_eq!(
+            summary.status,
+            crate::model::SystemRuntimeOperationStatus::Applied,
+            "{platform} {presentation}: {summary:?}"
+        );
+        let acknowledged =
+            core.browser_runtime.snapshot().unwrap().windows[&window.window_id].clone();
+        assert_eq!(
+            acknowledged.placement_sequence, window.placement_sequence,
+            "{platform}: a Core presentation must preserve native placement ordering"
+        );
+        let saved = core
+            .invoke(CoreCommand::GameWindowGet {
+                id: window.window_id.clone(),
+            })
+            .unwrap();
+        assert_eq!(
+            saved["placement"],
+            serde_json::to_value(acknowledged.placement.as_ref().unwrap()).unwrap()
+        );
+        assert_eq!(
+            saved["targetDisplay"],
+            serde_json::to_value(acknowledged.target_display.as_ref().unwrap()).unwrap()
+        );
+        assert_eq!(saved["tabs"][0]["id"], window.tabs[0].id);
+        assert_eq!(saved["tabs"][0]["roleSlots"].as_array().unwrap().len(), 1);
+        let request = RuntimeWindowStopRequestRecord {
+            window_generation: acknowledged.window_generation,
+            topology_revision: acknowledged.revision,
+            ..test_window_stop_request(&window.window_id, acknowledged.tab_ids())
+        };
+        drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::BrowserWindowStop { request },
+            None,
+        )
+        .0
+        .unwrap();
+        assert!(
+            !core
+                .browser_runtime
+                .snapshot()
+                .unwrap()
+                .windows
+                .contains_key(&window.window_id)
+        );
+        assert_eq!(
+            core.invoke(CoreCommand::GameWindowGet {
+                id: window.window_id.clone()
+            })
+            .unwrap(),
+            saved
+        );
+        core.shutdown();
+        drop(core);
+
+        let reopened = AppCore::create(AppCoreOptions {
+            app_version: "2.1.0-test".to_owned(),
+            build_commit: None,
+            packaged: false,
+            platform: platform.to_owned(),
+            runtime_contract_version: Some(23),
+            user_data_dir: directory.path().to_string_lossy().into_owned(),
+        })
+        .unwrap();
+        let restored = reopened
+            .invoke(CoreCommand::GameWindowGet {
+                id: window.window_id,
+            })
+            .unwrap();
+        assert_eq!(restored, saved, "{platform} {presentation}");
+        reopened.shutdown();
+    }
+}
+
+#[test]
+fn saved_runtime_window_presentation_reports_persistence_failure_and_repairs_native_readback() {
+    for (platform, presentation) in [("win32", "maximized"), ("darwin", "fullscreen")] {
+        let (_directory, core) = core_for_runtime_contract(platform, 23);
+        core.invoke(CoreCommand::BrowserRuntimeRegister {
+            registration: chromium_registration(platform, true),
+        })
+        .unwrap();
+        let window = seed_windows_runtime_placement(&core, true);
+        let before = core
+            .invoke(CoreCommand::GameWindowGet {
+                id: window.window_id.clone(),
+            })
+            .unwrap();
+        let connection = rusqlite::Connection::open(&core.database_paths.state).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER reject_presentation_insert BEFORE INSERT ON game_windows
+             BEGIN SELECT RAISE(ABORT, 'fixture rejects presentation persistence'); END;",
+            )
+            .unwrap();
+        let (result, _) = drive_command(
+            Arc::clone(&core),
+            runtime_window_presentation_command(
+                "durable-presentation-failed",
+                &window,
+                presentation,
+            ),
+            None,
+        );
+        let summary: crate::model::SystemRuntimeOperationSummaryRecord =
+            serde_json::from_value(result.unwrap()).unwrap();
+        assert_eq!(
+            summary.status,
+            crate::model::SystemRuntimeOperationStatus::Degraded,
+            "{platform}: {summary:?}"
+        );
+        assert_eq!(summary.stage, "runtimeWindowPresentationPersistenceFailed");
+        assert!(summary.failure_code.is_some());
+        let acknowledged =
+            core.browser_runtime.snapshot().unwrap().windows[&window.window_id].clone();
+        assert_eq!(
+            acknowledged.placement.as_ref().unwrap().presentation,
+            presentation
+        );
+        assert_eq!(
+            core.invoke(CoreCommand::GameWindowGet {
+                id: window.window_id.clone()
+            })
+            .unwrap(),
+            before
+        );
+        connection
+            .execute_batch("DROP TRIGGER reject_presentation_insert;")
+            .unwrap();
+
+        let (result, _) = drive_command(
+            Arc::clone(&core),
+            runtime_window_presentation_command(
+                "durable-presentation-repair",
+                &acknowledged,
+                presentation,
+            ),
+            None,
+        );
+        let repaired: crate::model::SystemRuntimeOperationSummaryRecord =
+            serde_json::from_value(result.unwrap()).unwrap();
+        assert_eq!(
+            repaired.status,
+            crate::model::SystemRuntimeOperationStatus::Applied,
+            "{platform}: {repaired:?}"
+        );
+        assert_eq!(
+            repaired.stage,
+            "runtimeWindowPresentationNativeReadbackVerified"
+        );
+        assert!(repaired.topology_revision.unwrap() > acknowledged.revision);
+        assert_eq!(
+            core.browser_runtime.snapshot().unwrap().windows[&window.window_id].placement_sequence,
+            window.placement_sequence
+        );
+        let saved = core
+            .invoke(CoreCommand::GameWindowGet {
+                id: window.window_id,
+            })
+            .unwrap();
+        assert_eq!(saved["placement"]["presentation"], presentation);
+        assert_eq!(
+            saved["placement"]["normalBounds"],
+            serde_json::to_value(
+                acknowledged
+                    .placement
+                    .as_ref()
+                    .unwrap()
+                    .normal_bounds
+                    .clone()
+            )
+            .unwrap()
+        );
+        core.shutdown();
+    }
+}
+
+#[test]
+fn saved_runtime_window_presentation_precedes_and_fences_equal_revision_legacy_write() {
+    let (_directory, core) = core_for_runtime_contract("win32", 23);
+    core.invoke(CoreCommand::BrowserRuntimeRegister {
+        registration: chromium_registration("win32", true),
+    })
+    .unwrap();
+    let window = seed_windows_runtime_placement(&core, true);
+    let mut injected = false;
+    let (result, _) = drive_command_with(
+        Arc::clone(&core),
+        runtime_window_presentation_command("presentation-equal-save", &window, "maximized"),
+        |effect| {
+            if matches!(
+                effect.action,
+                CoreEffectAction::EmbeddedFollowRoleOwnership { .. }
+            ) && !injected
+            {
+                injected = true;
+                let captured = core.browser_runtime.snapshot().unwrap();
+                let current = &captured.windows[&window.window_id];
+                let ownership = captured
+                    .browser_runtime
+                    .tabs
+                    .iter()
+                    .map(|tab| (tab.id.as_str(), tab))
+                    .collect();
+                // A legacy persistence producer attempts this acknowledged revision
+                // with old placement. The exact native commit must already be durable.
+                let attempted = core
+                    .commit_runtime_window_snapshot_batch_inner(vec![
+                        GameWindowRuntimeSnapshotCommitInputRecord {
+                            snapshot: runtime_window_tab_snapshot(current, &ownership),
+                            name: "Windows placement receipt".to_owned(),
+                            target_display: window.target_display.clone().unwrap(),
+                            placement: window.placement.clone().unwrap(),
+                        },
+                    ])
+                    .unwrap();
+                assert_eq!(attempted.receipts[0].status, "superseded");
+            }
+            effect_result(effect, None)
+        },
+    );
+    assert!(injected);
+    let summary: crate::model::SystemRuntimeOperationSummaryRecord =
+        serde_json::from_value(result.unwrap()).unwrap();
+    assert_eq!(
+        summary.status,
+        crate::model::SystemRuntimeOperationStatus::Applied
+    );
+    assert!(summary.failure_code.is_none());
+    let acknowledged = core.browser_runtime.snapshot().unwrap().windows[&window.window_id].clone();
+    assert_eq!(
+        acknowledged.placement.as_ref().unwrap().presentation,
+        "maximized"
+    );
+    assert_eq!(
+        core.invoke(CoreCommand::GameWindowGet {
+            id: window.window_id
+        })
+        .unwrap()["placement"]["presentation"],
+        "maximized"
+    );
+    core.shutdown();
+}
+
+#[test]
+fn saved_runtime_window_presentation_persists_native_success_despite_projection_failure() {
+    for (platform, presentation) in [("win32", "maximized"), ("darwin", "fullscreen")] {
+        let (_directory, core) = core_for_runtime_contract(platform, 23);
+        core.invoke(CoreCommand::BrowserRuntimeRegister {
+            registration: chromium_registration(platform, true),
+        })
+        .unwrap();
+        let window = seed_windows_runtime_placement(&core, true);
+        let (result, _) = drive_command_with(
+            Arc::clone(&core),
+            runtime_window_presentation_command(
+                "presentation-projection-failed",
+                &window,
+                presentation,
+            ),
+            |effect| {
+                if matches!(
+                    effect.action,
+                    CoreEffectAction::EmbeddedFollowRoleOwnership { .. }
+                ) {
+                    CoreEffectResult {
+                        effect_id: effect.effect_id,
+                        operation_id: effect.operation_id,
+                        ok: false,
+                        value_json: None,
+                        error: Some(CoreErrorPayload {
+                            code: "PRESENTATION_FOLLOWER_FAILED".to_owned(),
+                            message: "Injected downstream projection failure.".to_owned(),
+                        }),
+                    }
+                } else {
+                    effect_result(effect, None)
+                }
+            },
+        );
+        let summary: crate::model::SystemRuntimeOperationSummaryRecord =
+            serde_json::from_value(result.unwrap()).unwrap();
+        assert_eq!(
+            summary.status,
+            crate::model::SystemRuntimeOperationStatus::Indeterminate,
+            "{platform}: {summary:?}"
+        );
+        assert_eq!(
+            summary.failure_code.as_deref(),
+            Some("PRESENTATION_FOLLOWER_FAILED")
+        );
+        let committed = core.browser_runtime.snapshot().unwrap().windows[&window.window_id].clone();
+        let saved = core
+            .invoke(CoreCommand::GameWindowGet {
+                id: window.window_id,
+            })
+            .unwrap();
+        assert_eq!(
+            saved["placement"],
+            serde_json::to_value(committed.placement.as_ref().unwrap()).unwrap()
+        );
+        assert_eq!(saved["placement"]["presentation"], presentation);
+        core.shutdown();
+    }
 }
 
 #[test]

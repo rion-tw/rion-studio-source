@@ -1,3 +1,4 @@
+param([Parameter(Mandatory = $true)][string] $FixtureRoot)
 $ErrorActionPreference = "Stop"
 $taskStageClock = [Diagnostics.Stopwatch]::StartNew()
 function Write-DiagnosticStage([string] $Stage) {
@@ -25,6 +26,41 @@ public static class DiagnosticTestJob {
   public static extern bool CloseHandle(IntPtr handle);
   [DllImport("kernel32.dll", SetLastError=true)]
   public static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+  [StructLayout(LayoutKind.Sequential)]
+  private struct BasicLimits {
+    public long ProcessTime, JobTime;
+    public uint Flags;
+    public UIntPtr MinimumWorkingSet, MaximumWorkingSet;
+    public uint ActiveProcessLimit;
+    public UIntPtr Affinity;
+    public uint PriorityClass, SchedulingClass;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  private struct IoCounters {
+    public ulong ReadOperations, WriteOperations, OtherOperations;
+    public ulong ReadBytes, WriteBytes, OtherBytes;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  private struct ExtendedLimits {
+    public BasicLimits Basic;
+    public IoCounters Io;
+    public UIntPtr ProcessMemory, JobMemory, PeakProcessMemory, PeakJobMemory;
+  }
+  [DllImport("kernel32.dll", SetLastError=true)]
+  private static extern bool SetInformationJobObject(
+    IntPtr job, int informationClass, ref ExtendedLimits information, uint length);
+  public static IntPtr CreateOwnedJob() {
+    IntPtr job = CreateJobObject(IntPtr.Zero, null);
+    if (job == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+    var limits = new ExtendedLimits();
+    limits.Basic.Flags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if (!SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(typeof(ExtendedLimits)))) {
+      int error = Marshal.GetLastWin32Error();
+      CloseHandle(job);
+      throw new System.ComponentModel.Win32Exception(error);
+    }
+    return job;
+  }
   [DllImport("kernel32.dll", SetLastError=true)]
   private static extern bool QueryInformationJobObject(
     IntPtr job, int informationClass, IntPtr information, uint length, IntPtr returnedLength);
@@ -47,25 +83,66 @@ public static class DiagnosticTestJob {
 }
 '@
 Write-DiagnosticStage 'test-types-compiled'
-$taskJob = [DiagnosticTestJob]::CreateJobObject([IntPtr]::Zero, $null)
-if ($taskJob -eq [IntPtr]::Zero) { throw "Could not create diagnostic test job." }
+$taskJob = [IntPtr]::Zero
 $taskObserver = $null
 $taskChild = $null
 $taskSurvivor = $null
+$taskCompilerJob = [IntPtr]::Zero
+$taskCompilerProcess = $null
 $taskTempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
-$taskFixtureRoot = [IO.Path]::GetFullPath((Join-Path $taskTempParent ('rion-job-root-' + [Guid]::NewGuid().ToString('N'))))
+$taskFixtureRoot = [IO.Path]::GetFullPath($FixtureRoot)
+if (-not $taskFixtureRoot.StartsWith($taskTempParent, [StringComparison]::OrdinalIgnoreCase) -or
+    -not ([IO.Path]::GetFileName($taskFixtureRoot).StartsWith('rion-job-root-', [StringComparison]::Ordinal)) -or
+    -not (Test-Path -LiteralPath $taskFixtureRoot -PathType Container) -or
+    ((Get-Item -LiteralPath $taskFixtureRoot).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+  throw 'Diagnostic fixture setup target is not its owned temporary directory.'
+}
 try {
-  [void][IO.Directory]::CreateDirectory($taskFixtureRoot)
   $taskRootExecutable = Join-Path $taskFixtureRoot 'diagnostic-root.exe'
   $taskCompiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
   if (-not (Test-Path -LiteralPath $taskCompiler -PathType Leaf)) { throw 'Native fixture compiler unavailable.' }
-  & $taskCompiler /nologo /target:winexe "/out:$taskRootExecutable" (Join-Path $PSScriptRoot 'windows-job-diagnostic-root.cs')
-  if ($LASTEXITCODE -ne 0) { throw 'GUI diagnostic root compilation failed.' }
+  # Compilation has its own cleanup Job and never enters the native test Job.
+  # Closing the retained PowerShell process also closes this exact owned Job.
+  $taskCompilerJob = [DiagnosticTestJob]::CreateOwnedJob()
+  $taskCompilerStart = [Diagnostics.ProcessStartInfo]::new()
+  $taskCompilerStart.FileName = $taskCompiler
+  foreach ($taskArgument in @('/nologo', '/target:winexe', "/out:$taskRootExecutable",
+      (Join-Path $PSScriptRoot 'windows-job-diagnostic-root.cs'))) {
+    $taskCompilerStart.ArgumentList.Add($taskArgument)
+  }
+  $taskCompilerStart.UseShellExecute = $false
+  $taskCompilerStart.CreateNoWindow = $true
+  $taskCompilerStart.RedirectStandardOutput = $true
+  $taskCompilerStart.RedirectStandardError = $true
+  $taskCompilerProcess = [Diagnostics.Process]::Start($taskCompilerStart)
+  if (-not [DiagnosticTestJob]::AssignProcessToJobObject($taskCompilerJob, $taskCompilerProcess.Handle)) {
+    throw 'Could not bind the exact fixture compiler to its cleanup Job.'
+  }
+  $taskCompilerOutput = $taskCompilerProcess.StandardOutput.ReadToEnd()
+  $taskCompilerError = $taskCompilerProcess.StandardError.ReadToEnd()
+  $taskCompilerProcess.WaitForExit()
+  if ($taskCompilerProcess.ExitCode -ne 0) {
+    throw ('GUI diagnostic root compilation failed: ' + $taskCompilerOutput + $taskCompilerError)
+  }
+  $taskCompilerProcess.Dispose()
+  $taskCompilerProcess = $null
+  [void][DiagnosticTestJob]::CloseHandle($taskCompilerJob)
+  $taskCompilerJob = [IntPtr]::Zero
   Write-DiagnosticStage 'gui-root-compiled'
   $taskImage = [IO.File]::ReadAllBytes($taskRootExecutable)
   $taskPeOffset = [BitConverter]::ToInt32($taskImage, 0x3c)
   $taskRootSubsystem = [BitConverter]::ToUInt16($taskImage, $taskPeOffset + 4 + 20 + 68)
   if ($taskRootSubsystem -ne 2) { throw 'Diagnostic root must use the Windows GUI PE subsystem.' }
+  # Setup owns compilation only. No native test Job/observer/GUI exists before the
+  # same retained parent sends the exact native-behavior token from the test.
+  [Console]::Out.WriteLine('RION_JOB_DIAGNOSTIC_SETUP_READY')
+  [Console]::Out.Flush()
+  $taskRunToken = [Console]::In.ReadLine()
+  if ($taskRunToken -cne 'RION_JOB_DIAGNOSTIC_RUN_NATIVE') {
+    throw 'Diagnostic fixture did not receive its exact native-behavior token.'
+  }
+  Write-DiagnosticStage 'native-behavior-started'
+  $taskJob = [DiagnosticTestJob]::CreateOwnedJob()
   $taskObserver = [RionWindowsJobProcessDiagnostics]::new($taskJob)
   $taskStart = [Diagnostics.ProcessStartInfo]::new()
   $taskStart.FileName = $taskRootExecutable
@@ -161,7 +238,20 @@ try {
     otherLiveMemberRejected = $taskOtherMemberRejected
   } | ConvertTo-Json -Depth 4 -Compress
 } finally {
-  [void][DiagnosticTestJob]::TerminateJobObject($taskJob, 1)
+  if ($taskCompilerJob -ne [IntPtr]::Zero) {
+    [void][DiagnosticTestJob]::TerminateJobObject($taskCompilerJob, 1)
+  }
+  if ($null -ne $taskCompilerProcess) {
+    if (-not $taskCompilerProcess.HasExited) {
+      $taskCompilerProcess.Kill($true)
+      $taskCompilerProcess.WaitForExit()
+    }
+    $taskCompilerProcess.Dispose()
+  }
+  if ($taskCompilerJob -ne [IntPtr]::Zero) {
+    [void][DiagnosticTestJob]::CloseHandle($taskCompilerJob)
+  }
+  if ($taskJob -ne [IntPtr]::Zero) { [void][DiagnosticTestJob]::TerminateJobObject($taskJob, 1) }
   if ($null -ne $taskSurvivor) {
     if (-not $taskSurvivor.HasExited) { $taskSurvivor.Kill($true); $taskSurvivor.WaitForExit() }
     $taskSurvivor.Dispose()
@@ -171,7 +261,7 @@ try {
     $taskChild.Dispose()
   }
   if ($null -ne $taskObserver) { $taskObserver.Dispose() }
-  [void][DiagnosticTestJob]::CloseHandle($taskJob)
+  if ($taskJob -ne [IntPtr]::Zero) { [void][DiagnosticTestJob]::CloseHandle($taskJob) }
   if (Test-Path -LiteralPath $taskFixtureRoot) {
     $taskResolvedFixtureRoot = (Resolve-Path -LiteralPath $taskFixtureRoot).ProviderPath
     if (-not $taskResolvedFixtureRoot.StartsWith($taskTempParent, [StringComparison]::OrdinalIgnoreCase) -or

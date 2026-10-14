@@ -9,13 +9,15 @@ import { build } from "esbuild";
 import {
   ADMITTED_EXTENSION, admittedManifestIdentity, assertDiagnosticTree, containedDiagnosticPath,
   findAdmittedMacExtensionInput, instrumentDiagnosticPreload, isGeneratedRulesetCachePath,
-  redactDiagnosticText, strictDiagnosticResultPassed
+  redactDiagnosticJson, redactDiagnosticText, strictDiagnosticResultPassed
 } from "./electronExtensionBootstrapDiagnosticSupport.mjs";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 
 async function saveJson(path, value) {
-  await writeFile(path, `${redactDiagnosticText(JSON.stringify(value, null, 2))}\n`);
+  const text = JSON.stringify(redactDiagnosticJson(value), null, 2);
+  JSON.parse(text);
+  await writeFile(path, `${text}\n`);
 }
 
 async function clonePackage(input, destination) {
@@ -76,9 +78,8 @@ async function runCase({ directory, executable, mode, probePath, preloadPath, in
     });
     let nativeResult;
     try {
-      const text = redactDiagnosticText(await readFile(outputPath, "utf8"));
-      await writeFile(outputPath, text);
-      nativeResult = JSON.parse(text);
+      nativeResult = redactDiagnosticJson(JSON.parse(await readFile(outputPath, "utf8")));
+      await saveJson(outputPath, nativeResult);
     }
     catch { throw new Error("DIAGNOSTIC_CHILD_RESULT_UNREADABLE"); }
     if (nativeResult.probe !== "electron-extension-bootstrap-diagnostic" || nativeResult.mode !== mode ||

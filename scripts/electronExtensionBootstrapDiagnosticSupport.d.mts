@@ -25,5 +25,6 @@ export function findAdmittedMacExtensionInput(artifactBase: string): Promise<Rea
   report: Readonly<{ commit: unknown; startedAt: string; runtimeTarget: string }>;
 }>>;
 export function redactDiagnosticText(text: unknown, environment?: Readonly<Record<string, string | undefined>>): string;
+export function redactDiagnosticJson(value: unknown, environment?: Readonly<Record<string, string | undefined>>): unknown;
 export function instrumentDiagnosticPreload(source: string): string;
 export function strictDiagnosticResultPassed(exitCode: number | null, result: unknown): boolean;

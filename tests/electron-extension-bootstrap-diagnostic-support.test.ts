@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   ADMITTED_EXTENSION, admittedExtensionMetadata, admittedManifestIdentity, assertDiagnosticTree,
   containedDiagnosticPath, findAdmittedMacExtensionInput, instrumentDiagnosticPreload,
-  isGeneratedRulesetCachePath, redactDiagnosticText, strictDiagnosticResultPassed
+  isGeneratedRulesetCachePath, redactDiagnosticJson, redactDiagnosticText, strictDiagnosticResultPassed
 } from "../scripts/electronExtensionBootstrapDiagnosticSupport.mjs";
 
 const roots: string[] = [];
@@ -126,6 +126,32 @@ describe("extension diagnostic evidence", () => {
       privateKey: "[REDACTED]", url: "https://example.invalid/?access_token=[REDACTED]&other=retained" });
     expect(redactDiagnosticText("first\r\nknown-token\r\nlast", { GITHUB_TOKEN: "known-token" }))
       .toBe("first\n[REDACTED]\nlast");
+  });
+
+  it("preserves ScriptCatchup source escaping and password identifiers from the observed native trace", () => {
+    // Minimal reproduction of the actual source-rundown fragment. Its && and
+    // assignment are JavaScript, not a URL password query parameter.
+    const source = 'r&&r.emit(e,t);l._clientCertRequestPasswordHandler=null;\r\n' +
+      String.raw`l.on("-client-certificate-request-password",async(e)=>{const{tokenName:o}=e;return"\\\""});`;
+    const trace = { traceEvents: [{ name: "ScriptCatchup", args: { source } }],
+      privateKey: "hidden", nested: { sessionToken: "unknown", enabled: true, count: 2 } };
+    const parsed = JSON.parse(JSON.stringify(trace));
+    const serialized = JSON.stringify(redactDiagnosticJson(parsed, {}));
+    expect(JSON.parse(serialized)).toEqual({ traceEvents: trace.traceEvents,
+      privateKey: "[REDACTED]", nested: { sessionToken: "[REDACTED]", enabled: true, count: 2 } });
+    expect(JSON.parse(serialized).traceEvents[0].args.source).toBe(source);
+    expect(redactDiagnosticText(source, {})).toBe(source.replaceAll("\r\n", "\n"));
+  });
+
+  it("sanitizes nested JSON string values without interpreting embedded source object keys as credentials", () => {
+    const source = String.raw`const PasswordHandler={"password":"quoted\"value\\path"};`;
+    const value = { source, events: [{ message: "Bearer secret-value", url: "https://example.invalid/?token=value" }],
+      clientSecret: { nested: "must not leak" }, known: "line\nsecret" };
+    const sanitized = redactDiagnosticJson(value, { CI_SECRET: "line\nsecret" });
+    expect(JSON.parse(JSON.stringify(sanitized))).toEqual({ source,
+      events: [{ message: "Bearer [REDACTED]", url: "https://example.invalid/?token=[REDACTED]" }],
+      clientSecret: "[REDACTED]", known: "[REDACTED]" });
+    expect(value.clientSecret).toEqual({ nested: "must not leak" });
   });
 
   it("requires the exact strict process verdict and never accepts native-only startup as product readiness", () => {

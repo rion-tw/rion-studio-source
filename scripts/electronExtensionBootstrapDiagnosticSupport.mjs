@@ -144,8 +144,8 @@ export async function findAdmittedMacExtensionInput(artifactBase) {
       runtimeTarget: report.runtimeTarget }) });
 }
 
-export function redactDiagnosticText(text, environment = process.env) {
-  let result = String(text).replaceAll("\r\n", "\n");
+function redactDiagnosticString(value, environment) {
+  let result = value;
   for (const [key, value] of Object.entries(environment)) {
     if (!/(?:token|secret|password|credential|private.?key)/iu.test(key) ||
         typeof value !== "string" || value.length < 4) continue;
@@ -155,10 +155,26 @@ export function redactDiagnosticText(text, environment = process.env) {
   }
   return result
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/giu, "$1 [REDACTED]")
-    .replace(/("[^"\\]*(?:token|secret|password|credential|private.?key)[^"\\]*"\s*:\s*)"(?:\\.|[^"\\])*"/giu,
-      "$1\"[REDACTED]\"")
-    .replace(/([?&][^?&=\s"]*(?:token|secret|password|credential)[^?&=\s"]*=)[^&#\s"]*/giu,
+    .replace(/([?&][A-Za-z0-9_.-]*(?:token|secret|password|credential)[A-Za-z0-9_.-]*=)[^&#\s"]*/giu,
       "$1[REDACTED]");
+}
+
+export function redactDiagnosticText(text, environment = process.env) {
+  return redactDiagnosticString(String(text).replaceAll("\r\n", "\n"), environment)
+    .replace(/("[^"\\]*(?:token|secret|password|credential|private.?key)[^"\\]*"\s*:\s*)"(?:\\.|[^"\\])*"/giu,
+      "$1\"[REDACTED]\"");
+}
+
+/** Sanitize parsed JSON values; embedded source remains an opaque string. */
+export function redactDiagnosticJson(value, environment = process.env) {
+  if (typeof value === "string") return redactDiagnosticString(value, environment);
+  if (Array.isArray(value)) return value.map(entry => redactDiagnosticJson(entry, environment));
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key,
+      /(?:token|secret|password|passwd|credentials?|private[_-]?key|secret[_-]?key|authorization|api[_-]?key)$/iu.test(key)
+        ? "[REDACTED]" : redactDiagnosticJson(entry, environment)]));
+  }
+  return value;
 }
 
 export function strictDiagnosticResultPassed(exitCode, result) {

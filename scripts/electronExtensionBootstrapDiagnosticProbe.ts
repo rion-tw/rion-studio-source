@@ -5,7 +5,9 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { app, BaseWindow, contentTracing, session, WebContentsView } from "electron";
 import { ChromiumExtensionSessions } from "../src/electron/main/chromiumExtensionSessions";
-import { DIAGNOSTIC_STAGES, redactDiagnosticText } from "./electronExtensionBootstrapDiagnosticSupport.mjs";
+import {
+  DIAGNOSTIC_STAGES, redactDiagnosticJson, redactDiagnosticText
+} from "./electronExtensionBootstrapDiagnosticSupport.mjs";
 
 const extensionId = "gighmmpiobklfepjocnamgkkbiglidom";
 const scope = `chrome-extension://${extensionId}/`;
@@ -13,6 +15,10 @@ const channel = "rion-extension-bootstrap-diagnostic";
 const roleId = "diagnostic-strict-compat";
 const leaseId = "diagnostic-strict-compat-lease";
 const stages = new Set(DIAGNOSTIC_STAGES);
+const traceCategories = [
+  "ServiceWorker", "extensions", "toplevel", "toplevel.flow",
+  "ipc", "mojom", "mojom.flow", "loading", "v8"
+];
 const execute = promisify(execFile);
 const started = performance.now();
 const mode = process.env.RION_EXTENSION_BOOTSTRAP_DIAGNOSTIC_MODE;
@@ -43,6 +49,7 @@ const result = {
   nativeStatus: "pending",
   electronVersion: process.versions.electron, chromiumVersion: process.versions.chrome,
   platform: process.platform, arch: process.arch, browserPid: process.pid,
+  timingInstrumented: true,
   elapsedMs: 0, initialWorkerVersionId: null as number | null,
   currentWorker: null as unknown, manifestSha256: "",
   observations: [] as Observation[], errors: [] as string[],
@@ -70,7 +77,7 @@ function observe(event: string, details: Record<string, unknown> = {}): void {
   const entry = { capturedAt: new Date().toISOString(),
     elapsedMs: Math.round((performance.now() - started) * 1000) / 1000, event, ...details };
   if (result.observations.length < 1024) result.observations.push(entry);
-  console.log(redactDiagnosticText(JSON.stringify({ probe: result.probe, mode, ...entry })));
+  console.log(JSON.stringify(redactDiagnosticJson({ probe: result.probe, mode, ...entry })));
 }
 
 function errorText(error: unknown): string {
@@ -80,14 +87,21 @@ function errorText(error: unknown): string {
 function save(): void {
   result.finishedAt = new Date().toISOString();
   result.elapsedMs = Math.round(performance.now() - started);
-  writeFileSync(outputPath!, `${redactDiagnosticText(JSON.stringify(result, null, 2))}\n`);
+  writeJson(outputPath!, result);
+}
+
+function writeJson(path: string, value: unknown): void {
+  const encoded = JSON.stringify(redactDiagnosticJson(value), null, 2);
+  if (typeof encoded !== "string") throw new Error("DIAGNOSTIC_JSON_OUTPUT_INVALID");
+  JSON.parse(encoded);
+  writeFileSync(path, `${encoded}\n`);
 }
 
 function metrics(): Electron.ProcessMetric[] {
   return app.getAppMetrics();
 }
 
-function redactFile(path: string): void {
+function redactTextFile(path: string): void {
   writeFileSync(path, redactDiagnosticText(readFileSync(path, "utf8")));
 }
 
@@ -131,7 +145,7 @@ async function sampleWorker(pid: number): Promise<void> {
     observe("native-sample-unavailable", { pid, error: errorText(error) });
   } finally {
     // A killed sample process may have written a partial artifact as well.
-    if (existsSync(samplePath)) redactFile(samplePath);
+    if (existsSync(samplePath)) redactTextFile(samplePath);
   }
 }
 
@@ -229,8 +243,9 @@ async function finish(passed: boolean, error?: unknown): Promise<void> {
   await sampleTask;
   if (traceStarted) {
     try {
-      await contentTracing.stopRecording(join(outputDirectory, result.trace.file));
-      redactFile(join(outputDirectory, result.trace.file));
+      const tracePath = join(outputDirectory, result.trace.file);
+      await contentTracing.stopRecording(tracePath);
+      writeJson(tracePath, JSON.parse(readFileSync(tracePath, "utf8")));
       result.trace.status = "captured";
       observe("native-trace-saved");
     } catch (failure) { result.trace.status = "failed"; result.errors.push(errorText(failure)); result.status = "failed"; }
@@ -279,7 +294,8 @@ async function run(): Promise<void> {
   nativeSession.serviceWorkers.on("console-message", onConsole);
   nativeSession.extensions.on("extension-loaded", onLoaded);
   const categories = await contentTracing.getCategories();
-  result.trace.categories = categories.filter(category => /service[_-]?worker|extension|ipc|mojo|v8|toplevel|loading/iu.test(category));
+  result.trace.categories = traceCategories.filter(category => categories.includes(category));
+  if (result.trace.categories.length === 0) throw new Error("DIAGNOSTIC_TRACE_CATEGORIES_UNAVAILABLE");
   await contentTracing.startRecording({ included_categories: result.trace.categories,
     recording_mode: "record-until-full", trace_buffer_size_in_kb: 65_536, enable_argument_filter: true });
   traceStarted = true;

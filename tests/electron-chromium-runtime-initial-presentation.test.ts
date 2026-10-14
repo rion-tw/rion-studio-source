@@ -6,7 +6,7 @@ import { createTab, harness, loadRoles } from "./support/electronChromiumRuntime
 import { createChromiumSavedWindowRestorePresentation } from "../src/electron/main/chromiumSavedWindowRestorePresentation";
 import type { ChromiumRuntimeLaunchCorePort } from "../src/electron/main/chromiumRuntimeLaunchCoordinator";
 
-describe("staged initial Windows presentation", () => {
+describe.each(["maximized", "fullscreen"] as const)("staged initial Windows %s", presentation => {
   it("keeps the restore callback pending until the runtime's exact native presentation receipt", async () => {
     let acknowledge!: () => void;
     const receipt = new Promise<void>(resolve => { acknowledge = resolve; });
@@ -26,9 +26,9 @@ describe("staged initial Windows presentation", () => {
     await finish;
     expect(settled).toBe(true);
   });
-  it.each([false, true])("awaits staged maximize after exact Core reveal; cancelled=%s", async (cancelled) => {
+  it.each([false, true])("awaits staged mode after exact Core reveal; cancelled=%s", async (cancelled) => {
     const subject = harness(undefined, "windows");
-    const target = { ...tab("unused-tab", "empty-window", []).target, presentation: "maximized" as const };
+    const target = { ...tab("unused-tab", "empty-window", []).target, presentation };
     const create = subject.createEmptyHost.getMockImplementation() as (...args: unknown[]) => Promise<FakeHost>;
     let acknowledge!: () => void;
     const acknowledgement = new Promise<void>(resolve => { acknowledge = resolve; });
@@ -41,11 +41,11 @@ describe("staged initial Windows presentation", () => {
         expect(host.visible).toBe(true);
         expect(fence).toEqual({ windowId: "empty-window", windowGeneration: 4, topologyRevision: 9 });
         await acknowledgement;
-        host.projection = { ...host.projection, presentation: "maximized" };
+        host.projection = { ...host.projection, presentation };
         pending = false;
       });
       Object.defineProperties(host, {
-        readPendingInitialPresentation: { value: () => pending ? "maximized" : null },
+        readPendingInitialPresentation: { value: () => pending ? presentation : null },
         completeInitialPresentation: { value: complete }
       });
       return host;
@@ -74,13 +74,13 @@ describe("staged initial Windows presentation", () => {
     } else {
       await expect(result.completion).resolves.toMatchObject({ status: "applied" });
     }
-    expect(subject.executor.snapshot().windows[0]!.presentation).toBe("maximized");
+    expect(subject.executor.snapshot().windows[0]!.presentation).toBe(presentation);
   });
 
-  it("keeps populated staged-max hydration hidden and awaits background reveal without focus", async () => {
+  it("keeps populated staged-mode hydration hidden and awaits background reveal without focus", async () => {
     const subject = harness(undefined, "windows");
     const specification = tab();
-    specification.target.presentation = "maximized";
+    specification.target.presentation = presentation;
     const create = subject.createHost.getMockImplementation() as (...args: unknown[]) => Promise<FakeHost>;
     let acknowledge!: () => void;
     const acknowledgement = new Promise<void>(resolve => { acknowledge = resolve; });
@@ -94,11 +94,11 @@ describe("staged initial Windows presentation", () => {
         expect(host.visible).toBe(true);
         expect(host.focused).toBe(false);
         await acknowledgement;
-        host.projection = { ...host.projection, presentation: "maximized" };
+        host.projection = { ...host.projection, presentation };
         pending = false;
       });
       Object.defineProperties(host, {
-        readPendingInitialPresentation: { value: () => pending ? "maximized" : null },
+        readPendingInitialPresentation: { value: () => pending ? presentation : null },
         completeInitialPresentation: { value: complete }
       });
       return host;
@@ -116,7 +116,7 @@ describe("staged initial Windows presentation", () => {
     acknowledge();
     await finish;
     expect(subject.hosts[0]!.focus).not.toHaveBeenCalled();
-    expect(subject.executor.snapshot().windows[0]!.presentation).toBe("maximized");
+    expect(subject.executor.snapshot().windows[0]!.presentation).toBe(presentation);
     expect(subject.setVisible).toHaveBeenCalledWith("role-1", 1, true);
   });
 });

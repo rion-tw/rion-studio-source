@@ -111,6 +111,7 @@ export class WindowsRuntimeHostChromeController {
   readonly #windowId: string;
   readonly #documentUrl: string;
   readonly #native: WindowsRuntimeHostChromeNativePort;
+  readonly #beforeEnterFullscreen: (() => void) | undefined;
   readonly #readCursorScreenPoint: (() => Readonly<{ x: number; y: number }>) | null;
   readonly #readProjection: () => ChromiumRuntimeHostProjection;
   readonly #send: (channel: string, projection: WindowsRuntimeHostProjection) => void;
@@ -164,12 +165,13 @@ export class WindowsRuntimeHostChromeController {
   #pendingMinimize: Deferred<void> | null = null;
   #pending: {
     readonly request: ChromiumRuntimeWindowPresentationRequest;
-    readonly maximizeNative?: (request: ChromiumRuntimeWindowPresentationRequest) => void;
+    readonly submitNative?: (request: ChromiumRuntimeWindowPresentationRequest, submit: () => void) => void;
     readonly completion: Deferred<ChromiumRuntimeHostProjection>;
     expectedEvent: WindowsNativePresentationEvent | null;
   } | null = null;
 
   constructor(input: Readonly<{
+    beforeEnterFullscreen?: () => void;
     onCommandError?: (error: unknown) => void;
     requestTabDrag?: (start: RuntimeTabDragStart) => void;
     documentUrl: string;
@@ -207,6 +209,7 @@ export class WindowsRuntimeHostChromeController {
     this.#resizeIndicators = input.resizeIndicators;
     this.#documentUrl = input.documentUrl;
     this.#native = input.native;
+    this.#beforeEnterFullscreen = input.beforeEnterFullscreen;
     this.#readCursorScreenPoint = input.readCursorScreenPoint ?? null;
     this.#readProjection = input.readProjection;
     this.#requestWindowControl = input.requestWindowControl;
@@ -587,7 +590,7 @@ export class WindowsRuntimeHostChromeController {
 
   async setPresentation(
     request: ChromiumRuntimeWindowPresentationRequest,
-    maximizeNative?: (request: ChromiumRuntimeWindowPresentationRequest) => void
+    submitNative?: (request: ChromiumRuntimeWindowPresentationRequest, submit: () => void) => void
   ): Promise<ChromiumRuntimeHostProjection> {
     if (
       request.windowId !== this.#windowId ||
@@ -611,7 +614,7 @@ export class WindowsRuntimeHostChromeController {
       return this.#readProjection();
     }
     const completion = deferred<ChromiumRuntimeHostProjection>();
-    this.#pending = { request, completion, expectedEvent: null, maximizeNative };
+    this.#pending = { request, completion, expectedEvent: null, submitNative };
     try {
       this.#drivePendingPresentation();
     } catch (error) {
@@ -645,13 +648,13 @@ export class WindowsRuntimeHostChromeController {
       pending.completion.resolve(this.#readProjection());
       return;
     }
-    // A later native mode may supersede a final maximize during layout. That
+    // A later native mode may supersede a final presentation during layout. That
     // exhausts this submission; intermediate fullscreen exit may still advance.
-    if (event === "maximized") {
+    if (event === "maximized" || event === "enteredFullscreen") {
       this.#pending = null;
       pending.completion.reject(chromeError(
         "ELECTRON_WINDOWS_RUNTIME_PRESENTATION_READBACK_STALE",
-        "The acknowledged maximize changed before its layout completed."
+        "The acknowledged presentation changed before its layout completed."
       ));
       return;
     }
@@ -1167,13 +1170,15 @@ export class WindowsRuntimeHostChromeController {
     const current = nativePresentation(this.#native);
     if (desired === "fullscreen") {
       pending.expectedEvent = "enteredFullscreen";
-      this.#setNativeFullscreen(true);
+      const submit = () => this.#setNativeFullscreen(true);
+      if (pending.submitNative) pending.submitNative(pending.request, submit);
+      else submit();
     } else if (current === "fullscreen") {
       pending.expectedEvent = "leftFullscreen";
       this.#setNativeFullscreen(false);
     } else if (desired === "maximized") {
       pending.expectedEvent = "maximized";
-      if (pending.maximizeNative) pending.maximizeNative(pending.request);
+      if (pending.submitNative) pending.submitNative(pending.request, () => this.#native.maximize());
       else this.#native.maximize();
     } else {
       pending.expectedEvent = "unmaximized";
@@ -1182,6 +1187,7 @@ export class WindowsRuntimeHostChromeController {
   }
 
   #setNativeFullscreen(fullscreen: boolean): void {
+    if (fullscreen && !this.#native.isFullScreen()) this.#beforeEnterFullscreen?.();
     const focused = this.#native.isFocused();
     this.#native.setFullScreen(fullscreen);
     // Windows frame restoration can deactivate the foreground widget. Preserve

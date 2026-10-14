@@ -17,7 +17,7 @@ export interface ChromiumRuntimeExecutorSnapshot {
     presentation: EmbeddedLaunchTargetRecord["presentation"];
     /** Desired mode staged on an exact hidden Windows host; presentation remains native readback. */
     pendingInitialPresentation?: Readonly<{
-      presentation: "maximized";
+      presentation: "maximized" | "fullscreen";
       nativeHostId: number;
       windowGeneration: number;
       topologyRevision: number;
@@ -64,7 +64,8 @@ export function pendingInitialPresentationMatches(
   topologyRevision = window.topologyRevision
 ): boolean {
   const pending = window.pendingInitialPresentation;
-  return pending?.presentation === "maximized" && window.presentation === "normal" &&
+  return (pending?.presentation === "maximized" || pending?.presentation === "fullscreen") &&
+    window.presentation === "normal" &&
     !window.visible && !window.focused && window.appKitIdentity === undefined &&
     Number.isSafeInteger(windowGeneration) && windowGeneration > 0 &&
     Number.isSafeInteger(topologyRevision) && topologyRevision > 0 &&
@@ -72,5 +73,5 @@ export function pendingInitialPresentationMatches(
     pending.topologyRevision === topologyRevision && window.topologyRevision === topologyRevision &&
     Number.isSafeInteger(pending.nativeHostId) && pending.nativeHostId > 0 &&
     pending.nativeHostId === window.parentNativeHostId &&
-    window.target?.windowId === window.windowId && window.target.presentation === "maximized";
+    window.target?.windowId === window.windowId && window.target.presentation === pending.presentation;
 }

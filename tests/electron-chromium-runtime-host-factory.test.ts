@@ -110,7 +110,9 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     const window = browserWindows.windows[0]!;
     const host = await finishCreation(creation, window);
     await applyWindowFence(host);
-    window.fullscreen = true;
+    window.fullscreenEventsBeforeMode = true;
+    await host.setRuntimeWindowPresentation!({ windowId: "window-1",
+      windowGeneration: 4, topologyRevision: 9, presentation: "fullscreen" });
     window.webContents.emit("ipc-message", {}, WINDOWS_RUNTIME_HOST_COMMAND_CHANNEL, {
       type: "revealToolbar", windowId: "window-1",
       projectionRevision: host.readFullscreenToolbar!().projectionRevision
@@ -1054,7 +1056,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     });
   });
 
-  it("waits for exact fullscreen presentation acknowledgement during creation", async () => {
+  it("waits for document readiness while staging fullscreen before Core admission", async () => {
     const browserWindows = new FakeBrowserWindows();
     const launchTarget = target({ presentation: "fullscreen" });
     const factory = new WindowsElectronChromiumRuntimeHostFactory(
@@ -1066,12 +1068,17 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     const window = browserWindows.windows[0];
 
     expect(window.maximizeCalls).toBe(0);
-    expect(window.fullscreenValues).toEqual([true]);
+    expect(window.fullscreenValues).toEqual([]);
     window.webContents.emit("did-finish-load");
-    window.emit("ready-to-show");
     await expectPending(creation);
-    window.emit("enter-full-screen");
-    await expect(creation).resolves.toMatchObject({ logicalWindowId: "window-1" });
+    window.emit("ready-to-show");
+    const host = await creation;
+    expect(host.logicalWindowId).toBe("window-1");
+    expect(host.readPendingInitialPresentation!()).toBe("fullscreen");
+    expect(host.readProjection()).toMatchObject({ presentation: "normal", visible: false, focused: false });
+    expect(window.fullscreenValues).toEqual([]);
+    expect(window.showCalls).toBe(0);
+    expect(window.focusCalls).toBe(0);
   });
 
   it("ignores loadFile Promise completion and subframe failures", async () => {
@@ -1240,21 +1247,20 @@ describe("Windows Electron Chromium runtime-host factory", () => {
       const window = browserWindows.windows[0];
       window.contentBounds = { x: 100, y: 80, width: 960, height: 680 };
       window.liveBounds = { x: 1920, y: 0, width: 2560, height: 1440 };
-      const host = await finishCreation(creation, window, presentation);
-      if (presentation === "maximized") {
-        await applyWindowFence(host);
-        host.showInactive!();
-        const completion = host.completeInitialPresentation!({
-          windowId: "window-1", windowGeneration: 4, topologyRevision: 9
-        });
-        window.emit("maximize");
-        await completion;
-      }
+      const host = await finishCreation(creation, window);
+      expect(window.fullscreenValues).toEqual([]);
+      await applyWindowFence(host);
+      host.showInactive!();
+      const completion = host.completeInitialPresentation!({
+        windowId: "window-1", windowGeneration: 4, topologyRevision: 9
+      });
+      window.emit(presentation === "maximized" ? "maximize" : "enter-full-screen");
+      await completion;
 
       expect(host.readProjection()).toEqual({
         displayId: 8,
         bounds: { x: 100, y: 80, width: 960, height: 680 },
-        visible: presentation === "maximized",
+        visible: true,
         focused: false,
         presentation
       });

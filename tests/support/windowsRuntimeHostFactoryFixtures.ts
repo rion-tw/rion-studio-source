@@ -122,6 +122,8 @@ export class FakeWindow {
   maximizeCalls = 0;
   inactiveMaximizeCalls = 0;
   fullscreenValues: boolean[] = [];
+  fullscreenEventsBeforeMode = false;
+  fullscreenNormalBounds: typeof this.contentBounds | undefined;
   destroyed = false;
   focused = false;
   fullscreen = false;
@@ -238,7 +240,12 @@ export class FakeWindow {
 
   setFullScreen(fullscreen: boolean): void {
     this.fullscreenValues.push(fullscreen);
+    if (this.fullscreenEventsBeforeMode) {
+      this.emit(fullscreen ? "enter-full-screen" : "leave-full-screen");
+    }
     this.fullscreen = fullscreen;
+    if (fullscreen && this.fullscreenNormalBounds) this.contentBounds = { ...this.fullscreenNormalBounds };
+    if (this.fullscreenEventsBeforeMode) this.emit("resize");
   }
 
   unmaximize(): void {
@@ -308,11 +315,12 @@ export class FakeRuntimeForegroundProbe implements WindowsRuntimeForegroundProbe
 
 export class FakeRuntimeInactivePresentation implements WindowsRuntimeInactivePresentationPort {
   constructor(readonly browserWindows: FakeBrowserWindows) {}
+  focusIdentity = "f".repeat(64);
 
   readonly readWindowsRuntimeForeground = vi.fn((handle: Buffer) => {
     const window = this.#window(handle);
     return { parentIdentity: window.nativeId.toString(16).padStart(64, "0"),
-      focusIdentity: "f".repeat(64), parentWasForeground: window.focused,
+      focusIdentity: this.focusIdentity, parentWasForeground: window.focused,
       parentVisible: window.visible, parentMinimized: window.minimized };
   });
 

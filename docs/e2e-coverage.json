@@ -2372,7 +2372,7 @@
         "success",
         "restart"
       ],
-      "description": "Create and rename an empty permanent Game Window through the visible macOS Chromium route and its labeled standard input. Retain exact zero-tab ownership when native fitting updates a legacy display descriptor without a fingerprint. Enter fullscreen through the retained native accelerator and maximize through the real Window menu Zoom item; visibly close and Show the native window in each presentation. Require the saved presentation and unchanged normal bounds at every boundary, then return to fullscreen and Show after clean restart to prove the same exact zero-tab Core identity, revision-fenced fullscreen native ownership, and retained AppKit Chromium host identity."
+      "description": "Create and rename an empty permanent Game Window through the visible macOS Chromium route and its labeled standard input. Retain exact zero-tab ownership when native fitting updates the display descriptor, accepting a valid fingerprint upgrade; focused lower-layer tests also cover consumed legacy descriptors without fingerprints. Enter fullscreen through the retained native accelerator and maximize through the real Window menu Zoom item; visibly close and Show the native window in each presentation. Require the saved presentation and unchanged normal bounds at every boundary, then return to fullscreen and Show after clean restart to prove the same exact zero-tab Core identity, revision-fenced fullscreen native ownership, and retained AppKit Chromium host identity."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SLOT-016",
@@ -2545,7 +2545,7 @@
         "success",
         "restart"
       ],
-      "description": "Create and rename an empty permanent Game Window through the visible Windows Chromium route and its labeled standard input. Use the visible fullscreen and maximize controls, move the native pointer from content to the reveal edge before accessing fullscreen controls, visibly close and Show the native window in each presentation, and preserve the saved presentation plus unchanged normal bounds at every boundary. Clean app restart and visible Show must restore the saved maximized presentation with the same exact zero-tab Core identity and revision-fenced bundled Chromium native ownership."
+      "description": "Create and rename an empty permanent Game Window through the visible Windows Chromium route and its labeled standard input. Use the visible fullscreen and maximize controls, move the native pointer from content to the reveal edge before accessing fullscreen controls, visibly close and Show the native window in each presentation, and preserve the saved presentation plus unchanged normal bounds at every boundary. Fullscreen recreation must retain the pre-fullscreen normal geometry without accumulating native frame insets. Clean app restart and visible Show must restore the saved maximized presentation with the same exact zero-tab Core identity and revision-fenced bundled Chromium native ownership. Platform-explicit factory tests additionally require hidden fullscreen staging, exact native mode acknowledgement and unchanged background foreground/focus identity."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-SLOT-016",

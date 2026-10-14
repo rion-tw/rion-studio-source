@@ -1378,27 +1378,29 @@ describe("Windows runtime-host chrome controller", () => {
     expect(subject.relayout).toHaveBeenCalledTimes(5);
   });
 
-  it("arms the exact maximize event before a request-specific native callback and awaits its layout", async () => {
+  it.each(["maximized", "fullscreen"] as const)("arms exact %s before a native callback and awaits its layout", async presentation => {
     const subject = harness();
     await subject.controller.applyCoreProjection(projection());
     let release!: () => void;
     const layout = new Promise<void>(resolve => { release = resolve; });
     subject.controller.bindLayout(() => layout);
     const request = { windowId, windowGeneration: 1, topologyRevision: 1,
-      presentation: "maximized" as const };
+      presentation };
     const maximize = vi.fn(() => {
-      subject.state.maximized = true;
-      void subject.controller.nativePresentationChanged("maximized");
+      if (presentation === "maximized") subject.state.maximized = true;
+      void subject.controller.nativePresentationChanged(presentation === "fullscreen" ? "enteredFullscreen" : "maximized");
+      if (presentation === "fullscreen") subject.state.fullscreen = true;
     });
     const terminal = subject.controller.setPresentation(request, maximize);
-    expect(maximize).toHaveBeenCalledExactlyOnceWith(request);
+    expect(maximize).toHaveBeenCalledExactlyOnceWith(request, expect.any(Function));
     expect(subject.native.maximize).not.toHaveBeenCalled();
+    expect(subject.native.setFullScreen).not.toHaveBeenCalled();
     let settled = false;
     void terminal.then(() => { settled = true; });
     await Promise.resolve();
     expect(settled).toBe(false);
     release();
-    await expect(terminal).resolves.toMatchObject({ presentation: "maximized" });
+    await expect(terminal).resolves.toMatchObject({ presentation });
   });
 
   it("terminalizes a refused request-specific maximize without another native submission", async () => {
@@ -1408,9 +1410,30 @@ describe("Windows runtime-host chrome controller", () => {
       presentation: "maximized" as const };
     const maximize = vi.fn(() => { throw new Error("inactive native scope refused"); });
     await expect(subject.controller.setPresentation(request, maximize)).rejects.toThrow("inactive native scope refused");
-    expect(maximize).toHaveBeenCalledExactlyOnceWith(request);
+    expect(maximize).toHaveBeenCalledExactlyOnceWith(request, expect.any(Function));
     expect(subject.native.maximize).not.toHaveBeenCalled();
     expect(subject.state.maximized).toBe(false);
+  });
+
+  it.each(["maximized", "fullscreen"] as const)("never replays a final %s overtaken during layout", async presentation => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    let release!: () => void;
+    const layout = new Promise<void>(resolve => { release = resolve; });
+    subject.controller.bindLayout(() => layout);
+    const terminal = subject.controller.setPresentation({ windowId, windowGeneration: 1,
+      topologyRevision: 1, presentation });
+    const receipt = expect(terminal).rejects.toMatchObject({
+      code: "ELECTRON_WINDOWS_RUNTIME_PRESENTATION_READBACK_STALE"
+    });
+    const acknowledged = subject.controller.nativePresentationChanged(
+      presentation === "fullscreen" ? "enteredFullscreen" : "maximized");
+    subject.state.fullscreen = false; subject.state.maximized = false;
+    await subject.controller.nativePresentationChanged(
+      presentation === "fullscreen" ? "leftFullscreen" : "unmaximized");
+    release(); await acknowledged; await receipt;
+    expect(subject.native.maximize).toHaveBeenCalledTimes(presentation === "maximized" ? 1 : 0);
+    expect(subject.native.setFullScreen).toHaveBeenCalledTimes(presentation === "fullscreen" ? 1 : 0);
   });
 
   it("awaits Core window controls and recovers after synchronous minimize failure", async () => {

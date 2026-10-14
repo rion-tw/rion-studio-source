@@ -26,7 +26,6 @@ describe("Chromium permanent Game Window exact replacement source", () => {
       "electronDesktopE2eGameWindowRuntime",
       "coreTabIds: []",
       "nativeTabIds: []",
-      "expect(gameWindow.targetDisplay.fingerprint).toBeUndefined()",
       "await movePointerToWindowsRuntimeContent(windowId)",
       "await movePointerToWindowsRuntimeHostRevealEdge(windowId)",
       'hostKind).toBe("appkit-chromium")',

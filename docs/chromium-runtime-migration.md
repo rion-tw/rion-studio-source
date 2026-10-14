@@ -1010,12 +1010,12 @@ fingerprint when authoritative AppKit fitting persists a newer placement. The
 same saved identity, admitted display, current Core/native generation and
 revision, and empty tab cohort remain required; removing an existing fingerprint
 or changing display identity still rejects registration.
-Windows stages a saved maximized mode while its new host remains hidden;
-Electron's `maximize()` would otherwise reveal that provisional host. Native
+Windows stages a saved maximized or fullscreen mode while its new host remains
+hidden; Electron's `maximize()` would otherwise reveal that provisional host. Native
 readback continues to report the actual normal mode during hydration, while an
 explicit pending marker retains the Core target under exact host, generation
 and revision fences. An authorized reveal first shows the owned host inactive,
-then awaits the native maximize and layout acknowledgement before content
+then awaits the requested native mode and layout acknowledgement before content
 visibility or successful restore completion. For that pending initial background
 maximize, the process/UI-thread-owned HWND uses native maximum placement under
 a synchronous current-thread activation veto for that exact parent only. All
@@ -1023,8 +1023,20 @@ other windows and event codes pass through. The scope removes its veto before
 returning, and its native receipt requires unchanged foreground/active/focus
 identity, real maximum state and retained normal bounds. It never reclaims the
 previous foreground window. Foreground initial presentation and ordinary user
-maximize retain the existing Electron path. Visible, focused or stale hosts
-cannot use the pending-mode exception during snapshot admission.
+maximize retain the existing Electron path. Initial background fullscreen uses
+the exact owned Electron host without foreground focus repair and requires
+unchanged native foreground/focus evidence. Its native event alone is not a
+receipt: layout, actual requested mode and the Core/native identity fences must
+all acknowledge the same operation. Visible, focused or stale hosts cannot use
+the pending-mode exception during snapshot admission.
+Before entering fullscreen, the Windows host captures its normal restore bounds.
+Fullscreen placement and snapshot readback retain that exact host-owned capture;
+after exit, normal native geometry refreshes it. Electron's fullscreen frame
+insets can otherwise change `getNormalBounds()` by a few pixels, causing saved
+geometry to grow on every recreation. The paired `CHROMIUM-*-GAME-WINDOW-UI-016`
+journeys require unchanged normal bounds across visible close/Show in both modes
+and clean restart; platform-explicit factory tests cover staged fullscreen,
+early native events, focus neutrality, cancellation and stale identity rejection.
 The paired `CHROMIUM-*-FULLSCREEN-TOOLBAR-012` journeys preserve transition
 history as read-only evidence while their preference, fullscreen, and pointer
 actions remain visible UI.

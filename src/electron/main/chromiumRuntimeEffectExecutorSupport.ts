@@ -48,12 +48,12 @@ export function targetMatchesCurrentHost(
   host: ChromiumRuntimeHostPort
 ): boolean {
   const projection = host.readProjection();
-  const stagedMaximized = target.presentation === "maximized" &&
-    host.readPendingInitialPresentation?.() === "maximized" &&
+  const stagedInitial = target.presentation !== "normal" &&
+    host.readPendingInitialPresentation?.() === target.presentation &&
     projection.presentation === "normal" && !projection.visible && !projection.focused;
   return target.windowId === host.logicalWindowId &&
     target.displayId === projection.displayId &&
-    (target.presentation === projection.presentation || stagedMaximized) &&
+    (target.presentation === projection.presentation || stagedInitial) &&
     target.bounds.x === projection.bounds.x &&
     target.bounds.y === projection.bounds.y &&
     target.bounds.width === projection.bounds.width &&

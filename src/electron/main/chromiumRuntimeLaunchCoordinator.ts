@@ -864,7 +864,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         native.tabIds.length !== 0 || native.activeTabId !== "" ||
         native.displayId !== target.displayId ||
         (native.presentation !== target.presentation && !(
-          target.presentation === "maximized" &&
+          target.presentation === native.pendingInitialPresentation?.presentation &&
           pendingInitialPresentationMatches(native, logical.windowGeneration, logical.revision)
         )) ||
         !sameNormalBounds(native.bounds, currentTarget.bounds) ||

@@ -34,7 +34,7 @@ export function inspectLaunchWindowFence(
   else if (previous?.windowGeneration === window.windowGeneration && window.revision < previous.topologyRevision) reason = "revision-regressed";
   else if (host.topologyRevision !== window.revision) reason = "topology-revision";
   else if (host.pendingInitialPresentation !== undefined && (
-    window.presentation !== "maximized" ||
+    window.presentation !== host.pendingInitialPresentation.presentation ||
     !pendingInitialPresentationMatches(host, window.windowGeneration, window.revision)
   )) reason = "initial-presentation";
   else if (!same(runtime[0]!.tabIds, ids) || !same(host.tabIds, ids)) reason = "ordered-tabs";

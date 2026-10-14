@@ -42,8 +42,8 @@ function exactTargetProjection(
   return host.logicalWindowId === action.target.windowId &&
     projection.displayId === action.target.displayId &&
     (projection.presentation === action.target.presentation ||
-      (action.target.presentation === "maximized" && projection.presentation === "normal" &&
-        host.readPendingInitialPresentation?.() === "maximized")) &&
+      (action.target.presentation !== "normal" && projection.presentation === "normal" &&
+        host.readPendingInitialPresentation?.() === action.target.presentation)) &&
     projection.bounds.x === action.target.bounds.x &&
     projection.bounds.y === action.target.bounds.y &&
     projection.bounds.width === action.target.bounds.width &&

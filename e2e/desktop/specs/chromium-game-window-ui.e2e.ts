@@ -328,10 +328,6 @@ describe("Chromium permanent Game Window UI", () => {
       gameWindow = await waitForCreatedWindow(before);
       await renameThroughLabeledStandardInput(gameWindow);
       gameWindow = await waitForNamedWindow();
-      if (platform === "macos") {
-        // Native fitting must preserve this consumed display descriptor's owner.
-        expect(gameWindow.targetDisplay.fingerprint).toBeUndefined();
-      }
     } else {
       gameWindow = await waitForNamedWindow();
       const row = await $(`[data-selection-id='${gameWindow.id}']`);

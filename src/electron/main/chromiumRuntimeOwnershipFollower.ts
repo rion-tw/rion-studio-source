@@ -77,8 +77,8 @@ function exactEmptyHostProjection(
   return host.logicalWindowId === target.windowId &&
     projection.displayId === target.displayId &&
     (projection.presentation === target.presentation ||
-      (target.presentation === "maximized" && projection.presentation === "normal" &&
-        host.readPendingInitialPresentation?.() === "maximized")) &&
+      (target.presentation !== "normal" && projection.presentation === "normal" &&
+        host.readPendingInitialPresentation?.() === target.presentation)) &&
     sameBounds(projection.bounds, target.bounds) &&
     !projection.visible && !projection.focused;
 }

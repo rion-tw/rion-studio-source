@@ -6,7 +6,9 @@ import { parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { windowsRuntimePointerLeave } from "./windowsRuntimePointerLeave";
-import { maximizeWindowsRuntimeInitialPresentation } from "./windowsRuntimeInitialPresentation";
+import { completeWindowsRuntimeInitialPresentation, type WindowsRuntimeInitialPresentationMode } from "./windowsRuntimeInitialPresentation";
+import { WindowsRuntimeRestoredGeometry } from "./windowsRuntimeRestoredGeometry";
+import { retireFailedWindowsRuntimeHostConstruction } from "./windowsRuntimeHostConstructionFailure";
 
 import type {
   AppKitRuntimeHostIdentityRecord,
@@ -214,8 +216,7 @@ interface WindowsHostRecord {
   listeners: WindowsHostListeners;
   state: HostState;
   documentReady: boolean;
-  presentationReady: boolean;
-  pendingInitialPresentation: boolean;
+  pendingInitialPresentation: WindowsRuntimeInitialPresentationMode | null;
   readyToShow: boolean;
   closePromise: Promise<void> | null;
   creationError: RionBridgeError | null;
@@ -225,6 +226,7 @@ interface WindowsHostRecord {
   lastNativeLayoutSignature: string | null;
   nativeLayoutSequence: number;
   readonly contentGeometry: WindowsRuntimeContentGeometry;
+  readonly restoredGeometry: WindowsRuntimeRestoredGeometry;
 }
 
 function deferred<Value>(): Deferred<Value> {
@@ -687,10 +689,16 @@ implements ChromiumRuntimeHostFactoryPort {
         "Electron returned an invalid native Windows runtime host."
       );
     }
+    const nativeOwner = this.#ownerByNativeWindow.get(native);
+    const idOwner = this.#ownerByNativeId.get(nativeId);
+    const aliasError = () => hostError("ELECTRON_RUNTIME_HOST_NATIVE_ALIAS",
+      "Electron returned one native Windows host for distinct generations.");
+    if ((nativeOwner ?? idOwner)?.native === native) return Promise.reject(aliasError());
     let nativeHandle: Buffer;
     try {
       nativeHandle = Buffer.from(native.getNativeWindowHandle());
     } catch {
+      if (nativeOwner || idOwner) return Promise.reject(aliasError());
       native.close();
       return Promise.reject(hostError(
         "ELECTRON_RUNTIME_HOST_NATIVE_HANDLE_UNAVAILABLE",
@@ -698,18 +706,16 @@ implements ChromiumRuntimeHostFactoryPort {
       ));
     }
 
-    const record = this.#buildRecord(
-      target,
-      launchGeneration,
-      nativeGeneration,
-      this.#nextOwnerRevision(),
-      native,
-      nativeId,
-      nativeHandle,
-      background
-    );
-    const nativeOwner = this.#ownerByNativeWindow.get(native);
-    const idOwner = this.#ownerByNativeId.get(nativeId);
+    let record: WindowsHostRecord;
+    try {
+      record = this.#buildRecord(target, launchGeneration, nativeGeneration,
+        this.#nextOwnerRevision(), native, nativeId, nativeHandle, background);
+    } catch (error) {
+      if (nativeOwner || idOwner) return Promise.reject(aliasError());
+      return retireFailedWindowsRuntimeHostConstruction({ native, nativeId, nativeHandle, error,
+        isOwned: () => this.#ownerByNativeWindow.has(native) || this.#ownerByNativeId.has(nativeId)
+      });
+    }
     if (nativeOwner || idOwner) {
       return this.#rejectNativeAlias(record, nativeOwner ?? idOwner!);
     }
@@ -747,7 +753,6 @@ implements ChromiumRuntimeHostFactoryPort {
           error instanceof Error ? error.message : "Windows toolbar preferences failed."
         );
       });
-      this.#applyInitialPresentation(record);
       const load = native.loadFile(this.#runtimeDocumentPath);
       // EventBound: exact native events, never the loadFile Promise, settle creation.
       void load.catch(() => undefined);
@@ -788,8 +793,7 @@ implements ChromiumRuntimeHostFactoryPort {
       listeners: undefined as unknown as WindowsHostListeners,
       state: "opening" as HostState,
       documentReady: false,
-      presentationReady: target.presentation !== "fullscreen",
-      pendingInitialPresentation: target.presentation === "maximized",
+      pendingInitialPresentation: target.presentation === "normal" ? null : target.presentation,
       readyToShow: false,
       closePromise: null,
       creationError: null,
@@ -798,7 +802,8 @@ implements ChromiumRuntimeHostFactoryPort {
       shortcutOwnerInstalled: false,
       lastNativeLayoutSignature: null,
       nativeLayoutSequence: 0,
-      contentGeometry: new WindowsRuntimeContentGeometry()
+      contentGeometry: new WindowsRuntimeContentGeometry(),
+      restoredGeometry: new WindowsRuntimeRestoredGeometry(native.getNormalBounds())
     };
     record.chrome = new WindowsRuntimeHostChromeController({
       onCommandError: this.#onCommandError,
@@ -807,6 +812,8 @@ implements ChromiumRuntimeHostFactoryPort {
       resizeIndicators: this.#windows.createResizeIndicators?.(native),
       documentUrl: record.documentUrl,
       native,
+      beforeEnterFullscreen: () => this.#withCurrent(record, () =>
+        record.restoredGeometry.captureBeforeFullscreen(native.getNormalBounds(), native.isFullScreen())),
       readProjection: () => this.#readProjection(record),
       ...(this.#readCursorScreenPoint
         ? { readCursorScreenPoint: this.#readCursorScreenPoint }
@@ -911,10 +918,10 @@ implements ChromiumRuntimeHostFactoryPort {
       ) => this.#withCurrent(
         record,
         async () => {
-          if (record.pendingInitialPresentation && request.presentation === "maximized" &&
+          if (record.pendingInitialPresentation === request.presentation &&
             !native.isVisible()) {
             throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_FENCE_STALE",
-              "Initial maximize requires Core visible admission before native submission.");
+              "Initial presentation requires Core visible admission before native submission.");
           }
           const projection = await record.chrome.setPresentation(request);
           this.#withCurrent(record, () => {
@@ -928,49 +935,23 @@ implements ChromiumRuntimeHostFactoryPort {
               throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_READBACK_STALE",
                 "The native presentation acknowledgement lost its exact Windows handle.");
             }
-            record.pendingInitialPresentation = false;
+            record.pendingInitialPresentation = null;
           });
           return projection;
         }
       ),
       readPendingInitialPresentation: () => this.#withCurrent(record,
-        () => record.pendingInitialPresentation ? "maximized" as const : null),
+        () => record.pendingInitialPresentation),
       completeInitialPresentation: async (request: Pick<ChromiumRuntimeWindowPresentationRequest,
         "windowId" | "windowGeneration" | "topologyRevision">) => this.#withCurrent(record, async () => {
-        const fence = record.chrome.readCoreFence();
-        if (request.windowId !== record.logicalWindowId ||
-          request.windowGeneration !== fence.windowGeneration ||
-          request.topologyRevision !== fence.topologyRevision ||
-          !native.isVisible() || native.isMinimized()) {
-          throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_FENCE_STALE",
-            "Initial presentation requires the exact visible Core-owned host.");
-        }
-        if (!record.pendingInitialPresentation) return;
-        await record.chrome.setPresentation({ ...request, presentation: "maximized" }, mutation =>
-          maximizeWindowsRuntimeInitialPresentation({ native, nativeHandle: record.nativeHandle, request: mutation,
-            windowId: record.logicalWindowId, port: this.#runtimeInactivePresentation,
-            readCoreFence: () => record.chrome.readCoreFence(),
-            requireCurrent: () => this.#withCurrent(record, () => {
-              if (!record.pendingInitialPresentation) {
-                throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_SUPERSEDED",
-                  "A newer presentation superseded the initial native mutation.");
-              }
-            })
-          }));
-        this.#withCurrent(record, () => {
-          const current = record.chrome.readCoreFence();
-          if (current.windowGeneration !== request.windowGeneration ||
-            current.topologyRevision !== request.topologyRevision) {
-            throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_SUPERSEDED",
-              "A newer Core projection superseded the initial maximize acknowledgement.");
-          }
-          if (!native.isVisible() || !native.isMaximized() ||
-            !native.getNativeWindowHandle().equals(record.nativeHandle)) {
-            throw hostError("ELECTRON_RUNTIME_INITIAL_PRESENTATION_READBACK_STALE",
-              "The initial maximize acknowledgement lost its exact visible host.");
-          }
-          record.pendingInitialPresentation = false;
-        });
+        await completeWindowsRuntimeInitialPresentation({ native, nativeHandle: record.nativeHandle,
+          windowId: record.logicalWindowId, port: this.#runtimeInactivePresentation, chrome: record.chrome,
+          requireCurrent: () => this.#withCurrent(record, () => undefined),
+          readPending: () => record.pendingInitialPresentation,
+          captureBeforeFullscreen: () => this.#withCurrent(record, () =>
+            record.restoredGeometry.captureBeforeFullscreen(native.getNormalBounds(), native.isFullScreen())),
+          clearPending: () => { record.pendingInitialPresentation = null; }
+        }, request);
       })
     });
     if (this.#onRuntimeWindowPlacement) {
@@ -1025,10 +1006,6 @@ implements ChromiumRuntimeHostFactoryPort {
       },
       didFinishLoad: () => this.#onDidFinishLoad(record),
       enteredFullScreen: () => {
-        if (record.target.presentation === "fullscreen") {
-          record.presentationReady = true;
-          this.#completeCreationIfReady(record);
-        }
         void record.chrome.nativePresentationChanged("enteredFullscreen").catch((error) =>
           this.#onPresentationFailure(record, error)
         );
@@ -1041,10 +1018,6 @@ implements ChromiumRuntimeHostFactoryPort {
         );
       },
       maximized: () => {
-        if (record.target.presentation === "maximized") {
-          record.presentationReady = true;
-          this.#completeCreationIfReady(record);
-        }
         void record.chrome.nativePresentationChanged("maximized").catch((error) =>
           this.#onPresentationFailure(record, error)
         );
@@ -1104,7 +1077,8 @@ implements ChromiumRuntimeHostFactoryPort {
   }
 
   #readProjection(record: WindowsHostRecord): ChromiumRuntimeHostProjection {
-    const normalBounds = record.native.getNormalBounds();
+    const fullscreen = record.native.isFullScreen();
+    const normalBounds = record.restoredGeometry.read(record.native.getNormalBounds(), fullscreen);
     requireBounds(normalBounds, "normal window", 640, 480);
     const liveBounds = record.native.getBounds();
     requireBounds(liveBounds, "live window");
@@ -1117,7 +1091,7 @@ implements ChromiumRuntimeHostFactoryPort {
       );
     }
     requireBounds(display.workArea, "display work-area");
-    const presentation = record.native.isFullScreen()
+    const presentation = fullscreen
       ? "fullscreen" as const
       : record.native.isMaximized()
         ? "maximized" as const
@@ -1134,7 +1108,8 @@ implements ChromiumRuntimeHostFactoryPort {
   #readPlacementObservation(
     record: WindowsHostRecord
   ): WindowsRuntimeWindowPlacementObservation {
-    const normalBounds = record.native.getNormalBounds();
+    const fullscreen = record.native.isFullScreen();
+    const normalBounds = record.restoredGeometry.read(record.native.getNormalBounds(), fullscreen);
     requireBounds(normalBounds, "normal window", 640, 480);
     const liveBounds = record.native.getBounds();
     requireBounds(liveBounds, "live window");
@@ -1156,7 +1131,7 @@ implements ChromiumRuntimeHostFactoryPort {
       displayId: display.id,
       normalBounds: Object.freeze({ ...normalBounds }),
       savedWorkArea: Object.freeze({ ...display.workArea }),
-      presentation: record.native.isFullScreen()
+      presentation: fullscreen
         ? "fullscreen" as const
         : record.native.isMaximized() ? "maximized" as const : "normal" as const,
       nativeLayoutSequence: record.nativeLayoutSequence
@@ -1248,19 +1223,6 @@ implements ChromiumRuntimeHostFactoryPort {
     }
   }
 
-  #applyInitialPresentation(record: WindowsHostRecord): void {
-    switch (record.target.presentation) {
-      case "normal":
-        return;
-      case "maximized":
-        // Electron maximize() reveals a hidden Windows HWND. Creation only stages
-        // this intent; the Core-owned visible transition consumes it later.
-        return;
-      case "fullscreen":
-        record.native.setFullScreen(true);
-    }
-  }
-
   #onDidFinishLoad(record: WindowsHostRecord): void {
     if (record.state === "active") {
       // A fresh renderer owns an empty DOM even when Core topology is unchanged.
@@ -1296,7 +1258,6 @@ implements ChromiumRuntimeHostFactoryPort {
     if (
       record.state !== "opening" ||
       !record.documentReady ||
-      !record.presentationReady ||
       !record.readyToShow
     ) {
       return;

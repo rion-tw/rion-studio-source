@@ -237,7 +237,7 @@ function projectOwnedRuntime(
     }
     if (nativeWindow.pendingInitialPresentation !== undefined && (
       !pendingInitialPresentationMatches(nativeWindow, logicalWindow.windowGeneration, logicalWindow.revision) ||
-      logicalWindow.presentation !== "maximized"
+      logicalWindow.presentation !== nativeWindow.pendingInitialPresentation.presentation
     )) {
       projectionNotReady(`The staged presentation lost its exact hidden window fence for ${windowId}.`);
     }
@@ -391,9 +391,10 @@ function projectOwnedRuntime(
       visible: nativeWindow?.visible ?? false, focused: nativeWindow?.focused ?? false,
       ...(window.activeTabId ? { activeTabId: window.activeTabId } : {}),
       tabCount: window.tabIds.length,
-      presentation: nativeWindow && logical?.presentation === "maximized" &&
+      presentation: nativeWindow && logical?.presentation !== undefined &&
+        logical.presentation === nativeWindow.pendingInitialPresentation?.presentation &&
         pendingInitialPresentationMatches(nativeWindow, logical.windowGeneration, logical.revision)
-        ? "maximized" as const : nativeWindow?.presentation ?? logical?.presentation ?? "normal" as const,
+        ? logical.presentation : nativeWindow?.presentation ?? logical?.presentation ?? "normal" as const,
       ...(observed ? { projectionPending: !nativeWindow ||
         nativeWindow.windowGeneration !== logical?.windowGeneration ||
         nativeWindow.topologyRevision !== logical?.revision ||

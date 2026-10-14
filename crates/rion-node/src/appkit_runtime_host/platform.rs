@@ -10,6 +10,8 @@ use napi::{
     bindgen_prelude::{Error, Result},
 };
 
+#[cfg(all(target_os = "macos", feature = "desktop-e2e"))]
+use super::desktop_e2e_types::AppKitDesktopE2EMinimumFrameSize;
 #[cfg(target_os = "macos")]
 use super::malformed_projection_error;
 #[cfg(feature = "desktop-e2e")]
@@ -639,6 +641,10 @@ pub(super) fn desktop_e2e_fullscreen_toolbar_state(
             .map_err(native_controller_error)?;
     Ok(AppKitDesktopE2EFullscreenToolbarState {
         accessory_visible_height: state.accessory_visible_height,
+        minimum_frame_size: AppKitDesktopE2EMinimumFrameSize {
+            width: state.minimum_frame_width,
+            height: state.minimum_frame_height,
+        },
         menu_bar_reveal: state.menu_bar_reveal,
         toolbar_reveal: state.toolbar_reveal,
         reveal_sequence: state.reveal_sequence,

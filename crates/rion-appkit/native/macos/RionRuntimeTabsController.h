@@ -132,6 +132,8 @@ typedef struct {
 
 typedef struct {
   double accessoryVisibleHeight;
+  double minimumFrameWidth;
+  double minimumFrameHeight;
   double menuBarReveal;
   double toolbarReveal;
   uint32_t revealSequence;

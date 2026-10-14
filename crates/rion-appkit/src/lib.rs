@@ -285,6 +285,8 @@ pub struct RuntimeTabsDesktopE2ETabAnchor {
 #[repr(C)]
 pub struct RuntimeTabsDesktopE2EFullscreenToolbarState {
     pub accessory_visible_height: f64,
+    pub minimum_frame_width: f64,
+    pub minimum_frame_height: f64,
     pub menu_bar_reveal: f64,
     pub toolbar_reveal: f64,
     pub reveal_sequence: u32,
@@ -303,6 +305,22 @@ pub struct RuntimeTabsDesktopE2EFullscreenToolbarState {
     pub visible_traffic_light_count: u32,
     pub window_name_on_screen: bool,
     pub valid: bool,
+}
+
+#[cfg(all(feature = "desktop-e2e", any(target_os = "macos", test)))]
+impl RuntimeTabsDesktopE2EFullscreenToolbarState {
+    fn validate(self) -> Result<Self, RuntimeTabsControllerError> {
+        if !self.valid
+            || !self.accessory_visible_height.is_finite()
+            || !self.minimum_frame_width.is_finite()
+            || self.minimum_frame_width <= 0.0
+            || !self.minimum_frame_height.is_finite()
+            || self.minimum_frame_height <= 0.0
+        {
+            return Err(RuntimeTabsControllerError::InvalidLayout);
+        }
+        Ok(self)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1189,10 +1207,10 @@ pub unsafe fn runtime_tabs_desktop_e2e_fullscreen_toolbar_state(
     let captured = unsafe {
         rion_runtime_tabs_desktop_e2e_fullscreen_toolbar_state(controller.as_ptr(), &raw mut state)
     };
-    if !captured || !state.valid || !state.accessory_visible_height.is_finite() {
+    if !captured {
         return Err(RuntimeTabsControllerError::InvalidLayout);
     }
-    Ok(state)
+    state.validate()
 }
 
 /// Reads the native status presentation for desktop E2E assertions. This
@@ -1517,6 +1535,41 @@ mod tests {
         ) -> Result<bool, RuntimeTabsControllerError> =
             runtime_tabs_desktop_e2e_accessibility_show_menu;
         std::hint::black_box(operation);
+    }
+
+    #[cfg(feature = "desktop-e2e")]
+    #[test]
+    fn desktop_e2e_minimum_frame_size_preserves_finite_positive_native_points() {
+        let state = RuntimeTabsDesktopE2EFullscreenToolbarState {
+            minimum_frame_width: 640.25,
+            minimum_frame_height: 520.5,
+            valid: true,
+            ..Default::default()
+        };
+        assert_eq!(state.validate(), Ok(state));
+    }
+
+    #[cfg(feature = "desktop-e2e")]
+    #[test]
+    fn desktop_e2e_minimum_frame_size_rejects_invalid_native_dimensions() {
+        for invalid in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for (width, height) in [(invalid, 520.0), (640.0, invalid)] {
+                let state = RuntimeTabsDesktopE2EFullscreenToolbarState {
+                    minimum_frame_width: width,
+                    minimum_frame_height: height,
+                    valid: true,
+                    ..Default::default()
+                };
+                assert_eq!(
+                    state.validate(),
+                    Err(RuntimeTabsControllerError::InvalidLayout)
+                );
+            }
+        }
+        assert_eq!(
+            RuntimeTabsDesktopE2EFullscreenToolbarState::default().validate(),
+            Err(RuntimeTabsControllerError::InvalidLayout)
+        );
     }
 
     #[test]

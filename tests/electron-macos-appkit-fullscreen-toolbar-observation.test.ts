@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { readMacosAppKitFullscreenToolbar } from
   "../src/electron/main/macosAppKitFullscreenToolbarObservation";
+import type { RawAppKitFullscreenToolbarState } from
+  "../src/electron/main/macosAppKitFullscreenToolbarObservation";
 
 const identity = Object.freeze({
   launchGeneration: "10000000-0000-4000-8000-000000000001",
@@ -14,6 +16,7 @@ function state() {
   return {
     accessoryOnScreen: true,
     accessoryVisibleHeight: 40,
+    minimumFrameSize: { width: 640, height: 520 },
     addButtonOnScreen: true,
     alwaysHideTabCloseButton: false,
     alwaysShowInFullScreen: false,
@@ -50,6 +53,39 @@ function titlebarGeometry() {
 }
 
 describe("retained AppKit fullscreen-toolbar observation", () => {
+  it("copies the actual fractional native minimum frame size from the exact owner", () => {
+    const minimumFrameSize = { width: 640.25, height: 520.5 };
+    const read = vi.fn((expected) => {
+      expect(expected).toBe(identity);
+      return { ...state(), minimumFrameSize };
+    });
+    const observation = readMacosAppKitFullscreenToolbar({
+      identity, nativeFullscreen: false, nativeProjectionRevision: 8, read,
+      topologyRevision: 7, windowGeneration: 2
+    });
+    expect(read).toHaveBeenCalledOnce();
+    expect(observation.appKit?.minimumFrameSize).toEqual(minimumFrameSize);
+    expect(Object.isFrozen(observation.appKit?.minimumFrameSize)).toBe(true);
+    minimumFrameSize.height = 512;
+    expect(observation.appKit?.minimumFrameSize.height).toBe(520.5);
+  });
+
+  it.each([
+    undefined, null, {}, { width: 640 }, { height: 520 },
+    { width: 0, height: 520 }, { width: -1, height: 520 },
+    { width: 640, height: 0 }, { width: 640, height: -1 },
+    { width: NaN, height: 520 }, { width: 640, height: Infinity },
+    { width: "640", height: 520 }
+  ])("rejects absent or malformed native minimum frame size %j", (minimumFrameSize) => {
+    expect(() => readMacosAppKitFullscreenToolbar({
+      identity, nativeFullscreen: false, nativeProjectionRevision: 8,
+      read: () => ({ ...state(), minimumFrameSize } as RawAppKitFullscreenToolbarState),
+      topologyRevision: 7, windowGeneration: 2
+    })).toThrowError(expect.objectContaining({
+      code: "ELECTRON_MACOS_APPKIT_FULLSCREEN_OBSERVATION_INVALID"
+    }));
+  });
+
   it("omits an unavailable rehosted tab anchor without hiding native presentation", () => {
     const observe = (error: Error) => readMacosAppKitFullscreenToolbar({
       identity, nativeFullscreen: true, nativeProjectionRevision: 8,

@@ -520,6 +520,14 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
   *state = {};
   if (_destroyed || !_window || !_toolbar) return NO;
 
+  const NSSize minimumFrameSize = _window.minSize;
+  if (!std::isfinite(minimumFrameSize.width) || minimumFrameSize.width <= 0 ||
+      !std::isfinite(minimumFrameSize.height) || minimumFrameSize.height <= 0) {
+    return NO;
+  }
+  state->minimumFrameWidth = minimumFrameSize.width;
+  state->minimumFrameHeight = minimumFrameSize.height;
+
   RionRuntimeFullscreenRevealObservation *reveal =
       objc_getAssociatedObject(_window, &RionFullscreenRevealObservationKey);
   state->menuBarReveal = reveal.menuBarReveal;

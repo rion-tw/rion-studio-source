@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ inspect: vi.fn(), execute: vi.fn() }));
+const mocks = vi.hoisted(() => ({ inspect: vi.fn(), toolbar: vi.fn(), execute: vi.fn() }));
 vi.mock("@wdio/globals", () => ({ browser: { electron: { execute: mocks.execute } } }));
 vi.mock("../e2e/desktop/support/electron-driver", () => ({
-  electronDesktopE2eGameWindowRuntime: mocks.inspect
+  electronDesktopE2eGameWindowRuntime: mocks.inspect,
+  electronDesktopE2eFullscreenToolbarRuntime: mocks.toolbar
 }));
 
 const windowId = "10000000-0000-4000-8000-000000000001";
-const inspection = { hostKind: "appkit", windowId, windowGeneration: 2, topologyRevision: 5,
-  native: { windowId, windowGeneration: 2, topologyRevision: 5 } };
+const inspection = { hostKind: "appkit", presentation: "normal", windowId, windowGeneration: 2, topologyRevision: 5,
+  native: { windowId, windowGeneration: 2, topologyRevision: 5,
+    appKit: { minimumFrameSize: { width: 640, height: 520 } } } };
 const runtime = () => ({ windowId, currentRuntime: {
   windowId, windowGeneration: 2, topologyRevision: 5, parentNativeHostId: 731,
   hostKind: "appkit-chromium", visible: true, coreTabIds: ["tab"], nativeTabIds: ["tab"],
@@ -18,7 +20,7 @@ const runtime = () => ({ windowId, currentRuntime: {
 const nativeHost = () => ({ id: 731, isDestroyed: vi.fn(() => false), isVisible: vi.fn(() => true),
   isMinimized: vi.fn(() => false), isFullScreen: vi.fn(() => false), isMaximized: vi.fn(() => false),
   getNativeWindowHandle: vi.fn(() => Buffer.from([1, 2, 3, 4])),
-  getMinimumSize: vi.fn(() => [640, 520]),
+  getMinimumSize: vi.fn(() => [640, 512]),
   getBounds: vi.fn(() => ({ x: 56, y: 31, width: 935, height: 676 })),
   focus: vi.fn(), show: vi.fn(), setMinimumSize: vi.fn()
 });
@@ -29,6 +31,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   host = nativeHost(); current = host;
   mocks.inspect.mockImplementation(async () => runtime());
+  mocks.toolbar.mockImplementation(async () => structuredClone(inspection));
   mocks.execute.mockImplementation(async (callback: (
     electron: { BaseWindow: { fromId(id: number): typeof current } },
     target: { processId: number; parentNativeHostId: number }
@@ -37,24 +40,25 @@ beforeEach(() => {
   }, target));
 });
 
-const read = async (processId = process.pid) => {
+const read = async (processId = process.pid, expectedInspection = inspection) => {
   // This helper runs in the separate WDIO compilation graph.
   const helper = await vi.importActual<{
     readMacosRuntimeWindowConstraints(input: { inspection: typeof inspection; processId: number }):
       Promise<{ minimumWidth: number; minimumHeight: number }>;
   }>("../e2e/desktop/support/macos-runtime-window-constraints");
-  return helper.readMacosRuntimeWindowConstraints({ inspection, processId });
+  return helper.readMacosRuntimeWindowConstraints({ inspection: expectedInspection, processId });
 };
 
 describe("exact macOS runtime frame constraints", () => {
-  it("reads the live outer-frame minimum without adding content/chrome insets or mutating the host", async () => {
+  it("uses actual NSWindow minimum rather than Electron's cached 512px content constraint conversion", async () => {
     await expect(read()).resolves.toMatchObject({ processId: process.pid, windowId,
       parentNativeHostId: 731, windowGeneration: 2, topologyRevision: 5,
       nativeWindowHandle: "01020304", minimumWidth: 640, minimumHeight: 520,
       appKitIdentity: runtime().currentRuntime.appKitIdentity,
       frame: { x: 56, y: 31, width: 935, height: 676 } });
     expect(mocks.inspect).toHaveBeenCalledTimes(2);
-    expect(host.getMinimumSize).toHaveBeenCalledTimes(1);
+    expect(mocks.toolbar).toHaveBeenCalledTimes(2);
+    expect(host.getMinimumSize).not.toHaveBeenCalled();
     expect(host.focus).not.toHaveBeenCalled();
     expect(host.show).not.toHaveBeenCalled();
     expect(host.setMinimumSize).not.toHaveBeenCalled();
@@ -88,15 +92,15 @@ describe("exact macOS runtime frame constraints", () => {
   });
 
   it.each(["replacement", "destroyed", "hidden", "minimized", "fullscreen", "maximized"])(
-    "rejects native %s while reading the minimum", async change => {
-      host.getMinimumSize.mockImplementation(() => {
+    "rejects native %s while reading its live identity", async change => {
+      host.getBounds.mockImplementation(() => {
         if (change === "replacement") current = nativeHost();
         if (change === "destroyed") host.isDestroyed.mockReturnValue(true);
         if (change === "hidden") host.isVisible.mockReturnValue(false);
         if (change === "minimized") host.isMinimized.mockReturnValue(true);
         if (change === "fullscreen") host.isFullScreen.mockReturnValue(true);
         if (change === "maximized") host.isMaximized.mockReturnValue(true);
-        return [640, 520];
+        return { x: 56, y: 31, width: 935, height: 676 };
       });
       await expect(read()).rejects.toThrow("exact live normal BaseWindow");
       expect(mocks.inspect).toHaveBeenCalledTimes(1);
@@ -108,23 +112,59 @@ describe("exact macOS runtime frame constraints", () => {
     await expect(read()).rejects.toThrow("native readback changed");
   });
 
-  it.each([[0, 520], [640, -1], [640, Number.NaN], [640, 520.5]])(
+  it.each([[0, 520], [640, -1], [640, Number.NaN], [640, Number.POSITIVE_INFINITY]])(
     "rejects invalid native minimum %j", async (width, height) => {
-      host.getMinimumSize.mockReturnValue([width, height]);
-      await expect(read()).rejects.toThrow("native readback changed or is invalid");
+      mocks.toolbar.mockResolvedValue({ ...inspection, native: { ...inspection.native,
+        appKit: { minimumFrameSize: { width, height } } } });
+      await expect(read()).rejects.toThrow("exact current AppKit minimum");
+      expect(mocks.execute).not.toHaveBeenCalled();
     }
   );
 
   it("rejects a process mismatch without admitting the native constraints", async () => {
     await expect(read(process.pid + 1)).rejects.toThrow("exact live normal BaseWindow");
-    expect(host.getMinimumSize).not.toHaveBeenCalled();
+    expect(host.getBounds).not.toHaveBeenCalled();
   });
 
   it("preserves a native getter failure without retry or fallback", async () => {
-    const failure = new Error("native minimum unavailable");
-    host.getMinimumSize.mockImplementation(() => { throw failure; });
+    const failure = new Error("native frame unavailable");
+    host.getBounds.mockImplementation(() => { throw failure; });
     await expect(read()).rejects.toBe(failure);
-    expect(host.getMinimumSize).toHaveBeenCalledTimes(1);
+    expect(host.getBounds).toHaveBeenCalledTimes(1);
     expect(mocks.execute).toHaveBeenCalledTimes(1);
   });
+
+  it("rejects a native minimum changed after the live BaseWindow read without admitting either cached value", async () => {
+    mocks.toolbar.mockResolvedValueOnce(structuredClone(inspection)).mockResolvedValueOnce({
+      ...inspection, native: { ...inspection.native, appKit: { minimumFrameSize: { width: 640, height: 528 } } }
+    });
+    await expect(read()).rejects.toThrow("exact current AppKit minimum");
+    expect(host.getMinimumSize).not.toHaveBeenCalled();
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the same positive fractional NSWindow minimum across both native reads", async () => {
+    const fractional = { ...inspection, native: { ...inspection.native,
+      appKit: { minimumFrameSize: { width: 640.5, height: 520.25 } } } };
+    mocks.toolbar.mockResolvedValue(fractional);
+    await expect(read(process.pid, fractional)).resolves.toMatchObject({ minimumWidth: 640.5, minimumHeight: 520.25 });
+    expect(mocks.toolbar).toHaveBeenCalledTimes(2);
+    expect(host.getMinimumSize).not.toHaveBeenCalled();
+  });
+
+  it.each([{ windowGeneration: 3 }, { topologyRevision: 6 }, { windowId: "another" }])(
+    "rejects changed native controller fences %j", async change => {
+      mocks.toolbar.mockResolvedValue({ ...inspection, ...change });
+      await expect(read()).rejects.toThrow("exact current AppKit minimum");
+      expect(mocks.execute).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([{ windowGeneration: 3 }, { topologyRevision: 6 }, { windowId: "another" }])(
+    "rejects stale inner native controller fences %j", async change => {
+      mocks.toolbar.mockResolvedValue({ ...inspection, native: { ...inspection.native, ...change } });
+      await expect(read()).rejects.toThrow("exact current AppKit minimum");
+      expect(mocks.execute).not.toHaveBeenCalled();
+    }
+  );
 });

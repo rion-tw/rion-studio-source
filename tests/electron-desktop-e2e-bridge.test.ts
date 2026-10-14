@@ -213,6 +213,7 @@ const fullscreenToolbarInspection = Object.freeze({
     appKit: Object.freeze({
       accessoryOnScreen: true,
       accessoryVisibleHeight: 38,
+      minimumFrameSize: Object.freeze({ width: 640, height: 520 }),
       addButtonOnScreen: true,
       fullscreenHostReady: true,
       presentationAutoHideToolbar: false,

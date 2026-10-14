@@ -79,6 +79,7 @@ export interface ChromiumRuntimeFullscreenToolbarObservation {
     addButtonOnScreen: boolean;
     accessoryOnScreen: boolean;
     accessoryVisibleHeight: number;
+    minimumFrameSize: Readonly<{ width: number; height: number }>;
     nativeLifecycle?: Readonly<{
       menuBarReveal: number;
       toolbarReveal: number;

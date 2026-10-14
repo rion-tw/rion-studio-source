@@ -7,6 +7,7 @@ export interface ElectronDesktopE2eFullscreenToolbarInspection {
       addButtonOnScreen: boolean;
       accessoryOnScreen: boolean;
       accessoryVisibleHeight: number;
+      minimumFrameSize: Readonly<{ width: number; height: number }>;
       nativeLifecycle?: Readonly<{
         menuBarReveal: number;
         toolbarReveal: number;
@@ -142,7 +143,7 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
   if (hasAppKit) {
     const appKit = native.appKit;
     const appKitKeys = [
-      "accessoryOnScreen", "accessoryVisibleHeight", "addButtonOnScreen",
+      "accessoryOnScreen", "accessoryVisibleHeight", "addButtonOnScreen", "minimumFrameSize",
       "fullscreenHostReady", "presentationAutoHideToolbar", "revealLocked",
       "tabCloseButtonEnabledCount", "tabStripOnScreen", "toolbarPinned",
       "visibleTrafficLightCount", "windowNameOnScreen"
@@ -183,6 +184,12 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
         appKit.accessoryOnScreen && appKit.tabStripOnScreen
       ) || native.nativeWindowControlCount !== appKit.visibleTrafficLightCount) {
       throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 3).");
+    }
+    const minimum = appKit.minimumFrameSize;
+    if (!record(minimum) || !exact(minimum, ["width", "height"]) ||
+        ![minimum.width, minimum.height].every(value => typeof value === "number" &&
+          Number.isFinite(value) && value > 0)) {
+      throw new Error("Electron desktop E2E AppKit minimum frame size is invalid.");
     }
     if (hasTabScreenBounds) {
       const bounds = appKit.tabScreenBounds;

@@ -315,6 +315,7 @@ export interface ElectronDesktopE2eFullscreenToolbarRuntimeInspection {
       addButtonOnScreen: boolean;
       accessoryOnScreen: boolean;
       accessoryVisibleHeight: number;
+      minimumFrameSize: { width: number; height: number };
       nativeLifecycle?: Readonly<{
         menuBarReveal: number;
         toolbarReveal: number;

@@ -52,6 +52,7 @@ function macosHistory() {
             },
             accessoryOnScreen: shown,
             accessoryVisibleHeight: shown ? 40 : 0,
+            minimumFrameSize: { width: 640, height: 520 },
             addButtonOnScreen: shown,
             fullscreenHostReady: mode !== "normal",
             presentationAutoHideToolbar: mode === "hidden" || mode === "revealed",
@@ -128,6 +129,14 @@ describe("AppKit fullscreen toolbar aggregate evidence", () => {
   it("keeps Chromium content fixed while native auto-hide reveals", async () => {
     await expect(validate(macosHistory(), "macos"))
       .resolves.toMatchObject({ pinnedAndRevealed: true });
+  });
+
+  it.each([undefined, null, { width: 640 }, { width: 0, height: 520 },
+    { width: 640, height: Number.NaN }, { width: 640, height: Number.POSITIVE_INFINITY },
+    { width: 640, height: 520, cached: true }])("rejects malformed actual NSWindow minimum %j", async minimumFrameSize => {
+    await expect(validate(macosHistory().map(value => ({ ...value,
+      native: { ...value.native, appKit: { ...value.native.appKit, minimumFrameSize } }
+    })), "macos")).rejects.toThrow("malformed");
   });
 
   it("rejects controls revealed ahead of the native menu bar", async () => {

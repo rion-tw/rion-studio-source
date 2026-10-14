@@ -74,9 +74,12 @@ restart must restore their layout with the 16px setting and no shell errors.
 
 First-host resize evidence requires acknowledgement of the submitted native frame
 before comparing Chromium layout or capturing pixels. Each macOS corner-range
-step clamps the requested frame to the exact live Electron BaseWindow minimum
-frame size, read under window id, generation, AppKit identity, and object-instance
-fences. Windows retains its exact HWND `WM_GETMINMAXINFO` tracking constraints.
+step clamps the requested frame to the actual `NSWindow.minSize`, read through
+the existing desktop-E2E AppKit controller inspection under window id, generation,
+native identity, and revision fences. Live BaseWindow object and handle fences
+retain that same host. Electron's cached content-constraint conversion can differ
+from this native corner-grip limit. Windows retains its exact HWND
+`WM_GETMINMAXINFO` tracking constraints.
 Both paced minimum-to-large steps and rapid reversals submit one physical input
 stream and retain the actual pointer observation with the final frame receipt.
 An intermediate AX frame can precede processing of the final drag event even

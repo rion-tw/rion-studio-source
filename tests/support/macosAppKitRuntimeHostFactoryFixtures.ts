@@ -400,6 +400,7 @@ export class FakeNativeHost implements RawNativeAppKitRuntimeHost {
     return {
       accessoryOnScreen: true,
       accessoryVisibleHeight: 40,
+      minimumFrameSize: { width: 640, height: 520 },
       addButtonOnScreen: true,
       alwaysHideTabCloseButton: false,
       alwaysShowInFullScreen: false,

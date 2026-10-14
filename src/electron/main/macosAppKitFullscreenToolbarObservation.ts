@@ -9,6 +9,7 @@ import type { RawAppKitDesktopE2ETabAnchor } from
 
 export interface RawAppKitFullscreenToolbarState {
   readonly accessoryVisibleHeight: number;
+  readonly minimumFrameSize: Readonly<{ width: number; height: number }>;
   readonly menuBarReveal?: number;
   readonly toolbarReveal?: number;
   readonly revealSequence?: number;
@@ -61,6 +62,9 @@ export function readMacosAppKitFullscreenToolbar(input: Readonly<{
   if (
     !state.valid || !Number.isFinite(state.accessoryVisibleHeight) ||
     state.accessoryVisibleHeight < 0 ||
+    !state.minimumFrameSize ||
+    !Number.isFinite(state.minimumFrameSize.width) || state.minimumFrameSize.width <= 0 ||
+    !Number.isFinite(state.minimumFrameSize.height) || state.minimumFrameSize.height <= 0 ||
     !Number.isSafeInteger(state.tabCloseButtonEnabledCount) ||
     !Number.isSafeInteger(state.visibleTrafficLightCount) ||
     state.visibleTrafficLightCount < 0 || state.visibleTrafficLightCount > 3 ||
@@ -159,6 +163,10 @@ export function readMacosAppKitFullscreenToolbar(input: Readonly<{
       addButtonOnScreen: state.addButtonOnScreen,
       accessoryOnScreen: state.accessoryOnScreen,
       accessoryVisibleHeight: state.accessoryVisibleHeight,
+      minimumFrameSize: Object.freeze({
+        width: state.minimumFrameSize.width,
+        height: state.minimumFrameSize.height
+      }),
       fullscreenHostReady: state.fullscreenHostReady,
       presentationAutoHideToolbar: state.presentationAutoHideToolbar,
       revealLocked: state.revealLocked,

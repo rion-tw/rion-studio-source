@@ -59,7 +59,10 @@ function validCommon(observation, platform) {
     "nativeWindowControlCount", "projectionRevision", "revealed",
     "toolbarVisible", "topologyRevision", "windowGeneration", "windowId",
     "workspaceBackground"
-  ]) && (platform === "macos" ||
+  ]) && (platform !== "macos" ||
+    exactKeys(native.appKit?.minimumFrameSize, ["width", "height"]) &&
+    [native.appKit.minimumFrameSize.width, native.appKit.minimumFrameSize.height].every(
+      value => typeof value === "number" && Number.isFinite(value) && value > 0)) && (platform === "macos" ||
     ["material", "black"].includes(native.workspaceBackground)) &&
     observation.hostKind === (platform === "macos" ? "appkit" : "windows") &&
     native.windowId === observation.windowId &&
@@ -105,7 +108,7 @@ function isHidden(observation, platform) {
       : [])
   ];
   return exactKeys(appKit, [
-    "accessoryOnScreen", "accessoryVisibleHeight", "addButtonOnScreen",
+    "accessoryOnScreen", "accessoryVisibleHeight", "addButtonOnScreen", "minimumFrameSize",
     "fullscreenHostReady", "presentationAutoHideToolbar", "revealLocked",
     "tabCloseButtonEnabledCount", "tabStripOnScreen", "toolbarPinned",
     "visibleTrafficLightCount", "windowNameOnScreen",

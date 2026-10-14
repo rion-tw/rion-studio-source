@@ -1,6 +1,7 @@
 import { browser } from "@wdio/globals";
 import {
   electronDesktopE2eGameWindowRuntime,
+  electronDesktopE2eFullscreenToolbarRuntime,
   type ElectronDesktopE2eFullscreenToolbarRuntimeInspection,
   type ElectronDesktopE2eGameWindowRuntimeInspection
 } from "./electron-driver";
@@ -33,7 +34,23 @@ function exactOwner(inspection: Inspection, runtime: ElectronDesktopE2eGameWindo
   return owner;
 }
 
-/** Read outer-frame constraints from the exact live BaseWindow; never mutate it. */
+function exactMinimum(inspection: Inspection, current: ElectronDesktopE2eFullscreenToolbarRuntimeInspection) {
+  const minimum = current.native.appKit?.minimumFrameSize;
+  const expected = inspection.native.appKit?.minimumFrameSize;
+  if (current.hostKind !== "appkit" || current.presentation !== "normal" ||
+      current.windowId !== inspection.windowId || current.windowGeneration !== inspection.windowGeneration ||
+      current.topologyRevision !== inspection.topologyRevision ||
+      current.native.windowId !== current.windowId ||
+      current.native.windowGeneration !== current.windowGeneration ||
+      current.native.topologyRevision !== current.topologyRevision || !minimum || !expected ||
+      ![minimum.width, minimum.height].every(value => Number.isFinite(value) && value > 0) ||
+      minimum.width !== expected.width || minimum.height !== expected.height) {
+    throw new Error("Mac resize constraints require the exact current AppKit minimum frame size");
+  }
+  return minimum;
+}
+
+/** Read actual NSWindow constraints through its fenced native controller; never mutate it. */
 export async function readMacosRuntimeWindowConstraints(input: Readonly<{
   inspection: Inspection; processId: number;
 }>) {
@@ -42,6 +59,8 @@ export async function readMacosRuntimeWindowConstraints(input: Readonly<{
   }
   const before = exactOwner(input.inspection,
     await electronDesktopE2eGameWindowRuntime(input.inspection.windowId));
+  const minimum = exactMinimum(input.inspection,
+    await electronDesktopE2eFullscreenToolbarRuntime(input.inspection.windowId));
   const native = await browser.electron.execute((electron, target) => {
     const host = electron.BaseWindow.fromId(target.parentNativeHostId);
     const assertLive = () => {
@@ -56,18 +75,18 @@ export async function readMacosRuntimeWindowConstraints(input: Readonly<{
     if (!host) throw new Error("Mac resize constraints have no native BaseWindow");
     const handle = host.getNativeWindowHandle().toString("hex");
     if (!handle || /^0+$/u.test(handle)) throw new Error("Mac resize constraints have no native handle");
-    const minimum = host.getMinimumSize();
     const frame = host.getBounds();
     const afterHandle = host.getNativeWindowHandle().toString("hex");
     assertLive();
-    if (afterHandle !== handle || minimum.length !== 2 ||
-        !minimum.every(value => Number.isSafeInteger(value) && value > 0) ||
+    if (afterHandle !== handle ||
         ![frame.width, frame.height].every(value => Number.isSafeInteger(value) && value > 0)) {
       throw new Error("Mac resize constraints native readback changed or is invalid");
     }
     return { processId: process.pid, parentNativeHostId: host.id, nativeWindowHandle: handle,
-      minimumWidth: minimum[0], minimumHeight: minimum[1], frame };
+      frame };
   }, { processId: input.processId, parentNativeHostId: before.parentNativeHostId });
+  exactMinimum(input.inspection,
+    await electronDesktopE2eFullscreenToolbarRuntime(input.inspection.windowId));
   const after = exactOwner(input.inspection,
     await electronDesktopE2eGameWindowRuntime(input.inspection.windowId));
   if (after.parentNativeHostId !== before.parentNativeHostId ||
@@ -77,6 +96,7 @@ export async function readMacosRuntimeWindowConstraints(input: Readonly<{
       after.coreTabIds.some((tabId, index) => tabId !== before.coreTabIds[index])) {
     throw new Error("Mac resize constraints Core/AppKit owner changed during the native read");
   }
-  return { ...native, windowId: after.windowId, windowGeneration: after.windowGeneration,
+  return { ...native, minimumWidth: minimum.width, minimumHeight: minimum.height,
+    windowId: after.windowId, windowGeneration: after.windowGeneration,
     topologyRevision: after.topologyRevision, appKitIdentity: after.appKitIdentity! };
 }

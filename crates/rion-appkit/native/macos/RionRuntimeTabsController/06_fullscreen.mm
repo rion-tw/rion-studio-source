@@ -521,6 +521,80 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
   if (_destroyed || !_window || !_toolbar) return NO;
 
   const NSSize minimumFrameSize = _window.minSize;
+  if ([[NSProcessInfo processInfo].environment[
+          @"RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC"] isEqualToString:@"1"]) {
+    const auto size = [](NSSize value) -> NSDictionary * {
+      return @{ @"width" : @(value.width), @"height" : @(value.height) };
+    };
+    const auto rect = [](NSRect value) -> NSDictionary * {
+      return @{ @"x" : @(NSMinX(value)), @"y" : @(NSMinY(value)),
+                @"width" : @(NSWidth(value)), @"height" : @(NSHeight(value)) };
+    };
+    const NSSize contentMinimum = _window.contentMinSize;
+    const NSRect contentMinimumRect =
+        NSMakeRect(0, 0, contentMinimum.width, contentMinimum.height);
+    const NSRect frame = _window.frame;
+    const NSRect contentRect = [_window contentRectForFrameRect:frame];
+    const NSRect rawMinimumCandidate = NSMakeRect(
+        NSMinX(frame), NSMaxY(frame) - minimumFrameSize.height,
+        minimumFrameSize.width, minimumFrameSize.height);
+    NSView *contentView = _window.contentView;
+    NSView *frameView = contentView.superview;
+    NSScreen *screen = _window.screen;
+    NSMutableArray *contentSubviews = [NSMutableArray array];
+    for (NSView *view in contentView.subviews) {
+      [contentSubviews addObject:@{
+        @"class" : NSStringFromClass(object_getClass(view)),
+        @"pointer" : [NSString stringWithFormat:@"%p", (__bridge void *)view],
+        @"sameWindow" : @(view.window == _window),
+        @"frame" : rect(view.frame), @"bounds" : rect(view.bounds)
+      }];
+    }
+    NSDictionary *evidence = @{
+      @"windowId" : _windowID ?: @"",
+      @"mainThread" : @([NSThread isMainThread]),
+      @"windowNumber" : @(_window.windowNumber),
+      @"windowPointer" : [NSString stringWithFormat:@"%p", (__bridge void *)_window],
+      @"controllerPointer" : [NSString stringWithFormat:@"%p", (__bridge void *)self],
+      @"contentViewPointer" : [NSString stringWithFormat:@"%p", (__bridge void *)contentView],
+      @"windowClass" : NSStringFromClass(object_getClass(_window)),
+      @"frameViewClass" : frameView ? NSStringFromClass(object_getClass(frameView)) : @"nil",
+      @"contentViewClass" : contentView ? NSStringFromClass(object_getClass(contentView)) : @"nil",
+      @"styleMask" : @(_window.styleMask),
+      @"toolbarStyle" : @(_window.toolbarStyle),
+      @"toolbarVisible" : @(_toolbar.visible),
+      @"inLiveResize" : @(_window.inLiveResize),
+      @"cornerResizeActive" : @(_workspaceDividerOverlay.cornerResizeActive),
+      @"overlayPointer" : [NSString stringWithFormat:@"%p", (__bridge void *)_workspaceDividerOverlay],
+      @"overlayFrame" : _workspaceDividerOverlay ? rect(_workspaceDividerOverlay.frame) : (id)NSNull.null,
+      @"overlayBounds" : _workspaceDividerOverlay ? rect(_workspaceDividerOverlay.bounds) : (id)NSNull.null,
+      @"overlayLayoutOrigin" : _workspaceDividerOverlay
+          ? @{ @"x" : @(_workspaceDividerOverlay.layoutOrigin.x),
+               @"y" : @(_workspaceDividerOverlay.layoutOrigin.y) } : (id)NSNull.null,
+      @"minSize" : size(minimumFrameSize),
+      @"contentMinSize" : size(contentMinimum),
+      @"contentMinimumRect" : rect(contentMinimumRect),
+      @"instanceContentMinimumFrameRect" : rect([_window frameRectForContentRect:contentMinimumRect]),
+      @"classContentMinimumFrameRect" : rect([NSWindow frameRectForContentRect:contentMinimumRect
+                                                                  styleMask:_window.styleMask]),
+      @"windowFrame" : rect(frame),
+      @"contentLayoutRect" : rect(_window.contentLayoutRect),
+      @"instanceContentRectForCurrentFrame" : rect(contentRect),
+      @"instanceCurrentFrameRoundtrip" : rect([_window frameRectForContentRect:contentRect]),
+      @"contentViewFrame" : contentView ? rect(contentView.frame) : (id)NSNull.null,
+      @"contentViewBounds" : contentView ? rect(contentView.bounds) : (id)NSNull.null,
+      @"contentSubviews" : contentSubviews,
+      @"rawMinimumCandidate" : rect(rawMinimumCandidate),
+      @"screenFrame" : screen ? rect(screen.frame) : (id)NSNull.null,
+      @"constrainedRawMinimumCandidate" : screen
+          ? rect([_window constrainFrameRect:rawMinimumCandidate toScreen:screen]) : (id)NSNull.null
+    };
+    NSData *encoded = [NSJSONSerialization dataWithJSONObject:evidence options:0 error:nil];
+    NSString *json = encoded ? [[NSString alloc] initWithData:encoded
+                                                   encoding:NSUTF8StringEncoding]
+                            : @"{\"serializationError\":true}";
+    NSLog(@"RION_APPKIT_CONSTRAINT_DIAGNOSTIC %@", json);
+  }
   if (!std::isfinite(minimumFrameSize.width) || minimumFrameSize.width <= 0 ||
       !std::isfinite(minimumFrameSize.height) || minimumFrameSize.height <= 0) {
     return NO;

@@ -372,7 +372,7 @@ jobs:
         run: exit 1
 
   electron-platform-validation:
-    name: ${{ matrix.name }} Electron Chromium package validation
+    name: ${{ matrix.name }} ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && matrix.os == 'macos-latest' && 'AppKit constraints diagnostics (NOT quality/release)' || 'Electron Chromium package validation' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -428,9 +428,25 @@ jobs:
         if: runner.os == 'macOS'
         id: chromium_macos_appkit_smoke
         timeout-minutes: 90
-        run: pnpm run test:e2e:desktop:chromium:macos-appkit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF" == "refs/heads/codex/appkit-constraints-evidence" ]]; then
+            pnpm run test:e2e:desktop:chromium:macos-appkit -- --phase=chromium-workspace-gap-dividers-seed
+          else
+            pnpm run test:e2e:desktop:chromium:macos-appkit
+          fi
         env:
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+          RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS' && '1' || '0' }}
+
+      - name: Summarize isolated AppKit constraint evidence
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          printf '%s\n' 'Diagnostic-only AppKit native constraint evidence; NOT quality or release evidence.' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' 'Focused gap-divider seed retains its existing prerequisites, native input, assertions, and failure verdict. Package, ABI, updater, and distribution validation are intentionally excluded only from this manual diagnostic branch.' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' 'Shell outcome: ${{ steps.chromium_macos_appkit_smoke.outcome }}' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run Windows Chromium shell E2E
         if: runner.os == 'Windows'
@@ -464,7 +480,7 @@ jobs:
             !.desktop-e2e-artifacts/**/user-data/**
 
       - name: Build macOS Electron Chromium release artifacts
-        if: runner.os == 'macOS'
+        if: ${{ runner.os == 'macOS' && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS') }}
         run: pnpm run package:electron:mac
 
       - name: Build Windows Electron Chromium release artifacts
@@ -473,15 +489,18 @@ jobs:
 
       - name: Build previous-version updater fixtures
         run: pnpm run build:electron-updater:previous-fixtures
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS') }}
 
       - name: Verify Chromium extension isolation and fresh-process persistence
         run: pnpm run verify:electron-extensions
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS') }}
 
       - name: Verify exact Electron, Chromium, Rust Core, and AppKit ABI runtime
         run: pnpm run verify:electron-runtime
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS') }}
 
       - name: Verify macOS Electron package structure
-        if: runner.os == 'macOS'
+        if: ${{ runner.os == 'macOS' && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS') }}
         run: pnpm run verify:electron-package -- --app "release/electron/mac-arm64/Rion Studio.app"
 
       - name: Verify Windows Electron package structure
@@ -489,7 +508,7 @@ jobs:
         run: pnpm run verify:electron-package -- --app "release/electron/win-unpacked"
 
       - name: Verify macOS Electron distribution payloads
-        if: runner.os == 'macOS'
+        if: ${{ runner.os == 'macOS' && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -560,7 +579,7 @@ jobs:
           }
 
       - name: Verify packaged macOS Rust-owned updater transaction
-        if: runner.os == 'macOS'
+        if: ${{ runner.os == 'macOS' && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS') }}
         timeout-minutes: 15
         run: >-
           pnpm run test:electron-updater:packaged --
@@ -590,7 +609,7 @@ jobs:
             )
 
       - name: Run packaged macOS AppKit Chromium Role black-box E2E
-        if: runner.os == 'macOS'
+        if: ${{ runner.os == 'macOS' && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS') }}
         id: packaged_chromium_macos_appkit_smoke
         timeout-minutes: 20
         run: pnpm run test:e2e:desktop:electron:packaged -- --app "release/electron/mac-arm64/Rion Studio.app"
@@ -616,7 +635,7 @@ jobs:
             )
 
       - name: Upload packaged Chromium Role black-box E2E diagnostics
-        if: always()
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: packaged-chromium-role-black-box-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}

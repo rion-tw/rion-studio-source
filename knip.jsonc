@@ -62,6 +62,11 @@
     "tailwindcss"
   ],
   "ignoreIssues": {
+    // Supported Windows hosts provide PowerShell; this native fixture does not
+    // resolve pwsh.exe from npm dependencies.
+    "tests/support/windowsJobDiagnosticFixture.ts": [
+      "binaries"
+    ],
     // GitHub-hosted runners provide jq; it is not an npm dependency.
     ".github/workflows/electron-production-provisional-recovery.yml": [
       "binaries"

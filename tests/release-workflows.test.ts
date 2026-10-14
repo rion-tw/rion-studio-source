@@ -1109,7 +1109,7 @@ describe("desktop shell migration workflows", () => {
 
   it("publishes source-free assets only after draft verification", async () => {
     const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
-    const draftIndex = workflow.indexOf("gh release create");
+    const draftIndex = workflow.indexOf('gh api --method POST "repos/${PUBLIC_RELEASE_REPOSITORY}/releases"');
     const uploadIndex = workflow.indexOf("gh release upload");
     const publishIndex = workflow.indexOf("--draft=false --latest=false");
     const verifyIndex = workflow.indexOf("target-published.json");

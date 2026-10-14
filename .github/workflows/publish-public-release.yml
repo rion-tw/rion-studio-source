@@ -522,10 +522,47 @@ jobs:
           resolve_target_release "${work_root}/target-matches.json"
           target_count="$(jq 'length' "${work_root}/target-matches.json")"
           if test "${target_count}" = "0"; then
-            gh release create "${TAG}" --repo "${PUBLIC_RELEASE_REPOSITORY}" \
-              --draft --latest=false --title "${TAG}" \
-              --notes-file "${marker_source}" --verify-tag
-            resolve_target_release "${work_root}/target-matches.json"
+            # A pending draft may be absent from the REST list. Resolve its
+            # exact tag association before attempting a new creation.
+            gh api graphql -f owner=rion-tw -f name=rion-studio -f tag="${TAG}" \
+              -f query='query($owner: String!, $name: String!, $tag: String!) {
+                repository(owner: $owner, name: $name) {
+                  release(tagName: $tag) { databaseId tagName }
+                }
+              }' > "${work_root}/pending-release-response.json"
+            jq -e '.data.repository | type == "object" and has("release")' \
+              "${work_root}/pending-release-response.json" >/dev/null
+            jq '.data.repository.release' "${work_root}/pending-release-response.json" \
+              > "${work_root}/pending-release.json"
+            if test "$(jq -r 'type' "${work_root}/pending-release.json")" != "null"; then
+              test "$(jq -r .tagName "${work_root}/pending-release.json")" = "${TAG}"
+              pending_id="$(jq -r .databaseId "${work_root}/pending-release.json")"
+              [[ "${pending_id}" =~ ^[1-9][0-9]*$ ]] || exit 1
+              gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/${pending_id}" \
+                --jq '[.]' > "${work_root}/target-matches.json"
+              test "$(jq -r '.[0].id' "${work_root}/target-matches.json")" = "${pending_id}"
+            else
+              # The POST acknowledgement owns the created ID; a subsequent
+              # list response is not authoritative for that creation.
+              gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/git/ref/tags/${TAG}" \
+                > "${work_root}/create-release-tag.json"
+              test "$(jq -r .ref "${work_root}/create-release-tag.json")" = "refs/tags/${TAG}"
+              test "$(jq -r .object.type "${work_root}/create-release-tag.json")" = "commit"
+              tag_commit="$(jq -r .object.sha "${work_root}/create-release-tag.json")"
+              [[ "${tag_commit}" =~ ^[0-9a-f]{40}$ ]] || exit 1
+              jq -n --arg tag "${TAG}" --rawfile body "${marker_source}" \
+                --arg target "${tag_commit}" \
+                '{tag_name: $tag, name: $tag, body: $body, draft: true,
+                  prerelease: false, make_latest: "false", target_commitish: $target}' \
+                > "${work_root}/create-release-input.json"
+              gh api --method POST "repos/${PUBLIC_RELEASE_REPOSITORY}/releases" \
+                --input "${work_root}/create-release-input.json" \
+                --jq '[.]' > "${work_root}/target-matches.json"
+              jq -e --arg tag "${TAG}" \
+                'length == 1 and .[0].tag_name == $tag and
+                 .[0].draft == true and .[0].prerelease == false' \
+                "${work_root}/target-matches.json" >/dev/null
+            fi
             target_count="$(jq 'length' "${work_root}/target-matches.json")"
           fi
           test "${target_count}" = "1" || {
@@ -533,7 +570,7 @@ jobs:
             exit 1
           }
           target_id="$(jq -r '.[0].id' "${work_root}/target-matches.json")"
-          [[ "${target_id}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${target_id}" =~ ^[1-9][0-9]*$ ]] || exit 1
           gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/${target_id}" \
             > "${work_root}/target-before-stage.json"
           test "$(jq -r .id "${work_root}/target-before-stage.json")" = "${target_id}"

@@ -74,6 +74,11 @@ acknowledgement and fresh readback rules remain enforced. Ordinary publication
 requires a strictly newer target; latest restoration may select an older verified
 Electron release. Neither path may produce a new Tauri target.
 
+Public draft staging resolves an existing pending tag association to its exact
+release ID. New draft creation retains the REST POST acknowledgement ID instead
+of depending on immediate visibility in the release list. Exact ID, tag, notes,
+asset bytes, and published-state checks still precede latest mutation.
+
 New releases include `Rion.Studio-source.tar.gz` in the exact eight-file public
 inventory and checksum document. Snapshot, readback and restore retain the exact
 seven-file inventory of previously published releases that predate this archive;

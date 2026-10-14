@@ -22,7 +22,9 @@ async function witness(processId = 731, phase = "chromium-workspace-gap-dividers
 }
 const row = (processID: number, prefix = appKitConstraintPrefixes[0]!) => ({
   processID, timestamp: "2026-10-14 22:00:00.000000+0000",
-  eventMessage: prefix+JSON.stringify({ windowPointer: "0x1234", minSize: { width: 640, height: 512 } })
+  eventMessage: prefix+JSON.stringify({ type: "chunk", id: "10000000-0000-4000-8000-000000000001",
+    index: 0, count: 1, data: Buffer.from(JSON.stringify({ windowPointer: "0x1234",
+      minSize: { width: 640, height: 512 } })).toString("base64") })
 });
 const options = (records: unknown[] = [row(731)]) => ({
   artifactRoot: root, platform: "darwin" as const,
@@ -85,9 +87,37 @@ describe("exact AppKit native diagnostic log collection", () => {
   it("rejects truncated or redacted native JSON while preserving the raw scoped rows", async () => {
     await witness();
     const input = options([{ ...row(731), eventMessage: appKitConstraintPrefixes[0]+"<private>" }]);
-    await expect(collectAppKitConstraintDiagnostics(input)).rejects.toThrow("incomplete JSON payloads");
+    await expect(collectAppKitConstraintDiagnostics(input)).rejects.toThrow("fragment assembly failed");
     const report = JSON.parse(await readFile(resolve(root, "appkit-constraint-native-logs", "collection-report.json"), "utf8"));
-    expect(report).toMatchObject({ rowCount: 1, invalidPayloadCount: 1 });
+    expect(report).toMatchObject({ rowCount: 0, fragmentCount: 1, invalidPayloadCount: 1 });
+  });
+
+  it("saves complete frame evidence and raw fragments before rejecting an incomplete corner snapshot", async () => {
+    await witness();
+    const cornerPrefix = appKitConstraintPrefixes[1]!;
+    const corner = row(731, cornerPrefix);
+    const envelope = JSON.parse(corner.eventMessage.slice(cornerPrefix.length));
+    corner.eventMessage = cornerPrefix+JSON.stringify({ ...envelope, count: 2 });
+    const records = [row(731), corner];
+    await expect(collectAppKitConstraintDiagnostics(options(records))).rejects.toThrow("fragment assembly failed");
+    const output = resolve(root, "appkit-constraint-native-logs");
+    const stored = JSON.parse(await readFile(resolve(output, "native-constraint-rows.json"), "utf8"));
+    expect(stored).toMatchObject([{ processId: 731, prefix: appKitConstraintPrefixes[0]!.trimEnd(),
+      data: { windowPointer: "0x1234", minSize: { width: 640, height: 512 } } }]);
+    const raw = JSON.parse(await readFile(resolve(output, "native-constraint-fragments.json"), "utf8"));
+    expect(raw.map((value: { eventMessage: string }) => value.eventMessage))
+      .toEqual(records.map(value => value.eventMessage));
+    const assembly = JSON.parse(await readFile(resolve(output, "assembly-report.json"), "utf8"));
+    expect(assembly).toMatchObject({ completedSnapshotCount: 1, failedSnapshotCount: 1, errorCount: 1 });
+    const report = JSON.parse(await readFile(resolve(output, "collection-report.json"), "utf8"));
+    expect(report).toMatchObject({ rowCount: 1, fragmentCount: 2,
+      prefixCounts: { [appKitConstraintPrefixes[0]!.trimEnd()]: 1, [cornerPrefix.trimEnd()]: 0 } });
+  });
+
+  it("retains complete frame evidence when the shell failed before reaching any corner input", async () => {
+    await witness();
+    await expect(collectAppKitConstraintDiagnostics(options())).resolves.toMatchObject({ rowCount: 1,
+      prefixCounts: { [appKitConstraintPrefixes[0]!.trimEnd()]: 1, [appKitConstraintPrefixes[1]!.trimEnd()]: 0 } });
   });
 
   it("preserves an external native log read failure without retry or fallback", async () => {

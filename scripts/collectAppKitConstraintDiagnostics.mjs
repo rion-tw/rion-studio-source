@@ -10,6 +10,75 @@ export const appKitConstraintPrefixes = Object.freeze([
   "RION_APPKIT_CONSTRAINT_DIAGNOSTIC ", "RION_APPKIT_CORNER_CONSTRAINT_DIAGNOSTIC "
 ]);
 
+/** Every snapshot is admitted only after all of its exact scoped fragments validate. */
+export function assembleAppKitConstraintFragments(fragments, processIds) {
+  const groups = new Map();
+  const errors = [];
+  for (const [position, fragment] of fragments.entries()) {
+    const prefix = appKitConstraintPrefixes.find(value => fragment?.eventMessage?.startsWith(value));
+    if (!processIds.includes(fragment?.processId) || !prefix) {
+      errors.push(`Fragment ${position} has no admitted PID/prefix scope`);
+      continue;
+    }
+    let chunk;
+    try { chunk = JSON.parse(fragment.eventMessage.slice(prefix.length)); }
+    catch { errors.push(`Fragment ${position} has incomplete chunk JSON`); continue; }
+    if (!chunk || typeof chunk !== "object" || Array.isArray(chunk) ||
+        Object.keys(chunk).sort().join(",") !== "count,data,id,index,type" || chunk.type !== "chunk" ||
+        typeof chunk.id !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(chunk.id) ||
+        !Number.isSafeInteger(chunk.count) || chunk.count < 1 || chunk.count > 128 ||
+        !Number.isSafeInteger(chunk.index) || chunk.index < 0 || chunk.index >= chunk.count ||
+        typeof chunk.data !== "string" || chunk.data.length < 1 || chunk.data.length > 320 ||
+        !/^[A-Za-z0-9+/]+={0,2}$/u.test(chunk.data)) {
+      errors.push(`Fragment ${position} has an invalid chunk envelope`);
+      continue;
+    }
+    const key = `${fragment.processId}|${prefix}|${chunk.id}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { processId: fragment.processId, prefix, id: chunk.id, count: chunk.count,
+        chunks: new Map(), invalid: false };
+      groups.set(key, group);
+    }
+    if (group.count !== chunk.count) {
+      group.invalid = true;
+      errors.push(`Snapshot ${key} has conflicting chunk counts`);
+    }
+    if (group.chunks.has(chunk.index)) {
+      group.invalid = true;
+      errors.push(`Snapshot ${key} has ${group.chunks.get(chunk.index).data === chunk.data ? "duplicate" : "conflicting"} chunk ${chunk.index}`);
+    } else group.chunks.set(chunk.index, { ...fragment, data: chunk.data });
+  }
+  const rows = [];
+  const snapshots = [];
+  for (const [key, group] of groups) {
+    const snapshot = { processId: group.processId, prefix: group.prefix.trimEnd(), id: group.id,
+      expectedCount: group.count, receivedCount: group.chunks.size, status: "failed" };
+    snapshots.push(snapshot);
+    if (group.invalid) continue;
+    if (group.chunks.size !== group.count) {
+      errors.push(`Snapshot ${key} is missing chunks`);
+      continue;
+    }
+    try {
+      const base64 = Array.from({ length: group.count }, (_, index) => group.chunks.get(index).data).join("");
+      const bytes = Buffer.from(base64, "base64");
+      if (bytes.length > 16*1024 || bytes.toString("base64") !== base64) throw new Error("invalid or oversized Base64 payload");
+      const json = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      const data = JSON.parse(json);
+      if (!data || typeof data !== "object" || Array.isArray(data) || data.serializationError === true) {
+        throw new Error("invalid native JSON or explicit serialization error");
+      }
+      snapshot.status = "complete";
+      rows.push({ timestamp: group.chunks.get(0).timestamp, processId: group.processId,
+        prefix: group.prefix.trimEnd(), id: group.id, data });
+    } catch { errors.push(`Snapshot ${key} has invalid Base64, UTF-8, JSON, or native serialization failure`); }
+  }
+  return { rows, summary: { fragmentCount: fragments.length, completedSnapshotCount: rows.length,
+    failedSnapshotCount: snapshots.filter(value => value.status !== "complete").length,
+    errorCount: errors.length, errors, snapshots } };
+}
+
 async function nativePrefixes(addon) {
   const child = spawn("/usr/bin/strings", [addon], { stdio: ["ignore", "pipe", "pipe"] });
   const found = new Set();
@@ -69,24 +138,21 @@ export async function collectAppKitConstraintDiagnostics(input) {
     "--last", "15m", "--predicate", predicate], { timeout: 60_000, maxBuffer: 64*1024*1024 });
   const records = JSON.parse(stdout);
   if (!Array.isArray(records)) throw new Error("Native AppKit unified log returned no JSON row array");
-  const rows = records.filter(row => processIds.includes(row?.processID) &&
+  const fragments = records.filter(row => processIds.includes(row?.processID) &&
     typeof row.eventMessage === "string" && appKitConstraintPrefixes.some(prefix => row.eventMessage.startsWith(prefix)))
     .map(row => ({ timestamp: row.timestamp, processId: row.processID, eventMessage: row.eventMessage }));
-  await writeFile(resolve(output, "native-constraint-rows.json"), JSON.stringify(rows, null, 2)+"\n");
-  const invalidPayloadCount = rows.filter(row => {
-    try {
-      const prefix = appKitConstraintPrefixes.find(value => row.eventMessage.startsWith(value));
-      const value = JSON.parse(row.eventMessage.slice(prefix.length));
-      return value === null || typeof value !== "object" || Array.isArray(value) || value.serializationError === true;
-    } catch { return true; }
-  }).length;
-  const summary = { witnesses, processIds, rowCount: rows.length,
-    invalidPayloadCount,
+  await writeFile(resolve(output, "native-constraint-fragments.json"), JSON.stringify(fragments, null, 2)+"\n");
+  const assembly = assembleAppKitConstraintFragments(fragments, processIds);
+  await writeFile(resolve(output, "native-constraint-rows.json"), JSON.stringify(assembly.rows, null, 2)+"\n");
+  await writeFile(resolve(output, "assembly-report.json"), JSON.stringify(assembly.summary, null, 2)+"\n");
+  const summary = { witnesses, processIds, rowCount: assembly.rows.length,
+    invalidPayloadCount: assembly.summary.errorCount,
+    fragmentCount: fragments.length,
     prefixCounts: Object.fromEntries(appKitConstraintPrefixes.map(prefix =>
-      [prefix.trimEnd(), rows.filter(row => row.eventMessage.startsWith(prefix)).length])) };
+      [prefix.trimEnd(), assembly.rows.filter(row => row.prefix === prefix.trimEnd()).length])) };
   await writeFile(resolve(output, "collection-report.json"), JSON.stringify(summary, null, 2)+"\n");
-  if (rows.length === 0) throw new Error("No native AppKit constraint diagnostic rows were captured");
-  if (invalidPayloadCount !== 0) throw new Error("Native AppKit constraint diagnostic rows have incomplete JSON payloads");
+  if (assembly.summary.errorCount !== 0) throw new Error("Native AppKit constraint diagnostic fragment assembly failed");
+  if (assembly.rows.length === 0) throw new Error("No native AppKit constraint diagnostic rows were captured");
   return summary;
 }
 

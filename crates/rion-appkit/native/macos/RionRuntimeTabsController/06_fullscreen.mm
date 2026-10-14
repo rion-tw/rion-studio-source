@@ -593,12 +593,7 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
       @"constrainedRawMinimumCandidate" : screen
           ? rect([_window constrainFrameRect:rawMinimumCandidate toScreen:screen]) : (id)NSNull.null
     };
-    NSData *encoded = [NSJSONSerialization dataWithJSONObject:evidence options:0 error:nil];
-    NSString *json = encoded ? [[NSString alloc] initWithData:encoded
-                                                   encoding:NSUTF8StringEncoding]
-                            : @"{\"serializationError\":true}";
-    NSString *record = [@"RION_APPKIT_CONSTRAINT_DIAGNOSTIC " stringByAppendingString:json];
-    os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "%{public}s", record.UTF8String);
+    RionEmitAppKitConstraintDiagnostic(@"RION_APPKIT_CONSTRAINT_DIAGNOSTIC ", evidence);
   }
   if (!std::isfinite(minimumFrameSize.width) || minimumFrameSize.width <= 0 ||
       !std::isfinite(minimumFrameSize.height) || minimumFrameSize.height <= 0) {

@@ -1,4 +1,14 @@
 export const appKitConstraintPrefixes: readonly string[];
+export function assembleAppKitConstraintFragments(fragments: readonly {
+  timestamp?: string; processId: number; eventMessage: string;
+}[], processIds: readonly number[]): {
+  rows: { timestamp?: string; processId: number; prefix: string; id: string; data: Record<string, unknown> }[];
+  summary: {
+    fragmentCount: number; completedSnapshotCount: number; failedSnapshotCount: number;
+    errorCount: number; errors: string[];
+    snapshots: { processId: number; prefix: string; id: string; expectedCount: number; receivedCount: number; status: string }[];
+  };
+};
 export function collectAppKitConstraintDiagnostics(input: {
   artifactRoot: string;
   nativeAddonPath?: string;
@@ -10,5 +20,6 @@ export function collectAppKitConstraintDiagnostics(input: {
   processIds: number[];
   rowCount: number;
   invalidPayloadCount: number;
+  fragmentCount: number;
   prefixCounts: Record<string, number>;
 }>;

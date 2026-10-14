@@ -1,5 +1,35 @@
 #if defined(RION_DESKTOP_E2E)
 #include <os/log.h>
+
+static void RionEmitAppKitConstraintDiagnostic(
+    NSString * _Nonnull prefix, NSDictionary * _Nonnull evidence) {
+  NSData *encoded = [NSJSONSerialization dataWithJSONObject:evidence options:0 error:nil];
+  if (!encoded || encoded.length > 16 * 1024) {
+    NSString *failure = encoded ? @"{\"serializationError\":true,\"reason\":\"payload-too-large\"}"
+                               : @"{\"serializationError\":true,\"reason\":\"encoding\"}";
+    encoded = [failure dataUsingEncoding:NSUTF8StringEncoding];
+  }
+  NSString *base64 = [encoded base64EncodedStringWithOptions:0];
+  NSString *identifier = NSUUID.UUID.UUIDString;
+  const NSUInteger chunkSize = 320;
+  const NSUInteger count = (base64.length + chunkSize - 1) / chunkSize;
+  for (NSUInteger index = 0; index < count; ++index) {
+    const NSUInteger offset = index * chunkSize;
+    NSString *data = [base64 substringWithRange:NSMakeRange(offset,
+        MIN(chunkSize, base64.length - offset))];
+    NSDictionary *chunk = @{ @"type" : @"chunk", @"id" : identifier,
+                             @"index" : @(index), @"count" : @(count), @"data" : data };
+    NSData *wrapper = [NSJSONSerialization dataWithJSONObject:chunk
+        options:NSJSONWritingWithoutEscapingSlashes error:nil];
+    NSString *json = wrapper ? [[NSString alloc] initWithData:wrapper encoding:NSUTF8StringEncoding] : nil;
+    NSString *record = json ? [prefix stringByAppendingString:json]
+                           : [prefix stringByAppendingString:@"{\"serializationError\":true,\"reason\":\"chunk-encoding\"}"];
+    if ([record lengthOfBytesUsingEncoding:NSUTF8StringEncoding] >= 700) {
+      record = [prefix stringByAppendingString:@"{\"serializationError\":true,\"reason\":\"chunk-envelope-too-large\"}"];
+    }
+    os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "%{public}s", record.UTF8String);
+  }
+}
 #endif
 
 // The window resize border wins over a divider ending at the content edge.
@@ -137,11 +167,7 @@ static void RionLogWorkspaceCornerConstraintDiagnostic(
     @"overlayBounds" : rect(overlay.bounds),
     @"overlayLayoutOrigin" : @{ @"x" : @(overlay.layoutOrigin.x), @"y" : @(overlay.layoutOrigin.y) }
   };
-  NSData *encoded = [NSJSONSerialization dataWithJSONObject:evidence options:0 error:nil];
-  NSString *json = encoded ? [[NSString alloc] initWithData:encoded encoding:NSUTF8StringEncoding]
-                          : @"{\"serializationError\":true}";
-  NSString *record = [@"RION_APPKIT_CORNER_CONSTRAINT_DIAGNOSTIC " stringByAppendingString:json];
-  os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "%{public}s", record.UTF8String);
+  RionEmitAppKitConstraintDiagnostic(@"RION_APPKIT_CORNER_CONSTRAINT_DIAGNOSTIC ", evidence);
 }
 #endif
 

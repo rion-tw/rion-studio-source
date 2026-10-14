@@ -95,7 +95,7 @@ describe("native AppKit diagnostic authority boundaries", () => {
       .toMatch(/#if defined\(RION_DESKTOP_E2E\)\s*$/u);
     expect(read).toContain('std::getenv("RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC")');
     expect(read).toContain('std::strcmp(diagnostic, "1") == 0');
-    expect(read).toContain('os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "%{public}s"');
+    expect(read).toContain('RionEmitAppKitConstraintDiagnostic(@"RION_APPKIT_CONSTRAINT_DIAGNOSTIC ", evidence)');
     expect(read).not.toContain("NSProcessInfo");
     expect(read).not.toMatch(/setFrame:|setContentSize:|setMinSize:|setContentMinSize:|\.minSize\s*=|\.contentMinSize\s*=/u);
     expect(read).not.toMatch(/\.title\b|session|userData|cookie|token/iu);
@@ -104,9 +104,22 @@ describe("native AppKit diagnostic authority boundaries", () => {
     expect(logger).toContain('std::getenv("RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC")');
     expect(logger).toContain('std::strcmp(diagnostic, "1") != 0');
     expect(logger).toContain('os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "%{public}s"');
+    expect(logger).toContain('RionEmitAppKitConstraintDiagnostic(@"RION_APPKIT_CORNER_CONSTRAINT_DIAGNOSTIC ", evidence)');
     expect(logger).not.toContain("NSProcessInfo");
     expect(logger).not.toMatch(/setFrame:|setContentSize:|setMinSize:|setContentMinSize:/u);
     expect(logger).not.toMatch(/\.title\b|session|userData|cookie|token/iu);
+  });
+
+  it("serializes each snapshot once and emits only bounded desktop-E2E Base64 fragments", () => {
+    const emitter = corner.slice(corner.indexOf("static void RionEmitAppKitConstraintDiagnostic"),
+      corner.indexOf("#endif"));
+    expect(emitter).toContain("encoded.length > 16 * 1024");
+    expect(emitter).toContain("base64EncodedStringWithOptions:0");
+    expect(emitter).toContain("NSUUID.UUID.UUIDString");
+    expect(emitter).toContain("chunkSize = 320");
+    expect(emitter).toContain("NSJSONWritingWithoutEscapingSlashes");
+    expect(emitter).toContain("lengthOfBytesUsingEncoding:NSUTF8StringEncoding] >= 700");
+    expect(emitter).not.toMatch(/setFrame:|setContentSize:|setMinSize:|setContentMinSize:|dispatch_after|NSTimer/u);
   });
 
   it("observes actual corner geometry on both sides of the existing native setter", () => {

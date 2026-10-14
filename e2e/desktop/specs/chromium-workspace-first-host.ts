@@ -164,7 +164,7 @@ async function exerciseGatedFirstWorkspaceHost(input: Input): Promise<void> {
         const normal = (await layout()).contentBounds;
         for (const rapid of [false,true]) {
           await resizeWorkspaceWindow({inspection:await inspect(input.windowId),edge:"bottomRight",rapid,
-            requireRequestedFrame:rapid ? "all" : undefined,
+            requireRequestedFrame:"all",
             // Keep the range inside the initial frame: the Windows CI display
             // is only 1024x768, but min -> near-normal -> normal still proves
             // that the content tracks the full native resize range.

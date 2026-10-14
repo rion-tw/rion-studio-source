@@ -72,6 +72,20 @@ Windows bundled-host separators, selected by both axis and Core divider index.
 Both terminal moves must update and persist only the Core-owned slot rects, and
 restart must restore their layout with the 16px setting and no shell errors.
 
+First-host resize evidence requires acknowledgement of the submitted native frame
+before comparing Chromium layout or capturing pixels. Each macOS corner-range
+step clamps the requested frame to the exact live Electron BaseWindow minimum
+frame size, read under window id, generation, AppKit identity, and object-instance
+fences. Windows retains its exact HWND `WM_GETMINMAXINFO` tracking constraints.
+Both paced minimum-to-large steps and rapid reversals submit one physical input
+stream and retain the actual pointer observation with the final frame receipt.
+An intermediate AX frame can precede processing of the final drag event even
+when the pointer has reached its destination. This `internal-only` harness
+reliability correction preserves both WORKSPACE-GAP-DIVIDERS-035 journeys, their
+complete resize matrices, and the coverage targets. Focused helper tests verify
+minimum clamping and receipt ownership; actual AppKit geometry and pixel
+acceptance still require the macOS seed/restart CI phases after helper changes.
+
 When explicitly run, the optional `chromium-*-hardware-extended` profiles require a real secondary
 display; equal scale factors are supported. On 2026-09-07 the owner removed the
 physical mixed-DPI acceptance requirement because suitable hardware is unavailable.

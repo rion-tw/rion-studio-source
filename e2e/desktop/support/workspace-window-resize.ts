@@ -5,6 +5,7 @@ import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs
 import { electronDesktopE2eProbe, type ElectronDesktopE2eFullscreenToolbarRuntimeInspection as Inspection } from "./electron-driver";
 import { focusVisibleMacosAppKitRuntime } from "./native-application-actions";
 import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
+import { readMacosRuntimeWindowConstraints } from "./macos-runtime-window-constraints";
 
 type Point = { x: number; y: number };
 type NativeFrame = Point & { width:number; height:number; windowX:number; windowY:number; minimumWidth?:number; minimumHeight?:number; dragFullWindows?:boolean };
@@ -19,15 +20,18 @@ export async function resizeWorkspaceWindow(input: {
   const nativeWindowHandle = input.inspection.nativeWindowHandle;
   if (platform === "macos") await focusVisibleMacosAppKitRuntime({ processId, windowId });
   else await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle: nativeWindowHandle! });
+  const constraints = platform === "macos"
+    ? await readMacosRuntimeWindowConstraints({ inspection: input.inspection, processId }) : undefined;
   const nativeSetting = { originalDragFullWindows: undefined as boolean | undefined };
   const action = async (phase: string, point: Point, expected?: Point): Promise<NativeFrame> => {
     const payload = { processId, windowId, nativeWindowHandle, phase, edge: input.edge, rapid: input.rapid ?? false, expected: expected ?? null, restoreDragFullWindows: nativeSetting.originalDragFullWindows ?? null, ...point };
     if (platform === "macos") {
       const request = resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "resize-request.json");
       await writeFile(request, JSON.stringify(payload));
-      const native = JSON.parse(await runWorkspaceSwift("workspace-window-resize", request));
+      const native = { ...JSON.parse(await runWorkspaceSwift("workspace-window-resize", request)),
+        minimumWidth: constraints!.minimumWidth, minimumHeight: constraints!.minimumHeight };
       await appendFile(resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "native-resize-events.jsonl"),
-        JSON.stringify({ ...payload, native })+"\n");
+        JSON.stringify({ ...payload, constraints, native })+"\n");
       return native;
     }
     const native = JSON.parse(await runEncodedPowerShellJson(String.raw`

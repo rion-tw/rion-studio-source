@@ -9,7 +9,10 @@ import {
   electronDesktopE2eProbe,
   type ElectronDesktopE2eGameWindowRuntimeInspection
 } from "../support/electron-driver";
-import { movePointerToWindowsRuntimeHostRevealEdge } from "../support/electron-role-surface";
+import {
+  movePointerToWindowsRuntimeContent,
+  movePointerToWindowsRuntimeHostRevealEdge
+} from "../support/electron-role-surface";
 import { movePointerToMacosFullscreenRevealEdge } from "../support/macos-appkit-ui";
 import { pressVisibleMacosApplicationShortcut } from "../support/native-application-actions";
 import {
@@ -274,6 +277,7 @@ async function revealVisibleFullscreenControls(windowId: string, platform: "maco
   if (platform === "macos") {
     await movePointerToMacosFullscreenRevealEdge(windowId);
   } else {
+    await movePointerToWindowsRuntimeContent(windowId);
     await movePointerToWindowsRuntimeHostRevealEdge(windowId);
   }
   await browser.waitUntil(async () => {
@@ -324,6 +328,10 @@ describe("Chromium permanent Game Window UI", () => {
       gameWindow = await waitForCreatedWindow(before);
       await renameThroughLabeledStandardInput(gameWindow);
       gameWindow = await waitForNamedWindow();
+      if (platform === "macos") {
+        // Native fitting must preserve this consumed display descriptor's owner.
+        expect(gameWindow.targetDisplay.fingerprint).toBeUndefined();
+      }
     } else {
       gameWindow = await waitForNamedWindow();
       const row = await $(`[data-selection-id='${gameWindow.id}']`);

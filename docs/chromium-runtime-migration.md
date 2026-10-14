@@ -1005,6 +1005,11 @@ revision without consuming the native move/resize placement sequence, so the
 next native placement event retains its independent ordering fence.
 AppKit native placement events persist their exact accepted placement and
 captured window snapshot through the same durable receipt boundary.
+Empty saved-window registration retains consumed display descriptors without a
+fingerprint when authoritative AppKit fitting persists a newer placement. The
+same saved identity, admitted display, current Core/native generation and
+revision, and empty tab cohort remain required; removing an existing fingerprint
+or changing display identity still rejects registration.
 Windows stages a saved maximized mode while its new host remains hidden;
 Electron's `maximize()` would otherwise reveal that provisional host. Native
 readback continues to report the actual normal mode during hydration, while an

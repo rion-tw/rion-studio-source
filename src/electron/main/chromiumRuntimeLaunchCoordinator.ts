@@ -199,13 +199,23 @@ function sameEmptySavedWindowIdentity(
   // Registration may precede the native placement event that upgrades legacy metadata.
   if (JSON.stringify(initial) === JSON.stringify(current) &&
       resolveSavedWindowDisplay(current, topology)?.id === target.displayId) return true;
-  const display = displayById(topology, current.targetDisplay.id);
   const fingerprint = current.targetDisplay.fingerprint;
-  if (!display || !fingerprint) return false;
+  // A placement commit preserves valid consumed records that have no display
+  // fingerprint. Resolve their existing evidence; never discard one that the
+  // initial record supplied or accept an unrelated monitor ID during admission.
+  if (fingerprint === undefined && (
+    initial.targetDisplay.fingerprint !== undefined ||
+    (current.targetDisplay.id !== initial.targetDisplay.id &&
+      current.targetDisplay.id !== target.displayId)
+  )) return false;
+  const display = fingerprint === undefined
+    ? resolveSavedWindowDisplay(current, topology)
+    : displayById(topology, current.targetDisplay.id);
+  if (!display) return false;
   const persistedTarget: EmbeddedLaunchTargetRecord = {
     windowId: current.id,
     persistedName: current.name,
-    displayId: current.targetDisplay.id,
+    displayId: display.id,
     scaleFactor: display.scaleFactor,
     workArea: { ...current.placement.savedWorkArea },
     bounds: { ...current.placement.normalBounds },
@@ -214,7 +224,7 @@ function sameEmptySavedWindowIdentity(
   return current.id === initial.id && current.name === initial.name &&
     current.createdAt === initial.createdAt && currentUpdatedAt >= initialUpdatedAt &&
     current.tabs.length === 0 && current.activeTabId === undefined &&
-    displayFingerprintMatches(fingerprint, display) &&
+    (fingerprint === undefined || displayFingerprintMatches(fingerprint, display)) &&
     sameTargetEnvelope(persistedTarget, target) &&
     targetMatchesDisplay(persistedTarget, topology);
 }

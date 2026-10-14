@@ -5,28 +5,10 @@ import { type ChromiumRuntimeExistingTabActivationFence } from "../src/electron/
 import type { ChromiumRuntimeExecutorSnapshot } from "../src/electron/main/chromiumRuntimeEffectExecutor";
 
 import type { StateGameWindowRecord } from "../src/shared/generated";
-import { ATTEMPT_ID, CAPTURED_AT, closeRuntimeTab, configureWorkspaceWebLaunch, dualDisplayTopology, OPERATION_ID, RECT, ROLE_ID, TAB_ID, topology, WEB_SLOT_ID, WEB_SURFACE_ID, WINDOW_ID, WORKSPACE_ID, WORKSPACE_OPERATION_ID, WORKSPACE_TAB_ID } from "./support/electronChromiumRuntimeLaunchFixtures";
+import { ATTEMPT_ID, closeRuntimeTab, configureWorkspaceWebLaunch, dualDisplayTopology, OPERATION_ID, RECT, ROLE_ID, TAB_ID, topology, WEB_SLOT_ID, WEB_SURFACE_ID, WINDOW_ID, WORKSPACE_ID, WORKSPACE_OPERATION_ID, WORKSPACE_TAB_ID } from "./support/electronChromiumRuntimeLaunchFixtures";
 
 import { launchHarness, type LaunchHarness } from "./support/electronChromiumRuntimeLaunchHarness";
-
-function advanceWindowTopology(
-  state: LaunchHarness,
-  increment: number,
-  native: Partial<ChromiumRuntimeExecutorSnapshot["windows"][number]> = {}
-): void {
-  const logical = state.coreSnapshot.logicalWindows[0]!;
-  logical.revision += increment;
-  state.coreSnapshot.revision += 1;
-  state.coreSnapshot.runtimeRevision += 1;
-  state.nativeSnapshot = {
-    ...state.nativeSnapshot,
-    windows: state.nativeSnapshot.windows.map((window) => ({
-      ...window,
-      ...native,
-      topologyRevision: logical.revision
-    }))
-  };
-}
+import { advanceWindowTopology, emptySavedWindow, emptyTransientTarget, moveSavedWindowToExternalDisplay, nonemptySavedWindow } from "./support/chromiumRuntimeLaunchFixtures";
 
 function removeRuntimeWindow(state: LaunchHarness): void {
   state.coreSnapshot.browserRuntime = {
@@ -40,76 +22,6 @@ function removeRuntimeWindow(state: LaunchHarness): void {
   state.coreSnapshot.revision += 1;
   state.coreSnapshot.runtimeRevision += 1;
   state.nativeSnapshot = { windows: [], tabs: [], roles: [], webSurfaces: [] };
-}
-
-function nonemptySavedWindow(): StateGameWindowRecord {
-  return {
-    id: WINDOW_ID,
-    name: "Saved",
-    targetDisplay: {
-      id: 41,
-      fingerprint: {
-        label: "Built-in Display",
-        bounds: { x: 0, y: 0, width: 1440, height: 900 },
-        resolution: { width: 2880, height: 1800 },
-        scaleFactor: 2,
-        isPrimary: true,
-        isInternal: true
-      }
-    },
-    placement: {
-      normalBounds: { x: 120, y: 90, width: 1080, height: 720 },
-      savedWorkArea: { x: 0, y: 0, width: 1440, height: 900 },
-      presentation: "normal"
-    },
-    tabs: [{
-      id: TAB_ID,
-      tabType: "role",
-      sourceId: ROLE_ID,
-      name: "Pilot",
-      roleSlots: [{ slotId: "slot-1", roleId: ROLE_ID, rect: RECT }],
-      hidden: false,
-      audioMuted: false
-    }],
-    activeTabId: TAB_ID,
-    createdAt: CAPTURED_AT,
-    updatedAt: CAPTURED_AT
-  };
-}
-
-function emptySavedWindow(): StateGameWindowRecord {
-  const window = nonemptySavedWindow();
-  return { ...window, tabs: [], activeTabId: undefined };
-}
-
-function moveSavedWindowToExternalDisplay(window: StateGameWindowRecord): void {
-  window.targetDisplay = {
-    id: 99,
-    fingerprint: {
-      label: "External Display",
-      bounds: { x: 1440, y: 0, width: 1920, height: 1080 },
-      resolution: { width: 1920, height: 1080 },
-      scaleFactor: 1,
-      isPrimary: false,
-      isInternal: false
-    }
-  };
-  window.placement = {
-    normalBounds: { x: 1560, y: 80, width: 1200, height: 760 },
-    savedWorkArea: { x: 1440, y: 24, width: 1920, height: 1056 },
-    presentation: "normal"
-  };
-}
-
-function emptyTransientTarget() {
-  return {
-    windowId: WINDOW_ID,
-    displayId: 41,
-    scaleFactor: 2,
-    workArea: { x: 0, y: 0, width: 1440, height: 900 },
-    bounds: { x: 120, y: 90, width: 1080, height: 720 },
-    presentation: "normal" as const
-  };
 }
 
 describe("Electron Chromium runtime launch coordinator", () => {
@@ -1381,10 +1293,11 @@ describe("Electron Chromium runtime launch coordinator", () => {
     expect(launchCommands[0]!.target.bounds).toEqual(liveBounds);
   });
 
-  it("accepts Core-committed native work-area fitting and reuses its geometry", async () => {
+  it.each(["current", "no-fingerprint", "legacy-no-fingerprint"])(
+    "accepts Core-committed native work-area fitting and reuses its geometry (%s)", async metadata => {
     const liveBounds = { x: 120, y: 70, width: 1080, height: 692 };
     const persistedFrame = { x: 120, y: 84, width: 1080, height: 700 };
-    const { coordinator, launchCommands, state } = launchHarness({
+    const { coordinator, coreInvoke, launchCommands, state } = launchHarness({
       onRegister: (_command, harness) => {
         harness.coreSnapshot.state.gameWindows =
           harness.coreSnapshot.state.gameWindows.map((window) => ({
@@ -1395,10 +1308,12 @@ describe("Electron Chromium runtime launch coordinator", () => {
             },
             updatedAt: "2026-08-30T12:00:01.000Z"
           }));
-        advanceWindowTopology(harness, 1, { bounds: liveBounds });
+        advanceWindowTopology(harness, 2, { bounds: liveBounds });
       }
     });
     const saved = emptySavedWindow();
+    if (metadata !== "current") delete saved.targetDisplay.fingerprint;
+    if (metadata === "legacy-no-fingerprint") saved.targetDisplay.id = 3220048483667338;
     state.coreSnapshot.state.gameWindows.push(saved);
 
     await expect(coordinator.openEmptySavedGameWindow(saved)).resolves.toBeUndefined();
@@ -1410,7 +1325,11 @@ describe("Electron Chromium runtime launch coordinator", () => {
     expect(state.coreSnapshot.logicalWindows[0]!.revision).toBeGreaterThan(1);
     expect(state.coreSnapshot.state.gameWindows[0]!.placement.normalBounds)
       .toEqual(persistedFrame);
+    expect(state.coreSnapshot.state.gameWindows[0]!.targetDisplay).toEqual(saved.targetDisplay);
     expect(launchCommands[0]!.target.bounds).toEqual(liveBounds);
+    expect(coreInvoke).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: "embeddedWindowRetireProvision"
+    }));
   });
 
   it.each(["applied", "failed"] as const)("fences empty registration on its pending native placement projection: %s", async outcome => {

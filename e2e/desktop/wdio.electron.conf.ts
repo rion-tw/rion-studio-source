@@ -1,5 +1,5 @@
 import { prepareNativeFailureSampler, registerNativeFailureSampler, capturePreparedNativeFailureSample } from "./support/native-failure-sample";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { browser } from "@wdio/globals";
@@ -129,6 +129,20 @@ export const config = {
     preparedLauncherHandle = launcherHandle;
     await runnerBrowser.switchToWindow(launcherHandle);
     runnerBrowser.electron.windowHandle = launcherHandle;
+    if (process.env.RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC === "1") {
+      const native = await runnerBrowser.electron.execute(() => ({
+        processId: process.pid,
+        nativeDiagnosticEnabled: process.env.RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC === "1"
+      }));
+      const bridge = await electronDesktopE2eProbe();
+      await writeFile(resolve(artifactDir, "appkit-constraint-launch-witness.json"), JSON.stringify({
+        schemaVersion: 1, phase, ...native, bridgeProcessId: bridge.processId
+      })+"\n");
+      if (!Number.isSafeInteger(native.processId) || native.processId <= 1 ||
+          native.processId !== bridge.processId || !native.nativeDiagnosticEnabled) {
+        throw new Error("AppKit constraint diagnostics have no matching native process/flag witness");
+      }
+    }
     if (process.platform === "win32" && !packaged) {
       await focusWindowsLauncherForVisibleLaunch();
     }

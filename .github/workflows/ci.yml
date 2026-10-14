@@ -448,6 +448,11 @@ jobs:
           printf '%s\n' 'Focused gap-divider seed retains its existing prerequisites, native input, assertions, and failure verdict. Package, ABI, updater, and distribution validation are intentionally excluded only from this manual diagnostic branch.' >> "$GITHUB_STEP_SUMMARY"
           printf '%s\n' 'Shell outcome: ${{ steps.chromium_macos_appkit_smoke.outcome }}' >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Collect exact native AppKit constraint logs
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && runner.os == 'macOS' }}
+        timeout-minutes: 5
+        run: node scripts/collectAppKitConstraintDiagnostics.mjs .desktop-e2e-artifacts
+
       - name: Run Windows Chromium shell E2E
         if: runner.os == 'Windows'
         id: chromium_windows_smoke

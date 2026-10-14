@@ -39,6 +39,15 @@ describe("isolated AppKit constraint evidence workflow", () => {
     expect(upload).toContain("!.desktop-e2e-artifacts/**/user-data/**");
   });
 
+  it("collects only native witness-bound public logs before the existing always upload", () => {
+    const collect = step("Collect exact native AppKit constraint logs");
+    expect(collect).toContain(`if: \${{ always() && ${diagnostic} }}`);
+    expect(collect).toContain("node scripts/collectAppKitConstraintDiagnostics.mjs .desktop-e2e-artifacts");
+    expect(collect).not.toContain("continue-on-error");
+    expect(job.indexOf("Collect exact native AppKit constraint logs"))
+      .toBeLessThan(job.indexOf("Upload Chromium shell E2E diagnostics"));
+  });
+
   it.each([
     "Build macOS Electron Chromium release artifacts",
     "Build previous-version updater fixtures", "Verify Chromium extension isolation and fresh-process persistence",
@@ -84,12 +93,18 @@ describe("native AppKit diagnostic authority boundaries", () => {
       fullscreen.indexOf("  if (!std::isfinite(minimumFrameSize.width)"));
     expect(fullscreen.slice(0, fullscreen.indexOf("- (BOOL)desktopE2EFullscreenToolbarState:")))
       .toMatch(/#if defined\(RION_DESKTOP_E2E\)\s*$/u);
-    expect(read).toContain('@"RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC"] isEqualToString:@"1"');
+    expect(read).toContain('std::getenv("RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC")');
+    expect(read).toContain('std::strcmp(diagnostic, "1") == 0');
+    expect(read).toContain('os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "%{public}s"');
+    expect(read).not.toContain("NSProcessInfo");
     expect(read).not.toMatch(/setFrame:|setContentSize:|setMinSize:|setContentMinSize:|\.minSize\s*=|\.contentMinSize\s*=/u);
     expect(read).not.toMatch(/\.title\b|session|userData|cookie|token/iu);
     const logger = corner.slice(corner.indexOf("#if defined(RION_DESKTOP_E2E)"),
       corner.indexOf("@implementation RionRuntimeWorkspaceDividerOverlayView"));
-    expect(logger).toContain('@"RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC"] isEqualToString:@"1"');
+    expect(logger).toContain('std::getenv("RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC")');
+    expect(logger).toContain('std::strcmp(diagnostic, "1") != 0');
+    expect(logger).toContain('os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "%{public}s"');
+    expect(logger).not.toContain("NSProcessInfo");
     expect(logger).not.toMatch(/setFrame:|setContentSize:|setMinSize:|setContentMinSize:/u);
     expect(logger).not.toMatch(/\.title\b|session|userData|cookie|token/iu);
   });
@@ -104,5 +119,17 @@ describe("native AppKit diagnostic authority boundaries", () => {
     expect(corner).toContain('@"contentViewFrame" : contentView ? rect(contentView.frame)');
     expect(corner).toContain('@"contentViewBounds" : contentView ? rect(contentView.bounds)');
     expect(fullscreen).toContain("NSStringFromClass(object_getClass(_window))");
+  });
+
+  it("keeps the harness witness confined to a native PID and boolean flag read", () => {
+    const config = readFileSync("e2e/desktop/wdio.electron.conf.ts", "utf8");
+    const start = config.indexOf('if (process.env.RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC === "1")');
+    const witness = config.slice(start, config.indexOf('if (process.platform === "win32"', start));
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(witness).toContain("runnerBrowser.electron.execute(() => ({");
+    expect(witness).toContain("processId: process.pid");
+    expect(witness).toContain("native.processId !== bridge.processId");
+    expect(witness).toContain("appkit-constraint-launch-witness.json");
+    expect(witness).not.toMatch(/process\.env[;,\s]*\}|Object\.(?:keys|entries)\(process\.env\)|\.focus\(|\.show\(|\.setBounds\(/u);
   });
 });

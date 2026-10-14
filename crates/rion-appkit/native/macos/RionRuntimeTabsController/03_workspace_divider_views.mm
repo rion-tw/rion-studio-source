@@ -1,3 +1,7 @@
+#if defined(RION_DESKTOP_E2E)
+#include <os/log.h>
+#endif
+
 // The window resize border wins over a divider ending at the content edge.
 static BOOL RionWorkspacePointIsOnWindowResizeBorder(NSView * _Nonnull view, NSPoint point) {
   NSWindow *window = view.window;
@@ -101,8 +105,8 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
 static void RionLogWorkspaceCornerConstraintDiagnostic(
     RionRuntimeWorkspaceDividerOverlayView *overlay, NSString *phase,
     NSEvent *event, NSRect requestedFrame) {
-  if (![[NSProcessInfo processInfo].environment[
-          @"RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC"] isEqualToString:@"1"]) return;
+  const char *diagnostic = std::getenv("RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC");
+  if (!diagnostic || std::strcmp(diagnostic, "1") != 0) return;
   NSWindow *window = overlay.window;
   if (!window) return;
   const auto rect = [](NSRect value) -> NSDictionary * {
@@ -136,7 +140,8 @@ static void RionLogWorkspaceCornerConstraintDiagnostic(
   NSData *encoded = [NSJSONSerialization dataWithJSONObject:evidence options:0 error:nil];
   NSString *json = encoded ? [[NSString alloc] initWithData:encoded encoding:NSUTF8StringEncoding]
                           : @"{\"serializationError\":true}";
-  NSLog(@"RION_APPKIT_CORNER_CONSTRAINT_DIAGNOSTIC %@", json);
+  NSString *record = [@"RION_APPKIT_CORNER_CONSTRAINT_DIAGNOSTIC " stringByAppendingString:json];
+  os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "%{public}s", record.UTF8String);
 }
 #endif
 

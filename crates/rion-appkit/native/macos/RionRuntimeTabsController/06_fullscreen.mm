@@ -1,3 +1,7 @@
+#if defined(RION_DESKTOP_E2E)
+#include <os/log.h>
+#endif
+
 NS_ASSUME_NONNULL_BEGIN
 
 static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
@@ -521,8 +525,8 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
   if (_destroyed || !_window || !_toolbar) return NO;
 
   const NSSize minimumFrameSize = _window.minSize;
-  if ([[NSProcessInfo processInfo].environment[
-          @"RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC"] isEqualToString:@"1"]) {
+  const char *diagnostic = std::getenv("RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC");
+  if (diagnostic && std::strcmp(diagnostic, "1") == 0) {
     const auto size = [](NSSize value) -> NSDictionary * {
       return @{ @"width" : @(value.width), @"height" : @(value.height) };
     };
@@ -593,7 +597,8 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
     NSString *json = encoded ? [[NSString alloc] initWithData:encoded
                                                    encoding:NSUTF8StringEncoding]
                             : @"{\"serializationError\":true}";
-    NSLog(@"RION_APPKIT_CONSTRAINT_DIAGNOSTIC %@", json);
+    NSString *record = [@"RION_APPKIT_CONSTRAINT_DIAGNOSTIC " stringByAppendingString:json];
+    os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "%{public}s", record.UTF8String);
   }
   if (!std::isfinite(minimumFrameSize.width) || minimumFrameSize.width <= 0 ||
       !std::isfinite(minimumFrameSize.height) || minimumFrameSize.height <= 0) {

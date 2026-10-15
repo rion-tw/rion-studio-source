@@ -62,7 +62,8 @@ function runtimeZoomAction(
 
 function exactRuntimeTarget(
   input: ElectronFocusedApplicationShortcutControllerInput,
-  focusedWindow: ElectronFocusedShortcutWindowPort
+  focusedWindow: ElectronFocusedShortcutWindowPort,
+  scope: "window" | "tab" = "tab"
 ): ElectronFocusedRuntimeShortcutTarget {
   const matches = input.readRuntimeSnapshot().windows.filter((window) =>
     window.parentNativeHostId === focusedWindow.id
@@ -73,17 +74,20 @@ function exactRuntimeTarget(
       "The focused native window is not an exact Rion Studio runtime host."
     );
   }
-  return exactRuntimeSnapshotTarget(input, matches[0]!);
+  return exactRuntimeSnapshotTarget(input, matches[0]!, scope);
 }
 
 function exactRuntimeSnapshotTarget(
   input: ElectronFocusedApplicationShortcutControllerInput,
-  runtime: ChromiumRuntimeExecutorSnapshot["windows"][number]
+  runtime: ChromiumRuntimeExecutorSnapshot["windows"][number],
+  scope: "window" | "tab"
 ): ElectronFocusedRuntimeShortcutTarget {
   const expectedAppKit = input.platform === "darwin";
+  const tabMatches = runtime.activeTabId.length > 0
+    ? runtime.tabIds.includes(runtime.activeTabId)
+    : scope === "window" && runtime.visible && runtime.tabIds.length === 0;
   if (
-    !runtime.focused || runtime.activeTabId.length === 0 ||
-    !runtime.tabIds.includes(runtime.activeTabId) ||
+    !runtime.focused || !tabMatches ||
     !Number.isSafeInteger(runtime.parentNativeHostId) ||
     (runtime.parentNativeHostId ?? 0) < 1 ||
     !Number.isSafeInteger(runtime.windowGeneration) ||
@@ -116,7 +120,8 @@ function exactRuntimeSnapshotTarget(
 }
 
 function focusedAppKitRuntimeTarget(
-  input: ElectronFocusedApplicationShortcutControllerInput
+  input: ElectronFocusedApplicationShortcutControllerInput,
+  scope: "window" | "tab" = "tab"
 ): ElectronFocusedRuntimeShortcutTarget | null {
   if (input.platform !== "darwin") return null;
   const matches = input.readRuntimeSnapshot().windows.filter((window) =>
@@ -129,7 +134,7 @@ function focusedAppKitRuntimeTarget(
       "AppKit reported more than one focused runtime shortcut target."
     );
   }
-  return exactRuntimeSnapshotTarget(input, matches[0]!);
+  return exactRuntimeSnapshotTarget(input, matches[0]!, scope);
 }
 
 /**
@@ -192,8 +197,9 @@ export class ElectronFocusedApplicationShortcutController {
     // Electron does not consistently supply its BaseWindow wrapper to an
     // application-menu callback when the retained AppKit NSWindow is key.
     // The live AppKit projection is therefore the authoritative fallback.
+    const scope = command === "toggleFullscreen" ? "window" : "tab";
     const appKitTarget = focusedWindow === undefined
-      ? focusedAppKitRuntimeTarget(this.#input)
+      ? focusedAppKitRuntimeTarget(this.#input, scope)
       : null;
     if (appKitTarget !== null) {
       if (command !== "toggleFullscreen" && await this.#input.zoomFocusedRuntimeRole?.(
@@ -222,7 +228,7 @@ export class ElectronFocusedApplicationShortcutController {
         "The focused native shortcut target was destroyed before admission."
       );
     }
-    const target = exactRuntimeTarget(this.#input, focusedWindow);
+    const target = exactRuntimeTarget(this.#input, focusedWindow, scope);
     if (command !== "toggleFullscreen" && await this.#input.zoomFocusedRuntimeRole?.(
       target, runtimeZoomAction(command))) return;
     if (command === "toggleFullscreen" && this.#input.platform === "darwin") {

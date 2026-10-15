@@ -38,6 +38,8 @@ export interface ChromiumRuntimeWindowActionTarget {
   readonly windowId: string;
 }
 
+type ExplicitWindowActionScope = "tab" | "window";
+
 /** Routes native menu/toolbar actions back through the same Core-owned lanes. */
 export class ChromiumRuntimeNativeWindowController {
   readonly #core: ElectronCoreCommandPort;
@@ -99,11 +101,12 @@ export class ChromiumRuntimeNativeWindowController {
   toggleFullscreenForTarget(
     target: ChromiumRuntimeWindowActionTarget
   ): Promise<SystemRuntimeOperationSummaryRecord> {
-    const window = this.#requireExplicitWindowTarget(target);
+    const window = this.#requireExplicitWindowTarget(target, target.topologyRevision, "window");
     return this.#setPresentation(
       target.windowId,
       window.presentation === "fullscreen" ? "normal" : "fullscreen",
-      target
+      target,
+      "window"
     );
   }
 
@@ -216,7 +219,8 @@ export class ChromiumRuntimeNativeWindowController {
   async #setPresentation(
     windowId: string,
     presentation: "fullscreen" | "maximized" | "normal",
-    target?: ChromiumRuntimeWindowActionTarget
+    target?: ChromiumRuntimeWindowActionTarget,
+    scope: ExplicitWindowActionScope = "tab"
   ): Promise<SystemRuntimeOperationSummaryRecord> {
     const prior = this.#presentationLanes.get(windowId);
     // The first event-bound presentation ingress is already serialized by the
@@ -226,7 +230,8 @@ export class ChromiumRuntimeNativeWindowController {
     const begin = () => this.#setPresentationNow(
       windowId,
       presentation,
-      target
+      target,
+      scope
     );
     const operation = prior ? prior.then(begin) : begin();
     const tail = operation.then(() => undefined, () => undefined);
@@ -241,12 +246,14 @@ export class ChromiumRuntimeNativeWindowController {
   async #setPresentationNow(
     windowId: string,
     presentation: "fullscreen" | "maximized" | "normal",
-    target?: ChromiumRuntimeWindowActionTarget
+    target?: ChromiumRuntimeWindowActionTarget,
+    scope: ExplicitWindowActionScope = "tab"
   ): Promise<SystemRuntimeOperationSummaryRecord> {
     if (target) {
-      this.#requireExplicitWindowTarget(target, target.topologyRevision);
+      this.#requireExplicitWindowTarget(target, target.topologyRevision, scope);
     }
     const core = await this.#core.invoke({ type: "appSnapshot" });
+    if (target) this.#requireExplicitWindowTarget(target, target.topologyRevision, scope);
     const logical = core.logicalWindows.find((window) => window.windowId === windowId);
     const native = this.#readNativeSnapshot().windows.find(
       (window) => window.windowId === windowId
@@ -285,7 +292,7 @@ export class ChromiumRuntimeNativeWindowController {
           "Core omitted the exact runtime-window presentation revision."
         );
       }
-      this.#requireExplicitWindowTarget(target, summary.topologyRevision!);
+      this.#requireExplicitWindowTarget(target, summary.topologyRevision!, scope);
     }
     return summary;
   }
@@ -334,7 +341,8 @@ export class ChromiumRuntimeNativeWindowController {
 
   #requireExplicitWindowTarget(
     target: ChromiumRuntimeWindowActionTarget,
-    topologyRevision: number = target.topologyRevision
+    topologyRevision: number = target.topologyRevision,
+    scope: ExplicitWindowActionScope = "tab"
   ): ChromiumRuntimeExecutorSnapshot["windows"][number] {
     const native = this.#readNativeSnapshot().windows.find((candidate) =>
       candidate.windowId === target.windowId);
@@ -344,11 +352,11 @@ export class ChromiumRuntimeNativeWindowController {
         target.appKitIdentity.launchGeneration === native.appKitIdentity.launchGeneration &&
         target.appKitIdentity.nativeGeneration === native.appKitIdentity.nativeGeneration
       : target.appKitIdentity === undefined && native?.appKitIdentity === undefined;
+    const emptyWindow = scope === "window" && target.activeTabId === "" && native?.tabIds.length === 0;
     if (
       !native || native.activeTabId !== target.activeTabId ||
       !native.visible || !native.focused ||
-      target.activeTabId.length === 0 ||
-      !native.tabIds.includes(target.activeTabId) ||
+      (!emptyWindow && (target.activeTabId.length === 0 || !native.tabIds.includes(target.activeTabId))) ||
       !Number.isSafeInteger(target.parentNativeHostId) ||
       target.parentNativeHostId < 1 ||
       !Number.isSafeInteger(target.windowGeneration) ||

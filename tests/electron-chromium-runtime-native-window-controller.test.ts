@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ChromiumRuntimeNativeWindowController } from
   "../src/electron/main/chromiumRuntimeNativeWindowController";
+import type { ChromiumRuntimeWindowActionTarget } from
+  "../src/electron/main/chromiumRuntimeNativeWindowController";
+import type { ChromiumRuntimeExecutorSnapshot } from
+  "../src/electron/main/chromiumRuntimeSnapshot";
 
 const windowId = "10000000-0000-4000-8000-000000000001";
 const tabId = "20000000-0000-4000-8000-000000000001";
@@ -61,7 +65,115 @@ function appSnapshot(presentation: "maximized" | "normal" | "fullscreen" = "norm
   };
 }
 
+function emptyWindowHarness(platform: "darwin" | "win32" = "darwin") {
+  const appKitIdentity = { logicalWindowId: windowId, launchGeneration: "launch-empty", nativeGeneration: 5 };
+  const native = {
+    ...explicitNativeSnapshot(), tabs: [] as Array<ChromiumRuntimeExecutorSnapshot["tabs"][number]>,
+    windows: [{ ...explicitNativeSnapshot().windows[0]!, activeTabId: "", tabIds: [] as string[],
+      ...(platform === "darwin" ? { appKitIdentity } : {}) }]
+  };
+  const target: ChromiumRuntimeWindowActionTarget = {
+    ...explicitTarget, activeTabId: "", ...(platform === "darwin" ? { appKitIdentity } : {})
+  };
+  const logical = { ...appSnapshot().logicalWindows[0]!, activeTabId: undefined as string | undefined,
+    tabs: [] as Array<{ id: string }> };
+  const invoke = vi.fn(async (command: { type: string; presentation?: "normal" | "maximized" | "fullscreen" }) => {
+    if (command.type === "appSnapshot") return { logicalWindows: [logical] };
+    if (command.type !== "embeddedWindowPresentation") throw new Error("Unexpected command");
+    native.windows[0]!.presentation = command.presentation!;
+    native.windows[0]!.topologyRevision += 1;
+    logical.presentation = command.presentation!;
+    logical.revision = native.windows[0]!.topologyRevision;
+    return { status: "applied", topologyRevision: logical.revision };
+  });
+  const subject = new ChromiumRuntimeNativeWindowController({ platform,
+    backend: { execute: vi.fn() } as never, core: { invoke } as never,
+    readNativeSnapshot: () => native });
+  return { subject, invoke, native, logical, target };
+}
+
 describe("Core-owned native runtime-window controls", () => {
+  it.each(["darwin", "win32"] as const)("allows the exact empty %s window fullscreen target through Core and its terminal readback", async platform => {
+    const { subject, invoke, native, target } = emptyWindowHarness(platform);
+    await expect(subject.toggleFullscreenForTarget(target)).resolves.toMatchObject({ status: "applied" });
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ type: "embeddedWindowPresentation",
+      windowId, windowGeneration: 4, topologyRevision: 9, presentation: "fullscreen" }));
+    expect(native.windows[0]!.activeTabId).toBe("");
+    expect(native.windows[0]!.tabIds).toEqual([]);
+  });
+
+  it("keeps empty windows unavailable to zoom and tab-origin fullscreen actions", async () => {
+    const { subject, invoke, native, target } = emptyWindowHarness();
+    await expect(subject.zoomRuntimeWindow(target, "in")).rejects.toMatchObject({
+      code: "ELECTRON_RUNTIME_WINDOW_ACTION_FENCE_STALE"
+    });
+    native.tabs.push({ audioMuted: false, audible: false, tabId, windowId });
+    await expect(subject.toggleFullscreenForTab(tabId)).rejects.toMatchObject({
+      code: "ELECTRON_RUNTIME_WINDOW_ACTION_FENCE_STALE"
+    });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it.each(["admission", "snapshot", "acknowledgement"] as const)(
+    "preserves all exact empty-window fences at %s", async boundary => {
+      for (const changed of ["focus", "visible", "parent", "generation", "revision", "appkit", "cohort"]) {
+        const { subject, invoke, native, logical, target } = emptyWindowHarness();
+        const mutate = () => {
+          const window = native.windows[0]!;
+          if (changed === "focus") window.focused = false;
+          if (changed === "visible") window.visible = false;
+          if (changed === "parent") window.parentNativeHostId! += 1;
+          if (changed === "generation") {
+            window.windowGeneration += 1;
+            logical.windowGeneration = window.windowGeneration;
+          }
+          if (changed === "revision") {
+            window.topologyRevision += 1;
+            logical.revision = window.topologyRevision;
+          }
+          if (changed === "appkit") window.appKitIdentity = { ...window.appKitIdentity!, nativeGeneration: 6 };
+          if (changed === "cohort") {
+            window.tabIds = ["new-tab"]; window.activeTabId = "new-tab";
+            logical.tabs = [{ id: "new-tab" }]; logical.activeTabId = "new-tab";
+          }
+        };
+        const original = invoke.getMockImplementation()!;
+        invoke.mockImplementation(async command => {
+          const result = await original(command);
+          if ((boundary === "snapshot" && command.type === "appSnapshot") ||
+              (boundary === "acknowledgement" && command.type === "embeddedWindowPresentation")) mutate();
+          return result;
+        });
+        if (boundary === "admission") mutate();
+        await expect(Promise.resolve().then(() => subject.toggleFullscreenForTarget(target)),
+          `${boundary}/${changed}`).rejects.toMatchObject({ code: "ELECTRON_RUNTIME_WINDOW_ACTION_FENCE_STALE" });
+        expect(invoke.mock.calls.filter(([command]) => command.type === "embeddedWindowPresentation"))
+          .toHaveLength(boundary === "acknowledgement" ? 1 : 0);
+      }
+    }
+  );
+
+  it("revalidates an empty fullscreen target after waiting in its exact window lane", async () => {
+    const { subject, invoke, target } = emptyWindowHarness();
+    let entered!: () => void, release!: () => void;
+    const dispatched = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async command => {
+      if (command.type === "embeddedWindowPresentation") { entered(); await gate; }
+      return original(command);
+    });
+    const first = subject.toggleFullscreenForTarget(target);
+    await dispatched;
+    const second = expect(subject.toggleFullscreenForTarget(target)).rejects.toMatchObject({
+      code: "ELECTRON_RUNTIME_WINDOW_ACTION_FENCE_STALE"
+    });
+    release();
+    await expect(first).resolves.toMatchObject({ status: "applied" });
+    await second;
+    expect(invoke.mock.calls.filter(([command]) => command.type === "embeddedWindowPresentation")).toHaveLength(1);
+  });
+
   it("maps native activate and close controls to the exact Core-owned tab actions", async () => {
     const execute = vi.fn(async (intent: { action: { type: string } }) => ({
       status: "applied",

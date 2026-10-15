@@ -139,7 +139,7 @@ record may acknowledge registration before a native placement event persists
 the current display data. Empty-window registration seeds the complete current display identity from its revision-fenced Electron inventory, including reopen paths with no native placement event. Core validates its fingerprint, display ID and scale before creating a window context. Native placement observations retain complete current display identity and work area; AppKit events never substitute an ID alone or an older saved fingerprint.
 Each launch admission retains an exact-window event/projection witness across snapshot reads and releases it on success or failure.
 Only work admitted or completed during a read permits a fresh snapshot after a mismatch, including work that has already left the pending set.
-Progress never accepts mismatched generations/revisions, bypasses failed receipts, or retains closed-window history.
+Progress never accepts mismatched generations/revisions, bypasses failed receipts, or retains closed-window history. Fullscreen accepts an exact visible empty window without inventing an active tab; tab-scoped shortcuts still require one. Native window actions revalidate their admitted host fence after asynchronous snapshot reads and before dispatch.
 
 Legacy saved Workspace tabs that predate complete Workspace-slot snapshots merge
 their saved Role geometry onto the current source Workspace by slot ID, then

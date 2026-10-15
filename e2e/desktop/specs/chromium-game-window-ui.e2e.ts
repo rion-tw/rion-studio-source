@@ -33,6 +33,7 @@ import {
 const WINDOW_NAME = "Chromium E2E Game Window";
 type Presentation = GameWindow["placement"]["presentation"];
 const presentationStages: unknown[] = [];
+const fullscreenShortcutAdmissions: unknown[] = [];
 
 function required(name: string): string {
   const value = process.env[name];
@@ -290,6 +291,18 @@ async function waitForSavedPresentation(input: Readonly<{
 async function toggleVisibleFullscreen(windowId: string, platform: "macos" | "windows") {
   const { processId } = await electronDesktopE2eProbe();
   if (platform === "macos") {
+    const inspection = await electronDesktopE2eGameWindowRuntime(windowId);
+    expect(inspection.windowId).toBe(windowId);
+    expectExactNativeIdentity(inspection, platform);
+    fullscreenShortcutAdmissions.push({
+      sequence: fullscreenShortcutAdmissions.length + 1,
+      processId,
+      nativePresentation: inspection.currentRuntime!.nativeDisplay.presentation,
+      inspection
+    });
+    await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
+      "game-window-fullscreen-shortcut-admissions.json"),
+      `${JSON.stringify(fullscreenShortcutAdmissions, null, 2)}\n`);
     await pressVisibleMacosApplicationShortcut({ command: "toggleFullscreen", processId,
       runtimeWindowId: windowId, targetMode: "focused-runtime" });
   } else {

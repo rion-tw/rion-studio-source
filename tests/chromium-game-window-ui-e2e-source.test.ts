@@ -45,9 +45,10 @@ describe("Chromium permanent Game Window exact replacement source", () => {
   });
 
   it("keeps the E2E identity path read-only and validates exact Core/native fences", async () => {
-    const [bridge, e2eMain, evidence, runner] = await Promise.all([
+    const [bridge, e2eMain, observation, evidence, runner] = await Promise.all([
       source("src/electron/e2e/desktopE2eBridge.ts"),
       source("src/electron/e2e/index.ts"),
+      source("src/electron/e2e/gameWindowRuntimeObservation.ts"),
       source("scripts/desktopE2eChromiumGameWindowEvidence.mjs"),
       source("scripts/runDesktopE2e.mjs")
     ]);
@@ -55,10 +56,13 @@ describe("Chromium permanent Game Window exact replacement source", () => {
     expect(bridge).toContain('action: "gameWindowRuntime"');
     expect(bridge).toContain("readGameWindowRuntime");
     expect(e2eMain).toContain('core.invoke({ type: "appSnapshot" })');
-    expect(e2eMain).toContain("logical.windowGeneration !== native.windowGeneration");
-    expect(e2eMain).toContain("logical.revision !== native.topologyRevision");
-    expect(e2eMain).toContain("browserWindow.tabIds");
+    expect(e2eMain).toContain("await gameWindowRuntimeObserver.read({");
+    expect(e2eMain).toContain('readCore: () => core.invoke({ type: "appSnapshot" })');
+    expect(observation).toContain("logical.windowGeneration !== native.windowGeneration");
+    expect(observation).toContain("logical.revision !== native.topologyRevision");
+    expect(observation).toContain("browserWindow.tabIds");
     expect(e2eMain).not.toContain("setInterval");
+    expect(observation).not.toContain("setInterval");
     expect(evidence).toContain("retained AppKit Game Window identity is not exact");
     expect(evidence).toContain("sameValue(runtime.coreTabIds, [])");
     expect(evidence).toContain("sameValue(runtime.nativeTabIds, [])");

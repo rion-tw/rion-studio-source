@@ -48,6 +48,11 @@ traverses the managed Chromium page's Accessibility tree to rediscover a known
 tab. Windows sends real WebDriver pointer/context-menu input to the bundled host.
 Read-only evidence binds Core and native order, generation, topology revision,
 parent handle, and the selected-detach successor before and after restart.
+Native geometry reads require one coherent Core/native snapshot pair before a
+visible action. A focus or placement event may commit a newer Core revision
+before its native projection finishes; reading that intermediate pair cannot
+authorize a click. Preserve exact revision, generation, native owner and tab
+cohort checks after admitted projection work, and propagate failed receipts.
 Windows also resizes two exact hosts and proves content bounds equal the Chromium
 viewport, then minimizes and visibly restores without a resize event. Debug
 bridges only read these receipts and never perform a tab mutation.

@@ -1,3 +1,4 @@
+import { ElectronDesktopE2eGameWindowRuntimeObservation } from "./gameWindowRuntimeObservation";
 import { readDrmPolicy } from "./workspaceWebDrmPolicy";
 import { installMainProcessFailureObserver } from "./mainProcessFailureObserver";
 import { installFixtureKeyboardCloseObserver } from "./fixtureKeyboardCloseObserver";
@@ -191,7 +192,7 @@ let observedApplicationLifecycle: ElectronApplicationLifecycleController | null 
 let observedRuntime: Pick<
   ChromiumRuntimeBootstrap,
   "desktopE2eStatusPresentation" | "inspectFullscreenToolbar" |
-  "settleCurrentProjection" | "snapshot"
+  "settleCurrentProjection" | "snapshot" | "observeWindowProjection" | "settleWindowProjection"
 > | null = null;
 let observedPopupLifecycle: ChromiumPopupLifecycleCoordinator | null = null;
 let readWindowsShortcutOwnerDiagnostic: (
@@ -201,6 +202,7 @@ const trustedInputObservationsByRole = new Map<
   string,
   ElectronDesktopE2eTrustedInputObservation[]
 >();
+const gameWindowRuntimeObserver = new ElectronDesktopE2eGameWindowRuntimeObservation();
 const applicationShortcutRuntimeObserver =
   new ElectronDesktopE2eApplicationShortcutRuntimeObserver({
     artifactDirectory,
@@ -382,7 +384,7 @@ function installElectronDesktopE2eRoleRuntimeObserver(): void {
   type RuntimeSnapshotPort = Pick<
     ChromiumRuntimeBootstrap,
     "desktopE2eStatusPresentation" | "inspectFullscreenToolbar" |
-    "settleCurrentProjection" | "snapshot"
+    "settleCurrentProjection" | "snapshot" | "observeWindowProjection" | "settleWindowProjection"
   >;
   // Bind the actual owner at startup, before a gated first navigation can wait
   // for an inspection whose snapshot was previously required to discover it.
@@ -825,128 +827,10 @@ async function readGameWindowRuntime(
       `Game Window ${windowId} has no observed Core/native Chromium ownership (Core=${Boolean(core)}, runtime=${Boolean(runtime)}).`
     );
   }
-  const coreSnapshot = await core.invoke({ type: "appSnapshot" });
-  const nativeSnapshot = runtime.snapshot();
-  const logicalWindows = coreSnapshot.logicalWindows.filter(
-    (window) => window.windowId === windowId
-  );
-  const browserWindows = coreSnapshot.browserRuntime.windows.filter(
-    (window) => window.windowId === windowId
-  );
-  const nativeWindows = nativeSnapshot.windows.filter(
-    (window) => window.windowId === windowId
-  );
-  if (
-    logicalWindows.length === 0 &&
-    browserWindows.length === 0 &&
-    nativeWindows.length === 0
-  ) {
-    const inspection = Object.freeze({
-      currentRuntime: null,
-      windowId
-    } satisfies ElectronDesktopE2eGameWindowRuntimeInspection);
-    gameWindowRuntimeObservations.set(windowId, inspection);
-    writeGameWindowRuntimeObservations();
-    return inspection;
-  }
-  if (
-    logicalWindows.length !== 1 ||
-    browserWindows.length !== 1 ||
-    nativeWindows.length !== 1
-  ) {
-    throw new Error(
-      `Game Window ${windowId} has divergent Core/browser/native Chromium ownership.`
-    );
-  }
-  const logical = logicalWindows[0]!;
-  const browserWindow = browserWindows[0]!;
-  const native = nativeWindows[0]!;
-  const nativeTarget = native.target;
-  const coreTabIds = logical.tabs.map((tab) => tab.id);
-  if (
-    logical.windowGeneration !== native.windowGeneration ||
-    logical.revision !== native.topologyRevision ||
-    JSON.stringify(coreTabIds) !== JSON.stringify(browserWindow.tabIds) ||
-    JSON.stringify(coreTabIds) !== JSON.stringify(native.tabIds) ||
-    !nativeTarget ||
-    nativeTarget.windowId !== windowId ||
-    nativeTarget.displayId !== native.displayId ||
-    nativeTarget.presentation !== native.presentation ||
-    JSON.stringify(nativeTarget.bounds) !== JSON.stringify(native.bounds) ||
-    !Number.isFinite(nativeTarget.scaleFactor) || nativeTarget.scaleFactor <= 0 ||
-    !Number.isSafeInteger(native.parentNativeHostId) ||
-    (native.parentNativeHostId ?? 0) < 1
-  ) {
-    const fence = {
-      browserTabIds: browserWindow.tabIds,
-      coreTabIds,
-      logicalRevision: logical.revision,
-      logicalWindowGeneration: logical.windowGeneration,
-      nativeBounds: native.bounds,
-      nativeDisplayId: native.displayId,
-      nativeParentHostId: native.parentNativeHostId,
-      nativePresentation: native.presentation,
-      nativeTabIds: native.tabIds,
-      nativeTarget,
-      nativeTopologyRevision: native.topologyRevision,
-      nativeWindowGeneration: native.windowGeneration
-    };
-    throw new Error(
-      `Game Window ${windowId} has a stale Core/native Chromium fence: ${JSON.stringify(fence)}`
-    );
-  }
-  const platform = e2ePlatform();
-  if (
-    (platform.platform === "darwin" && !native.appKitIdentity) ||
-    (platform.platform === "win32" && native.appKitIdentity)
-  ) {
-    throw new Error(
-      `Game Window ${windowId} has an invalid platform-native Chromium host.`
-    );
-  }
-  const rawStatusPresentation = native.appKitIdentity
-    ? runtime.desktopE2eStatusPresentation(windowId)
-    : undefined;
-  if (native.appKitIdentity && (
-    rawStatusPresentation === undefined ||
-    !new Set([0, 1, 2]).has(rawStatusPresentation)
-  )) {
-    throw new Error(
-      `Game Window ${windowId} has no exact AppKit status presentation.`
-    );
-  }
-  const appKitStatusPresentation = rawStatusPresentation === 1
-    ? "loading"
-    : rawStatusPresentation === 2
-      ? "failed"
-      : native.appKitIdentity
-        ? "ready"
-        : null;
-  const inspection = Object.freeze({
-    currentRuntime: Object.freeze({
-      appKitIdentity: native.appKitIdentity
-        ? Object.freeze({ ...native.appKitIdentity })
-        : null,
-      appKitStatusPresentation,
-      coreTabIds: Object.freeze([...coreTabIds]),
-      focused: native.focused,
-      hostKind: native.appKitIdentity ? "appkit-chromium" : "bundled-chromium",
-      nativeDisplay: Object.freeze({
-        bounds: Object.freeze({ ...native.bounds }),
-        displayId: native.displayId,
-        presentation: native.presentation,
-        scaleFactor: nativeTarget.scaleFactor,
-        workArea: Object.freeze({ ...nativeTarget.workArea })
-      }),
-      nativeTabIds: Object.freeze([...native.tabIds]),
-      parentNativeHostId: native.parentNativeHostId!,
-      topologyRevision: native.topologyRevision,
-      visible: native.visible,
-      windowGeneration: native.windowGeneration,
-      windowId
-    }),
-    windowId
-  } satisfies ElectronDesktopE2eGameWindowRuntimeInspection);
+  const inspection = await gameWindowRuntimeObserver.read({
+    windowId, platform: e2ePlatform().platform, runtime,
+    readCore: () => core.invoke({ type: "appSnapshot" })
+  });
   gameWindowRuntimeObservations.set(windowId, inspection);
   writeGameWindowRuntimeObservations();
   return inspection;
@@ -1576,6 +1460,7 @@ installElectronDesktopE2eTrustedInputDiagnostics(artifactDirectory, listener => 
 installElectronDesktopE2eTrustedInputObserver();
 installElectronDesktopE2eWorkspaceWebObserver();
 installElectronDesktopE2eNativeWindowControlObserver();
+gameWindowRuntimeObserver.install();
 installElectronDesktopE2ePopupLifecycleObserver();
 installElectronDesktopE2eRolePlaceholderObserver();
 installElectronDesktopE2eSavedWindowRestoreObserver();

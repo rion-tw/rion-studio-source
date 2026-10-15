@@ -7,6 +7,7 @@ import {
   RION_APPKIT_RUNTIME_ABI_VERSION
 } from "../src/electron/main/macosAppKitRuntimeHostFactory";
 import {
+  capturedWindowPlacement,
   expectPending,
   FakeAddon,
   FakeNativeHost,
@@ -83,7 +84,7 @@ describe("macOS AppKit Chromium runtime host", () => {
 
       native.emit(presentation === "fullscreen" ? "enter-full-screen" : "maximize");
       fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
-        action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+        action: capturedWindowPlacement("window-1", fixture.windows[0]!) });
       await expectPending(completion);
       native.fullScreen = presentation === "fullscreen";
       native.maximized = presentation === "maximized";
@@ -91,7 +92,7 @@ describe("macOS AppKit Chromium runtime host", () => {
       await expectPending(completion);
       const readLayout = vi.spyOn(fixture.addon.controllers[0]!, "snapshotContentLayout");
       fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
-        action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+        action: capturedWindowPlacement("window-1", fixture.windows[0]!) });
       await expect(completion).resolves.toBeUndefined();
 
       expect(readLayout).toHaveBeenCalled();
@@ -227,7 +228,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     expect(host.readPendingInitialPresentation!()).toBe("fullscreen");
     native.fullScreen = true;
     fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
-      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+      action: capturedWindowPlacement("window-1", fixture.windows[0]!) });
     await expect(completion).resolves.toBeUndefined();
   });
 
@@ -242,7 +243,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     native.fullScreen = true;
     native.emit("resize");
     fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
-      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+      action: capturedWindowPlacement("window-1", fixture.windows[0]!) });
 
     await rejected;
     expect(host.readPendingInitialPresentation!()).toBe("fullscreen");
@@ -341,10 +342,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     fixture.addon.emit(0, {
       type: "action",
       identity,
-      action: {
-        type: "windowPlacementChanged",
-        sourceWindowId: "window-1"
-      }
+      action: capturedWindowPlacement("window-1", fixture.windows[0]!)
     });
 
     await expect(operation).resolves.toEqual(expect.objectContaining({
@@ -431,10 +429,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     fixture.addon.emit(0, {
       type: "action",
       identity,
-      action: {
-        type: "windowPlacementChanged",
-        sourceWindowId: "window-1"
-      }
+      action: capturedWindowPlacement("window-1", fixture.windows[0]!)
     });
 
     expect(host.readProjection().bounds).toEqual({
@@ -445,10 +440,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     });
     expect(fixture.onAction).toHaveBeenCalledWith({
       identity,
-      action: {
-        type: "windowPlacementChanged",
-        sourceWindowId: "window-1"
-      },
+      action: capturedWindowPlacement("window-1", fixture.windows[0]!),
       hosts: [expect.objectContaining({
         normalBounds: { x: 140, y: 110, width: 1000, height: 700 }
       })]
@@ -754,7 +746,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     expect(fixture.order).toContain("window-fullscreen-true");
     fixture.windows[0]!.fullScreen = true;
     fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
-      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+      action: capturedWindowPlacement("window-1", fixture.windows[0]!) });
     await expect(completion).resolves.toBeUndefined();
     fixture.windows[0]!.emit("leave-full-screen");
     expect(fixture.order).not.toContain("controller-prepare-fullscreen-false");
@@ -948,7 +940,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     native.contentBounds = { x: 20, y: 10, width: 1000, height: 760 };
     native.emit("resize");
     fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
-      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+      action: capturedWindowPlacement("window-1", fixture.windows[0]!) });
     host.notifySurfaceAttachment?.();
     host.releaseAppKitSurfaceAttachment?.("tab-1");
     expect(fixture.onLayout).not.toHaveBeenCalled();
@@ -979,7 +971,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     host.initializeAppKitTab?.({ ...tab(target()), tabId: "tab-2", appkitTopologyRevision: 2,
       attemptGeneration: "launch-generation-2", sourceId: "role-2", name: "Role 2" });
     fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
-      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+      action: capturedWindowPlacement("window-1", fixture.windows[0]!) });
     fixture.windows[0]!.emit("resize");
     expect(fixture.onAction).toHaveBeenCalledOnce();
     expect(fixture.onLayout).toHaveBeenCalledOnce();
@@ -1003,7 +995,7 @@ describe("macOS AppKit Chromium runtime host", () => {
       .toBeLessThan(fixture.order.indexOf("window-fullscreen-true"));
     fixture.windows[0]!.fullScreen = true;
     fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
-      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+      action: capturedWindowPlacement("window-1", fixture.windows[0]!) });
     await completion;
     expect(fixture.addon.controllers[0]!.workspaceDividerRevision).toBe("1");
   });

@@ -54,6 +54,27 @@ export interface MacosAppKitCapturedWindowState {
   readonly visible: boolean;
 }
 
+/** Native placement captures its mode before the asynchronous N-API delivery. */
+export function requireCapturedWindowPlacementPresentation(
+  action: Readonly<Record<string, unknown>>,
+  windowId: string
+): EmbeddedLaunchTargetRecord["presentation"] | null {
+  if (action.sourceWindowId !== windowId) {
+    throw stateError("ELECTRON_MACOS_APPKIT_WINDOW_PLACEMENT_SOURCE_STALE",
+      "The AppKit placement event lost its exact native window identity.");
+  }
+  const value = action.placementDiagnostics;
+  const captured = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>> : null;
+  if (!captured || typeof captured.fullScreen !== "boolean" ||
+      typeof captured.zoomed !== "boolean" || typeof captured.minimized !== "boolean") {
+    throw stateError("ELECTRON_MACOS_APPKIT_WINDOW_PLACEMENT_STATE_INVALID",
+      "The AppKit placement event omitted its synchronous native mode.");
+  }
+  return captured.minimized ? null : captured.fullScreen
+    ? "fullscreen" : captured.zoomed ? "maximized" : "normal";
+}
+
 function stateError(code: string, message: string): RionBridgeError {
   return new RionBridgeError({ code, message });
 }

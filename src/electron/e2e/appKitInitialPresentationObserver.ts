@@ -140,11 +140,11 @@ export function installAppKitInitialPresentationProbe(): void {
     return result;
   };
   const observe = presentation.observeWindowPlacement;
-  presentation.observeWindowPlacement = function () {
+  presentation.observeWindowPlacement = function (capturedPresentation) {
     const identity = nextCoreFlowIdentity("appkit-placement-ack");
-    journal("appKitPlacementObservation", identity, {}, "started");
-    const claimed = observe.call(this);
-    journal("appKitPlacementObservation", identity, { claimed });
+    journal("appKitPlacementObservation", identity, { capturedPresentation }, "started");
+    const claimed = observe.call(this, capturedPresentation);
+    journal("appKitPlacementObservation", identity, { capturedPresentation, claimed });
     return claimed;
   };
 }

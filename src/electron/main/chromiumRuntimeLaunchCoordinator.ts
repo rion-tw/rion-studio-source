@@ -757,11 +757,11 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         );
       }
       let after = await this.#readCoherentSnapshot();
-      const originalOwner = registrationTopologyChanged
-        ? captureEmptyAppKitFullscreenOwner(after.core, after.native, target, postRegistrationTopology.revision)
-        : null;
-      if (!emptyWindowRegistrationReceiptTarget({ expected: expectedTopology,
-        received: postRegistrationTopology, target, originalOwner,
+      const originalOwner = captureEmptyAppKitFullscreenOwner(
+        after.core, after.native, target, after.app.displayTopology.revision);
+      if (after.app.displayTopology.revision < postRegistrationTopology.revision ||
+          !emptyWindowRegistrationReceiptTarget({ expected: expectedTopology,
+        received: after.app.displayTopology, target, originalOwner,
         core: after.core, native: after.native })) {
         throw launchError("ELECTRON_CHROMIUM_EMPTY_WINDOW_DISPLAY_CHANGED",
           "The display topology changed after Core registered the empty Game Window.");

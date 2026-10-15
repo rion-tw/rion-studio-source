@@ -108,8 +108,7 @@ export function emptyWindowRegistrationReceiptTarget(input: Readonly<{
 }>): EmbeddedLaunchTargetRecord | null {
   const { expected, received, target, originalOwner } = input;
   if (!originalOwner) return sameTopologyRevision(expected, received) ? target : null;
-  if (received.revision < originalOwner.displayTopologyRevision ||
-      !fullscreenTargetWorkAreaChanged(expected, received, target)) return null;
+  if (received.revision < originalOwner.displayTopologyRevision) return null;
   const current = captureEmptyAppKitFullscreenOwner(input.core, input.native, target, received.revision);
   if (!current || current.nativeHostId !== originalOwner.nativeHostId ||
       current.windowGeneration !== originalOwner.windowGeneration ||
@@ -117,5 +116,7 @@ export function emptyWindowRegistrationReceiptTarget(input: Readonly<{
       current.identity.logicalWindowId !== originalOwner.identity.logicalWindowId ||
       current.identity.launchGeneration !== originalOwner.identity.launchGeneration ||
       current.identity.nativeGeneration !== originalOwner.identity.nativeGeneration) return null;
+  if (sameTopologyRevision(expected, received)) return target;
+  if (!fullscreenTargetWorkAreaChanged(expected, received, target)) return null;
   return { ...target, workArea: { ...displayById(received, target.displayId)!.workArea } };
 }

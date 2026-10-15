@@ -135,6 +135,8 @@ async function showThroughVisibleUi(
   await row.scrollIntoView({ block: "center", inline: "center" });
   const show = await row.$("button[aria-label='Show']");
   await show.waitForClickable({ timeout: 10_000 });
+  const topologyBeforeShow = await rendererCall("getDisplayTopology");
+  expectRetainedDisplayTarget(gameWindow, gameWindow.targetDisplay, topologyBeforeShow);
   await show.click();
 
   let inspection: ElectronDesktopE2eGameWindowRuntimeInspection | undefined;
@@ -176,8 +178,11 @@ async function showThroughVisibleUi(
     const detail = lastInspectionError ? ` Last transient inspection error: ${lastInspectionError}` : "";
     throw new Error(`Visible Show failed for Game Window ${gameWindow.id}.${detail}`, { cause: error });
   }
+  const topologyAfterShow = await rendererCall("getDisplayTopology");
+  expectRetainedDisplayTarget(gameWindow, gameWindow.targetDisplay, topologyAfterShow);
   visibleShowAdmissions.push({ windowId: gameWindow.id,
-    requestedPlacement: gameWindow.placement, runtime: inspection!.currentRuntime });
+    requestedPlacement: gameWindow.placement, requestedDisplayTarget: gameWindow.targetDisplay,
+    topologyBeforeShow, topologyAfterShow, runtime: inspection!.currentRuntime });
   await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
     "game-window-visible-show-admissions.json"), `${JSON.stringify(visibleShowAdmissions, null, 2)}\n`);
   return inspection!;

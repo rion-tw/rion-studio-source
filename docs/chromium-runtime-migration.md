@@ -1045,6 +1045,17 @@ That acknowledgement completes at the already-admitted Core revision; ordinary
 programmatic presentation still waits for its own newer Core projection. Before
 initial completion, normal-mode placement/layout observations cannot overwrite the
 saved target. Close or a superseding Core fence rejects the pending operation.
+An AppKit fullscreen Space can change the admitted monitor's usable work area
+while preserving its physical identity. Empty registration retains strict
+pre-submission topology checks. After the exact native fullscreen acknowledgement,
+receipt validation accepts only that target work-area change at a newer display
+revision, with the complete physical inventory, primary display and other work
+areas unchanged. Each coherent read revalidates the original native host and
+AppKit identity, the same Core generation and matching Core/native window revisions;
+accepted display and window revisions cannot regress across awaits. Comparison
+uses the newly accepted work area while saved normal bounds
+and the submitted Core target remain intact. Windows, normal/maximized hosts and
+physical display changes retain their existing rejection behavior.
 Before entering fullscreen, the Windows host captures its normal restore bounds.
 Fullscreen placement and snapshot readback retain that exact host-owned capture;
 after exit, normal native geometry refreshes it. Electron's fullscreen frame

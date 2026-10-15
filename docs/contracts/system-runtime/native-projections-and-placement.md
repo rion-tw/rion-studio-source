@@ -134,7 +134,7 @@ or ambiguous legacy matches fail without choosing an arbitrary display. Modern
 fingerprints retain an exact match when it is available; an unavailable or
 changed exact identity resolves to the one OS-authoritative primary display and
 clamps the saved normal bounds to its current work area. Launch and empty-window
-registration retain their topology revision fences; an unchanged legacy saved
+registration retain their pre-submission topology revision fences. An acknowledged AppKit fullscreen empty host may accept only its target work-area change at a newer display revision, with unchanged physical inventory, primary display, other work areas and original native owner; every receipt revalidates exact Core/native generation and revision. An unchanged legacy saved
 record may acknowledge registration before a native placement event persists
 the current display data. Empty-window registration seeds the complete current display identity from its revision-fenced Electron inventory, including reopen paths with no native placement event. Core validates its fingerprint, display ID and scale before creating a window context. Native placement observations retain complete current display identity and work area; AppKit events never substitute an ID alone or an older saved fingerprint.
 Each launch admission retains an exact-window event/projection witness across snapshot reads and releases it on success or failure.

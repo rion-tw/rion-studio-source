@@ -7,6 +7,30 @@ const natural = (value) => Number.isSafeInteger(value) && value >= 0;
 const selectors = ["windowWillResize:toSize:", "constrainFrameRect:toScreen:",
   "setFrame:display:", "nextEventMatchingMask:untilDate:inMode:dequeue:"];
 
+function viewMetadataWitness(snapshot) {
+  const records = snapshot.journal.records.filter((record) => "existingViewConstraints" in record);
+  const witnesses = records.map((record) => {
+    const metadata = record.existingViewConstraints;
+    if (!object(metadata) || metadata.viewCapacity !== 8 || metadata.constraintCapacityPerView !== 24 ||
+        !natural(metadata.omittedConstraints) || !natural(metadata.omittedChildReferences) ||
+        !Array.isArray(metadata.views) || metadata.views.length > 8 || metadata.views.some((view) =>
+          !object(view) || typeof view.hidden !== "boolean" || typeof view.superviewPointer !== "string" ||
+          !natural(view.omittedConstraints) || !Array.isArray(view.constraints) || view.constraints.length > 24 ||
+          view.constraints.some((constraint) => !object(constraint) ||
+            typeof constraint.constraintClass !== "string" || !constraint.constraintClass ||
+            typeof constraint.identifier !== "string" || Buffer.byteLength(constraint.identifier, "utf8") > 96 ||
+            constraint.identifierByteCapacity !== 96 || typeof constraint.identifierTruncated !== "boolean"))) {
+      throw new Error("The existing native view constraint metadata is missing, malformed or unbounded");
+    }
+    return { sequence: record.sequence, reason: record.reason,
+      bytes: Buffer.byteLength(JSON.stringify(metadata), "utf8"),
+      views: metadata.views.length, constraints: metadata.views.reduce((sum, view) => sum + view.constraints.length, 0),
+      omittedConstraints: metadata.omittedConstraints, omittedChildReferences: metadata.omittedChildReferences };
+  });
+  return { windowId: snapshot.identity.logicalWindowId,
+    journalBytes: Buffer.byteLength(JSON.stringify(snapshot.journal), "utf8"), bookends: witnesses };
+}
+
 function methodWitness(snapshot) {
   const installation = snapshot.journal.records.at(-1)?.hookInstallation;
   if (!Array.isArray(installation) || installation.length < 4 || installation.length > 8 ||
@@ -81,6 +105,7 @@ export function verifyAppKitResizeDiagnosticCarrier(value) {
     records: populated.reduce((total, snapshot) => total + snapshot.journal.records.length, 0),
     nativeDropped: populated.reduce((total, snapshot) => total + snapshot.journal.dropped, 0),
     droppedOwners: value.droppedOwners,
+    viewMetadataWitnesses: populated.map(viewMetadataWitness),
     methodWitnesses: populated.map(methodWitness) };
 }
 

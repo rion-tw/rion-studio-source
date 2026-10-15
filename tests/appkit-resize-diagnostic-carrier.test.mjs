@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { describe, expect, it } from "vitest";
 import { verifyAppKitResizeDiagnosticCarrier } from "../scripts/verifyAppKitResizeDiagnosticCarrier.mjs";
 
@@ -21,6 +22,37 @@ function artifact() {
 }
 
 describe("terminal AppKit resize diagnostic channel proof", () => {
+  function metadata() {
+    return { viewCapacity: 8, constraintCapacityPerView: 24, omittedConstraints: 0, omittedChildReferences: 0,
+      views: [{ hidden: false, superviewPointer: "0x4567", omittedConstraints: 0, constraints: [{
+        constraintClass: "NSAutoresizingMaskLayoutConstraint", identifier: "鍵".repeat(32),
+        identifierByteCapacity: 96, identifierTruncated: true
+      }] }] };
+  }
+
+  it("reports actual bounded constraint metadata and serialized journal sizes", () => {
+    const value = artifact();
+    value.snapshots[0].journal.records.at(-1).existingViewConstraints = metadata();
+    const result = verifyAppKitResizeDiagnosticCarrier(value).viewMetadataWitnesses[0];
+    expect(result.journalBytes).toBe(Buffer.byteLength(JSON.stringify(value.snapshots[0].journal), "utf8"));
+    expect(result.bookends).toEqual([{ sequence: 140, reason: undefined,
+      bytes: Buffer.byteLength(JSON.stringify(metadata()), "utf8"), views: 1, constraints: 1,
+      omittedConstraints: 0, omittedChildReferences: 0 }]);
+  });
+
+  it.each(["too-many-constraints", "identifier-bytes", "unknown-hidden", "missing-class", "getter-error"])(
+    "refuses %s view metadata", (kind) => {
+      const value = artifact();
+      const current = metadata();
+      if (kind === "too-many-constraints") current.views[0].constraints = Array.from({ length: 25 }, () => current.views[0].constraints[0]);
+      if (kind === "identifier-bytes") current.views[0].constraints[0].identifier += "鍵";
+      if (kind === "unknown-hidden") delete current.views[0].hidden;
+      if (kind === "missing-class") delete current.views[0].constraints[0].constraintClass;
+      value.snapshots[0].journal.records.at(-1).existingViewConstraints = kind === "getter-error"
+        ? { error: "existing-view-getter-failed" } : current;
+      expect(() => verifyAppKitResizeDiagnosticCarrier(value)).toThrow("constraint metadata");
+    });
+
   it("accepts a bounded retained native tail and reports its explicit truncation", () => {
     expect(verifyAppKitResizeDiagnosticCarrier(artifact())).toMatchObject({
       populatedOwners: 1, records: 128, nativeDropped: 12, droppedOwners: 0

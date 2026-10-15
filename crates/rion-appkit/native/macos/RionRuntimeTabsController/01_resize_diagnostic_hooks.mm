@@ -44,6 +44,21 @@ static NSDictionary *RionResizeSize(NSSize size) {
   return @{ @"width" : @(size.width), @"height" : @(size.height) };
 }
 
+static NSDictionary *RionResizeConstraintIdentifier(NSString * _Nullable identifier) {
+  NSString *source = identifier ?: @"";
+  NSString *prefix = [source substringToIndex:MIN(source.length, (NSUInteger)96)];
+  NSData *utf8 = [prefix dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES];
+  NSUInteger count = MIN(utf8.length, (NSUInteger)96);
+  NSString *bounded = nil;
+  while (count > 0 && !bounded) {
+    bounded = [[NSString alloc] initWithBytes:utf8.bytes length:count encoding:NSUTF8StringEncoding];
+    if (!bounded) --count;
+  }
+  return @{ @"identifier" : bounded ?: @"",
+            @"identifierTruncated" : @(source.length > (bounded ?: @"").length),
+            @"identifierByteCapacity" : @96 };
+}
+
 static NSDictionary *RionResizeExistingViewMetadata(NSView * _Nullable content,
                                                    NSView * _Nullable accessoryRoot) {
   @try {
@@ -71,14 +86,15 @@ static NSDictionary *RionResizeExistingViewMetadata(NSView * _Nullable content,
     NSUInteger omittedConstraints = 0;
     for (NSView *view in views) {
       NSArray<NSLayoutConstraint *> *existing = view.constraints;
-      const NSUInteger count = MIN(existing.count, (NSUInteger)8);
+      const NSUInteger count = MIN(existing.count, (NSUInteger)24);
       omittedConstraints += existing.count - count;
       NSMutableArray *constraints = [NSMutableArray array];
       for (NSUInteger index = 0; index < count; ++index) {
         NSLayoutConstraint *constraint = existing[index];
         id first = constraint.firstItem;
         id second = constraint.secondItem;
-        [constraints addObject:@{
+        NSMutableDictionary *record = [@{
+          @"constraintClass" : NSStringFromClass(object_getClass(constraint)),
           @"firstItemClass" : first ? NSStringFromClass(object_getClass(first)) : @"",
           @"firstItemPointer" : [NSString stringWithFormat:@"%p", first],
           @"secondItemClass" : second ? NSStringFromClass(object_getClass(second)) : @"",
@@ -87,17 +103,20 @@ static NSDictionary *RionResizeExistingViewMetadata(NSView * _Nullable content,
           @"relation" : @(constraint.relation), @"constant" : @(constraint.constant),
           @"multiplier" : @(constraint.multiplier), @"priority" : @(constraint.priority),
           @"active" : @(constraint.active)
-        }];
+        } mutableCopy];
+        [record addEntriesFromDictionary:RionResizeConstraintIdentifier(constraint.identifier)];
+        [constraints addObject:record];
       }
       [records addObject:@{
         @"class" : NSStringFromClass(object_getClass(view)),
         @"pointer" : [NSString stringWithFormat:@"%p", view], @"frame" : RionResizeRect(view.frame),
+        @"hidden" : @(view.hidden), @"superviewPointer" : [NSString stringWithFormat:@"%p", view.superview],
         @"translatesAutoresizingMaskIntoConstraints" : @(view.translatesAutoresizingMaskIntoConstraints),
         @"autoresizingMask" : @(view.autoresizingMask), @"constraints" : constraints,
         @"omittedConstraints" : @(existing.count - count)
       }];
     }
-    return @{ @"viewCapacity" : @8, @"constraintCapacityPerView" : @8,
+    return @{ @"viewCapacity" : @8, @"constraintCapacityPerView" : @24,
               @"omittedChildReferences" : @(omittedChildReferences),
               @"omittedConstraints" : @(omittedConstraints), @"views" : records };
   } @catch (__unused NSException *exception) {

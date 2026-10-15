@@ -78,12 +78,23 @@ jobs:
         if: ${{ inputs.macos_phase == 'tabs-visible' }}
         shell: bash
         run: |
-          root=".desktop-e2e-artifacts/native-resize-method-witness"
+          root=".desktop-e2e-artifacts/native-resize-constraints-witness"
           mkdir -p "$root"
           /usr/bin/xcrun clang++ -std=c++20 -fobjc-arc -fblocks -Wall -Wextra -Werror \
             -framework AppKit tests/fixtures/appkit-resize-diagnostic-hooks.mm \
             -o "$root/forwarding-fixture" >"$root/compile.stdout" 2>"$root/compile.stderr"
           "$root/forwarding-fixture" >"$root/forwarding-proof.json" 2>"$root/forwarding.stderr"
+      - name: Compile and test the actual Swift resize endpoint quantization
+        if: ${{ inputs.macos_phase == 'tabs-visible' }}
+        shell: bash
+        run: |
+          root=".desktop-e2e-artifacts/native-resize-constraints-witness"
+          mkdir -p "$root"
+          /usr/bin/xcrun swiftc -D RION_RESIZE_DELTA_TEST \
+            e2e/desktop/support/workspace-window-resize.swift \
+            tests/fixtures/workspace-window-resize-deltas.swift \
+            -o "$root/resize-deltas" >"$root/quantization-compile.stdout" 2>"$root/quantization-compile.stderr"
+          "$root/resize-deltas" >"$root/quantization-proof.json" 2>"$root/quantization.stderr"
       - name: Check the feature-enabled AppKit callback boundary
         if: ${{ inputs.macos_phase == 'tabs-visible' }}
         run: cargo clippy --locked -p rion-node --features desktop-e2e --all-targets --no-deps -- -D warnings
@@ -141,6 +152,9 @@ jobs:
         env:
           RION_STUDIO_DIAGNOSTIC_MACOS_PHASE: ${{ inputs.macos_phase == 'keyboard' && 'chromium-macro-cutover-keyboard' || inputs.macos_phase == 'background-tab' && 'chromium-macro-background-tab' || inputs.macos_phase == 'mixed-recovery' && 'chromium-mixed-recovery-restore' || inputs.macos_phase == 'role-reset' && 'chromium-role-session-reset-restart' || inputs.macos_phase == 'role-isolation' && 'chromium-role-session-isolation-restart' || inputs.macos_phase == 'app-recovery' && 'chromium-app-recovery-restore' || inputs.macos_phase == 'tabs-visible' && 'chromium-tabs-visible-restart' || 'chromium-game-window-ui-restart' }}
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+      - name: Observe the isolated plain Cocoa window with the same native resize sender
+        if: ${{ always() && inputs.macos_phase == 'tabs-visible' }}
+        run: node scripts/diagnoseAppKitPlainWindowResize.mjs .desktop-e2e-artifacts/native-resize-constraints-witness/plain-control
       - name: Verify the native resize carrier reached the terminal artifact
         if: ${{ always() && inputs.macos_phase == 'tabs-visible' }}
         run: node scripts/verifyAppKitResizeDiagnosticCarrier.mjs .desktop-e2e-artifacts

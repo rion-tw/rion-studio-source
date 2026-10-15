@@ -380,20 +380,31 @@ int main(void) {
       [content addSubview:accessory];
       NSLayoutConstraint *existing = [accessory.widthAnchor constraintGreaterThanOrEqualToConstant:42.5];
       existing.priority = 750;
+      existing.identifier = [@"鍵" stringByPaddingToLength:200 withString:@"鍵" startingAtIndex:0];
       [accessory addConstraint:existing];
+      for (NSUInteger index = 0; index < 25; ++index) {
+        [accessory addConstraint:[accessory.widthAnchor constraintGreaterThanOrEqualToConstant:100 + index]];
+      }
+      accessory.hidden = YES;
       content.forbiddenQueries = 0;
       accessory.forbiddenQueries = 0;
       content.rejectLayoutQueries = YES;
       accessory.rejectLayoutQueries = YES;
       NSDictionary *metadata = RionResizeExistingViewMetadata(content, accessory);
       Require(!metadata[@"error"] && [metadata[@"views"] count] == 2 &&
+              [metadata[@"constraintCapacityPerView"] unsignedIntegerValue] == 24 &&
+              [metadata[@"omittedConstraints"] unsignedIntegerValue] == 2 &&
               content.forbiddenQueries == 0 && accessory.forbiddenQueries == 0,
               @"metadata triggered a fitting, intrinsic, constraint-solver or layout query");
       BOOL foundExisting = NO;
       for (NSDictionary *view in metadata[@"views"]) {
         for (NSDictionary *constraint in view[@"constraints"]) {
           if ([constraint[@"constant"] doubleValue] == 42.5 && [constraint[@"priority"] doubleValue] == 750) {
-            foundExisting = YES;
+            NSData *identifier = [constraint[@"identifier"] dataUsingEncoding:NSUTF8StringEncoding];
+            foundExisting = identifier.length == 96 && [constraint[@"identifierTruncated"] boolValue] &&
+              [constraint[@"constraintClass"] length] > 0 && [view[@"hidden"] boolValue] &&
+              [view[@"constraints"] count] == 24 &&
+              [view[@"superviewPointer"] isEqual:[NSString stringWithFormat:@"%p", content]];
           }
         }
       }

@@ -52,11 +52,17 @@ function history(platform: Platform, restart = false) {
   });
 }
 
+function initialShow(platform: Platform) {
+  return { windowId, requestedSavedPlacement: saved("normal").placement,
+    savedWindow: saved("normal"), runtime: native(platform, "normal") };
+}
+
 async function validate(
   platform: Platform,
   stages: ReturnType<typeof history>,
   restart = false,
-  currentRuntime = native(platform, platform === "windows" ? "maximized" : "fullscreen")
+  currentRuntime = native(platform, platform === "windows" ? "maximized" : "fullscreen"),
+  show = initialShow(platform)
 ) {
   const phaseDirectory = await mkdtemp(join(tmpdir(), "rion-window-presentation-"));
   try {
@@ -64,6 +70,7 @@ async function validate(
       JSON.stringify(stages));
     await writeFile(join(phaseDirectory, "electron-game-window-runtime-observations.json"),
       JSON.stringify([{ windowId, currentRuntime }]));
+    if (!restart) await writeFile(join(phaseDirectory, "game-window-initial-show.json"), JSON.stringify(show));
     return await validateChromiumGameWindowRuntimeEvidence({ platform, phaseDirectory,
       phase: `chromium-game-window-ui-${restart ? "restart" : "seed"}` });
   } finally {
@@ -124,6 +131,52 @@ describe("Game Window presentation close/reopen evidence", () => {
     const stages = history("macos");
     stages.splice(2, 1);
     await expect(validate("macos", stages)).rejects.toThrow("stages are incomplete or reordered");
+  });
+
+  it.each(["macos", "windows"] as const)("accepts %s native fitting only after a committed placement revision", async platform => {
+    const show = initialShow(platform);
+    show.requestedSavedPlacement.normalBounds = { ...normalBounds, height: 648 };
+    show.runtime.topologyRevision = 2;
+    await expect(validate(platform, history(platform), false, undefined, show)).resolves.toMatchObject({
+      initialNativeFit: true, initialTopologyRevision: 2
+    });
+    show.runtime.topologyRevision = 1;
+    await expect(validate(platform, history(platform), false, undefined, show)).rejects.toThrow(
+      "accepted native fitting without a committed placement revision"
+    );
+  });
+
+  it("accepts unchanged geometry at the first revision and compares rectangle values independent of key order", async () => {
+    const show = initialShow("macos");
+    show.runtime.topologyRevision = 1;
+    show.runtime.nativeDisplay.bounds = { height: 640, width: 960, y: 64, x: 64 };
+    await expect(validate("macos", history("macos"), false, undefined, show)).resolves.toMatchObject({
+      initialNativeFit: false, initialTopologyRevision: 1
+    });
+  });
+
+  it.each(["window", "generation", "parent", "bounds", "display", "appkit"] as const)(
+    "rejects a fitted first Show with mismatched %s identity or geometry", async field => {
+      const show = initialShow("macos");
+      if (field === "window") show.runtime.windowId = "another-window";
+      if (field === "generation") show.runtime.windowGeneration += 1;
+      if (field === "parent") show.runtime.parentNativeHostId += 1;
+      if (field === "bounds") show.runtime.nativeDisplay.bounds = { ...normalBounds, height: 648 };
+      if (field === "display") show.runtime.nativeDisplay.displayId = 2;
+      if (field === "appkit") show.runtime.appKitIdentity = {
+        ...show.runtime.appKitIdentity!, logicalWindowId: "another-window"
+      };
+      await expect(validate("macos", history("macos"), false, undefined, show)).rejects.toThrow(
+        "initial visible Show lacks exact accepted Core/native placement and owner fences"
+      );
+    });
+
+  it("rejects malformed requested bounds before classifying any native fit", async () => {
+    const show = initialShow("macos");
+    show.requestedSavedPlacement.normalBounds = { ...normalBounds, width: 0 };
+    await expect(validate("macos", history("macos"), false, undefined, show)).rejects.toThrow(
+      "initial visible Show lost the requested or accepted empty-window placement"
+    );
   });
 });
 

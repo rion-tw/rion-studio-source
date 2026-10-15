@@ -164,11 +164,12 @@ async function showThroughVisibleUi(
       "game-window-show-failure.json"), `${JSON.stringify({
       windowId: gameWindow.id, requestedSavedPlacement: gameWindow.placement,
       latestRuntimeInspection: inspection, lastInspectionError,
+      waitFailure: error instanceof Error ? error.message : String(error),
       latestSavedWindow: saved.status === "fulfilled"
         ? saved.value.find(({ id }) => id === gameWindow.id) : String(saved.reason),
       visibleRowText: visibleRow.status === "fulfilled" ? visibleRow.value : String(visibleRow.reason)
     }, null, 2)}\n`);
-    const detail = lastInspectionError ? ` Last inspection error: ${lastInspectionError}` : "";
+    const detail = lastInspectionError ? ` Last transient inspection error: ${lastInspectionError}` : "";
     throw new Error(`Visible Show failed for Game Window ${gameWindow.id}.${detail}`, { cause: error });
   }
   return inspection!;
@@ -222,7 +223,10 @@ async function waitForSavedPresentation(input: Readonly<{
   platform: "macos" | "windows";
   presentation: Presentation;
   stage: string;
-}>): Promise<void> {
+}>): Promise<Readonly<{
+  saved: GameWindow;
+  runtime: NonNullable<ElectronDesktopE2eGameWindowRuntimeInspection["currentRuntime"]>;
+}>> {
   let saved: GameWindow | undefined;
   let runtime: ElectronDesktopE2eGameWindowRuntimeInspection["currentRuntime"] = null;
   let lastInspectionError: string | undefined;
@@ -254,6 +258,7 @@ async function waitForSavedPresentation(input: Readonly<{
   expect(saved!.placement.normalBounds).toEqual(input.gameWindow.placement.normalBounds);
   expectExactNativeIdentity({ currentRuntime: runtime, windowId: input.gameWindow.id }, input.platform);
   await recordPresentationStage(input.stage, saved!, runtime);
+  return { saved: saved!, runtime: runtime! };
 }
 
 async function toggleVisibleFullscreen(windowId: string, platform: "macos" | "windows") {
@@ -336,6 +341,7 @@ describe("Chromium permanent Game Window UI", () => {
       expect(gameWindow.tabs).toEqual([]);
     }
 
+    const requestedSavedPlacement = gameWindow.placement;
     const inspection = await showThroughVisibleUi(gameWindow);
     expect(inspection.windowId).toBe(gameWindow.id);
     expectExactNativeIdentity(inspection, platform);
@@ -348,8 +354,18 @@ describe("Chromium permanent Game Window UI", () => {
     }
 
     gameWindow = await waitForNamedWindow();
-    await waitForSavedPresentation({ gameWindow, platform,
+    const baseline = await waitForSavedPresentation({ gameWindow, platform,
       presentation: "normal", stage: "normal-baseline" });
+    await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
+      "game-window-initial-show.json"), `${JSON.stringify({
+      windowId: gameWindow.id, requestedSavedPlacement, savedWindow: baseline.saved,
+      runtime: baseline.runtime
+    }, null, 2)}\n`);
+    expect(baseline.runtime.nativeDisplay.bounds).toEqual(baseline.saved.placement.normalBounds);
+    if ((["x", "y", "width", "height"] as const).some(key =>
+      requestedSavedPlacement.normalBounds[key] !== baseline.saved.placement.normalBounds[key])) {
+      expect(baseline.runtime.topologyRevision).toBeGreaterThan(1);
+    }
     await toggleVisibleFullscreen(gameWindow.id, platform);
     await waitForSavedPresentation({ gameWindow, platform,
       presentation: "fullscreen", stage: "fullscreen-applied" });

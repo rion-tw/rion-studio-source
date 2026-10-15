@@ -2,6 +2,7 @@ import { vi } from "vitest";
 
 import { ChromiumRuntimeLaunchCoordinator, type ChromiumRuntimeExistingTabActivationFence, type ChromiumRuntimeLaunchCorePort } from "../../src/electron/main/chromiumRuntimeLaunchCoordinator";
 import { projectCoreAppSnapshot } from "../../src/electron/main/appSnapshotProjection";
+import type { RuntimeWindowProjectionProgress } from "../../src/electron/main/runtimeWindowProjectionFence";
 import type { ChromiumRuntimeExecutorSnapshot } from "../../src/electron/main/chromiumRuntimeEffectExecutor";
 import { RionBridgeError } from "../../src/electron/ipc/errors";
 import type { BrowserLaunchAdmissionRecord, CoreAppSnapshotRecord, CoreCommand, DisplayTopologySnapshotRecord } from "../../src/shared/generated";
@@ -11,6 +12,7 @@ export interface HarnessOptions {
   readonly observedSnapshots?: boolean;
   readonly settleWindowNativeEvents?: (windowId: string) => Promise<boolean>;
   readonly settleWindowProjection?: (windowId: string) => Promise<boolean>;
+  readonly observeWindowProgress?: (windowId: string) => RuntimeWindowProjectionProgress;
   readonly settleNativeEvents?: () => Promise<void>;
   readonly settleRuntimeProjection?: () => Promise<number>;
   readonly waitForRuntimeProjection?: (afterSequence: number) => Promise<number>;
@@ -366,6 +368,7 @@ export function launchHarness(options: HarnessOptions = {}) {
     observedSnapshots: options.observedSnapshots,
     settleWindowProjection: options.settleWindowProjection,
     settleWindowNativeEvents: options.settleWindowNativeEvents,
+    observeWindowProgress: options.observeWindowProgress,
     core: {
       invoke: coreInvoke as unknown as ChromiumRuntimeLaunchCorePort["invoke"]
     },

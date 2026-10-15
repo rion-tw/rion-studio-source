@@ -1338,6 +1338,39 @@ describe("macOS AppKit privileged runtime event bridge", () => {
 });
 
 describe("target-local native event fence", () => {
+  it("keeps completed placement-event progress after its pending receipt leaves the lane", async () => {
+    let entered!: () => void, release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const dispatched = new Promise<void>(resolve => { entered = resolve; });
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke: (async (command: CoreCommand) => {
+          if (command.type !== "browserAppKitRuntimeEvent") throw new Error("unexpected command");
+          expect(command.event.action.type).toBe("windowState");
+          entered(); await gate;
+          return receipt(command);
+        }) as never,
+        subscribeCoreEvents: () => () => undefined
+      }, onError: vi.fn()
+    });
+    const progress = bridge.observeWindowEvents("window-1");
+    const unrelated = bridge.observeWindowEvents("window-2");
+    bridge.receiveAction({ identity, hosts: [primaryObservation()],
+      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+    expect(progress.readSequence()).toBe(1);
+    await dispatched;
+    const waiting = bridge.settleWindowEvents("window-1");
+    release();
+    await expect(waiting).resolves.toBe(true);
+    expect(progress.readSequence()).toBe(2);
+    expect(unrelated.readSequence()).toBe(0);
+    await expect(bridge.settleWindowEvents("window-1")).resolves.toBe(false);
+    progress.dispose(); unrelated.dispose();
+    await bridge.dispose();
+    expect(() => bridge.observeWindowEvents("window-1")).toThrow(
+      expect.objectContaining({ code: "ELECTRON_MACOS_APPKIT_EVENT_BRIDGE_DRAINING" }));
+  });
+
   it.each(["applied", "rejected", "streamFailure", "actorStop"])("settles from %s without waiting on another window", async outcome => {
     let release!: () => void, entered!: () => void;
     let failStream!: (failure: never) => void;

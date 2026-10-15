@@ -177,6 +177,36 @@ function harness(
 }
 
 describe("Electron Core effect coordinator", () => {
+  it("retains exact-window progress through native execution and its Core acknowledgement", async () => {
+    const native = deferred<unknown>();
+    const acknowledgement = deferred<void>();
+    const enteredAcknowledgement = deferred<void>();
+    const test = harness(async () => native.promise, async () => {
+      enteredAcknowledgement.resolve();
+      await acknowledgement.promise;
+    }, undefined, request => [`window:${request.target.handleId}`]);
+    const progress = test.coordinator.observeWindowProjection("window-a");
+    const unrelated = test.coordinator.observeWindowProjection("window-b");
+    const target = effect("target", "window-a", "eventBound", "app");
+    target.action = { type: "embeddedFollowRoleOwnership", roles: [], lifecycleEpoch: 1,
+      revealWindowIds: [], focusWindowIds: [] };
+    test.emit({ type: "coreEffects", effects: [target] });
+    expect(progress.readSequence()).toBe(1);
+    expect(unrelated.readSequence()).toBe(0);
+    native.resolve(undefined);
+    await enteredAcknowledgement.promise;
+    expect(progress.readSequence()).toBe(1);
+    const waiting = test.coordinator.settleWindowProjection("window-a");
+    acknowledgement.resolve();
+    await expect(waiting).resolves.toBe(true);
+    expect(progress.readSequence()).toBe(2);
+    await expect(test.coordinator.settleWindowProjection("window-a")).resolves.toBe(false);
+    progress.dispose(); unrelated.dispose();
+    await test.coordinator.dispose();
+    expect(() => test.coordinator.observeWindowProjection("window-a")).toThrow(
+      expect.objectContaining({ code: "ELECTRON_CORE_EFFECT_ACTOR_STOPPED" }));
+  });
+
   it.each(["macos", "windows"])(
     "rejects an unowned %s projection wait and observes subsequent authoritative events",
     async (_platform) => {

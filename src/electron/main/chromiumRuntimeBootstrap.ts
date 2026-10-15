@@ -1,4 +1,5 @@
 import { drainChromiumShutdownInput } from "./chromiumShutdownInputDrain";
+import type { RuntimeWindowProjectionProgress } from "./runtimeWindowProjectionFence";
 import { ChromiumSessionRecoveryExecutor } from "./chromiumSessionRecoveryExecutor";
 import type {
   BrowserRuntimeRegistrationRecord,
@@ -1427,6 +1428,10 @@ export class ChromiumRuntimeBootstrap {
       ));
     }
     return this.#coordinator.settleCurrentProjectionEffects();
+  }
+
+  observeWindowProjection(windowId: string): RuntimeWindowProjectionProgress {
+    return this.#coordinator.observeWindowProjection(windowId);
   }
 
   async settleWindowProjection(windowId: string): Promise<boolean> {

@@ -1,4 +1,4 @@
-import { RuntimeWindowProjectionFence } from "./runtimeWindowProjectionFence";
+import { RuntimeWindowProjectionFence, type RuntimeWindowProjectionProgress } from "./runtimeWindowProjectionFence";
 import { forwardMacosRuntimeTabDrag } from "./macosRuntimeTabDrag";
 import type { CoreEventStreamFailure } from "../core/coreAddonClient";
 import { randomUUID } from "node:crypto";
@@ -77,6 +77,7 @@ export interface MacosAppKitRendererActionPort {
   finishSavedWindowRestore: (windowId: string) => Promise<void>;
   settleCurrentEvents: () => Promise<number>;
   settleWindowEvents: (windowId: string) => Promise<boolean>;
+  observeWindowEvents: (windowId: string) => RuntimeWindowProjectionProgress;
   activateTab: (
     hosts: readonly AppKitRuntimeHostObservationRecord[],
     tabId: string
@@ -796,6 +797,11 @@ implements MacosAppKitRendererActionPort {
   /** Includes native callbacks received before their Core effects are emitted. */
   settleWindowEvents(windowId: string): Promise<boolean> {
     return this.#windowEvents.settle(windowId, this.#eventWaitAbort.signal);
+  }
+
+  observeWindowEvents(windowId: string): RuntimeWindowProjectionProgress {
+    if (this.#eventWaitAbort.signal.aborted) throw this.#eventWaitAbort.signal.reason;
+    return this.#windowEvents.observe(windowId);
   }
 
   dispose(): Promise<void> {

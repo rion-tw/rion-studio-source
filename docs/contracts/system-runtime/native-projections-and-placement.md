@@ -137,9 +137,9 @@ clamps the saved normal bounds to its current work area. Launch and empty-window
 registration retain their topology revision fences; an unchanged legacy saved
 record may acknowledge registration before a native placement event persists
 the current display data.
-If a snapshot read observes a newer Core revision, admission also captures any
-exact-window native work admitted during that read. Only admitted work permits
-another snapshot; absent work or a failed receipt still rejects the mismatch.
+Each launch admission retains an exact-window event/projection witness across snapshot reads and releases it on success or failure.
+Only work admitted or completed during a read permits a fresh snapshot after a mismatch, including work that has already left the pending set.
+Progress never accepts mismatched generations/revisions, bypasses failed receipts, or retains closed-window history.
 
 Legacy saved Workspace tabs that predate complete Workspace-slot snapshots merge
 their saved Role geometry onto the current source Workspace by slot ID, then

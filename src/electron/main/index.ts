@@ -54,6 +54,7 @@ import { resolveElectronNewGameWindowTarget } from "./electronNewGameWindowTarge
 import { projectCoreAppSnapshot } from "./appSnapshotProjection";
 import { ElectronApplicationLifecycleController } from "./applicationLifecycleController";
 import { ChromiumRuntimeLaunchCoordinator } from "./chromiumRuntimeLaunchCoordinator";
+import { observeChromiumRuntimeWindowProgress, waitForChromiumRuntimeProjection } from "./chromiumRuntimeProjectionProgress";
 import { ChromiumRuntimeLaunchCompletionCoordinator } from "./chromiumRuntimeLaunchCompletionCoordinator";
 import { ChromiumRuntimeRestoreSessionCoordinator } from "./chromiumRuntimeRestoreSessionCoordinator";
 import { createChromiumSavedWindowRestorePresentation } from "./chromiumSavedWindowRestorePresentation";
@@ -600,18 +601,6 @@ async function readAppSnapshot() {
 
 async function settleRuntimeProjection() { return chromiumRuntime?.settleCurrentProjection() ?? 0; }
 
-async function waitForRuntimeProjection(afterSequence: number): Promise<number> {
-  const runtime = chromiumRuntime;
-  if (!runtime) {
-    throw new RionBridgeError({
-      code: "ELECTRON_CHROMIUM_RUNTIME_UNAVAILABLE",
-      message: "The Chromium runtime cannot await its next native projection."
-    });
-  }
-  await runtime.waitForProjectionAfter(afterSequence);
-  return settleRuntimeProjection();
-}
-
 
 let graphicsHost: GraphicsHost | null = null;
 
@@ -1130,13 +1119,14 @@ async function bootstrapReadyPhase(
     settleWindowNativeEvents: async windowId =>
       await restoredTabAppKit?.events.settleWindowEvents(windowId) ?? false,
     settleWindowProjection: windowId => chromiumRuntime!.settleWindowProjection(windowId),
+    observeWindowProgress: id => observeChromiumRuntimeWindowProgress(chromiumRuntime, restoredTabAppKit?.events, id),
     core: activeCore(),
     launchCompletions: chromiumLaunchCompletions,
     settleNativeEvents: async () => {
       await restoredTabAppKit?.events.settleCurrentEvents();
     },
     settleRuntimeProjection,
-    waitForRuntimeProjection,
+    waitForRuntimeProjection: sequence => waitForChromiumRuntimeProjection(chromiumRuntime, sequence),
     ...restoredWindowPresentation,
     activateExistingTab: async (fence) => {
       if (restoredTabAppKit) {

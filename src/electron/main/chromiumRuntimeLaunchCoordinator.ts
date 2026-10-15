@@ -4,6 +4,7 @@ import { recordRuntimeTransition } from "./runtimeOperationJournal";
 import { canonicalWebSurfaceIdentities } from "./chromiumRuntimeLaunchWebIdentity";
 import { recordLaunchAdmission, runRecordedLaunch } from "./runtimeLaunchJournal";
 import { RuntimeScopedQueue } from "./runtimeScopedQueue";
+import type { RuntimeWindowProjectionProgress } from "./runtimeWindowProjectionFence";
 import { randomUUID } from "node:crypto";
 
 import type {
@@ -57,6 +58,7 @@ export interface ChromiumRuntimeLaunchCoordinatorInput {
   readonly observedSnapshots?: boolean;
   readonly settleWindowNativeEvents?: (windowId: string) => Promise<boolean>;
   readonly settleWindowProjection?: (windowId: string) => Promise<boolean>;
+  readonly observeWindowProgress?: (windowId: string) => RuntimeWindowProjectionProgress;
   readonly settleNativeEvents?: () => Promise<void>;
   readonly settleRuntimeProjection?: () => Promise<number>;
   readonly waitForRuntimeProjection?: (afterSequence: number) => Promise<number>;
@@ -800,12 +802,10 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
       }
       let after = await this.#readCoherentSnapshot();
       try {
-        // Registration can emit a native placement event whose Core revision
-        // precedes its chrome projection. Wait only for this host's admitted
-        // work, as ordinary live-target admission already does.
-        if (inspectLaunchWindowFence(after.core, after.native, target.windowId).reason !== null) {
-          after = await this.#awaitLiveTarget(after, target.windowId);
-        }
+        // Native fitting can change geometry before Core commits its revision,
+        // even while this first Core/native pair still matches. Include this
+        // host's already-admitted work before checking the complete receipt.
+        after = await this.#awaitLiveTarget(after, target.windowId);
       } catch (error) {
         if (error instanceof RionBridgeError && error.code === "ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE") {
           throw launchError("ELECTRON_CHROMIUM_EMPTY_WINDOW_RECEIPT_STALE",
@@ -1261,31 +1261,42 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
 
   async #awaitLiveTarget(snapshot: CoherentLaunchSnapshot, windowId: string): Promise<CoherentLaunchSnapshot> {
     const generation = snapshot.core.logicalWindows.find(window => window.windowId === windowId)?.windowGeneration;
-    while (true) {
-      // Include already-received AppKit events before looking only at emitted effects.
-      const nativeEvents = await this.#input.settleWindowNativeEvents?.(windowId) ?? false;
-      const projection = await this.#input.settleWindowProjection?.(windowId) ?? false;
-      // Re-read even when a receipt finished between the initial snapshot and the fence.
-      snapshot = await this.#readCoherentSnapshot(false);
-      if (snapshot.core.logicalWindows.find(window => window.windowId === windowId)?.windowGeneration !== generation) {
-        throw launchError("ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE",
-          "The requested window closed or changed generation before launch admission.");
+    const progress = this.#input.observeWindowProgress?.(windowId);
+    try {
+      while (true) {
+        // Include already-received AppKit events before looking only at emitted effects.
+        const nativeEvents = await this.#input.settleWindowNativeEvents?.(windowId) ?? false;
+        const projection = await this.#input.settleWindowProjection?.(windowId) ?? false;
+        const beforeRead = progress?.readSequence();
+        // Re-read even when a receipt finished between the initial snapshot and the fence.
+        snapshot = await this.#readCoherentSnapshot(false);
+        // A completed failed receipt remains authoritative even for a coherent pair.
+        progress?.readSequence();
+        if (snapshot.core.logicalWindows.find(window => window.windowId === windowId)?.windowGeneration !== generation) {
+          throw launchError("ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE",
+            "The requested window closed or changed generation before launch admission.");
+        }
+        try { this.#liveTarget(snapshot, windowId, true, {
+          waitedNativeEvents: Number(nativeEvents), waitedProjection: Number(projection)
+        }); return snapshot; }
+        catch (error) {
+          if (!(error instanceof RionBridgeError) || error.code !== "ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE") throw error;
+          // A completion may enqueue a successor projection. Only that actual work
+          // permits another read; no polling or elapsed-time reconciliation.
+          if (nativeEvents || projection) continue;
+          // The snapshot RPC can admit a placement projection after the fences
+          // above. Capture that exact host's newly admitted work before rejecting.
+          const lateNativeEvents = await this.#input.settleWindowNativeEvents?.(windowId) ?? false;
+          const lateProjection = await this.#input.settleWindowProjection?.(windowId) ?? false;
+          if (lateNativeEvents || lateProjection) continue;
+          // A task may finish and leave both pending sets during the snapshot RPC.
+          // Only this read's exact-window progress permits a fresh fenced read.
+          if (progress && progress.readSequence() !== beforeRead) continue;
+          throw error;
+        }
       }
-      try { this.#liveTarget(snapshot, windowId, true, {
-        waitedNativeEvents: Number(nativeEvents), waitedProjection: Number(projection)
-      }); return snapshot; }
-      catch (error) {
-        if (!(error instanceof RionBridgeError) || error.code !== "ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE") throw error;
-        // A completion may enqueue a successor projection. Only that actual work
-        // permits another read; no polling or elapsed-time reconciliation.
-        if (nativeEvents || projection) continue;
-        // The snapshot RPC can admit a placement projection after the fences
-        // above. Capture that exact host's newly admitted work before rejecting.
-        const lateNativeEvents = await this.#input.settleWindowNativeEvents?.(windowId) ?? false;
-        const lateProjection = await this.#input.settleWindowProjection?.(windowId) ?? false;
-        if (lateNativeEvents || lateProjection) continue;
-        throw error;
-      }
+    } finally {
+      progress?.dispose();
     }
   }
 

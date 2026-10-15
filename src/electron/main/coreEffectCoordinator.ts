@@ -1,5 +1,5 @@
 import { observeRuntimeEffect, recordRuntimeTransition } from "./runtimeOperationJournal";
-import { RuntimeWindowProjectionFence } from "./runtimeWindowProjectionFence";
+import { RuntimeWindowProjectionFence, type RuntimeWindowProjectionProgress } from "./runtimeWindowProjectionFence";
 import type {
   CoreErrorPayload,
   CoreEffectDispatchReport,
@@ -400,6 +400,12 @@ export class CoreEffectCoordinator {
     const sequence = this.#projectionSequence;
     await Promise.allSettled([...this.#projectionTasks]);
     return sequence;
+  }
+
+  observeWindowProjection(windowId: string): RuntimeWindowProjectionProgress {
+    if (this.#state !== "open") throw new RionBridgeError({
+      code: "ELECTRON_CORE_EFFECT_ACTOR_STOPPED", message: "The native projection actor stopped." });
+    return this.#windowProjections.observe(windowId);
   }
 
   async settleWindowProjection(windowId: string): Promise<boolean> {

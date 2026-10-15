@@ -15,6 +15,7 @@ import { app, BrowserWindow, ipcMain, powerMonitor } from "electron";
 import { emitObservedApplicationPowerSignal } from "./applicationPowerSignal";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
+import { writeGameWindowRuntimeEvidence } from "./gameWindowRuntimeEvidence";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -262,11 +263,7 @@ function writeRuntimeTopologyObservations(): void {
 }
 
 function writeGameWindowRuntimeObservations(): void {
-  if (!artifactDirectory || !isAbsolute(artifactDirectory)) return;
-  writeFileSync(
-    join(artifactDirectory, "electron-game-window-runtime-observations.json"),
-    `${JSON.stringify([...gameWindowRuntimeObservations.values()], null, 2)}\n`
-  );
+  writeGameWindowRuntimeEvidence(artifactDirectory, [...gameWindowRuntimeObservations.values()]);
 }
 
 function writeFullscreenToolbarRuntimeObservations(): void {

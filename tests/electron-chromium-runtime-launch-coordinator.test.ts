@@ -1196,7 +1196,7 @@ describe("Electron Chromium runtime launch coordinator", () => {
     });
     expect(coreInvoke.mock.calls.filter(
       ([command]) => command.type === "appSnapshot"
-    )).toHaveLength(2);
+    )).toHaveLength(3);
 
     await expect(coordinator.launchRole(ROLE_ID, {
       kind: "game-window",

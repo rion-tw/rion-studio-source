@@ -23,6 +23,48 @@ function sameValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function validBounds(value) {
+  return exactKeys(value, ["x", "y", "width", "height"]) &&
+    Object.values(value).every(Number.isSafeInteger) && value.width > 0 && value.height > 0;
+}
+
+function sameBounds(left, right) {
+  return validBounds(left) && validBounds(right) &&
+    ["x", "y", "width", "height"].every(key => left[key] === right[key]);
+}
+
+async function validateInitialShow({ phaseDirectory, platform, windowId, baseline }) {
+  const show = JSON.parse(await readFile(resolve(phaseDirectory, "game-window-initial-show.json"), "utf8"));
+  const { requestedSavedPlacement: requested, savedWindow: saved, runtime } = show;
+  requireRuntime(exactKeys(show, ["windowId", "requestedSavedPlacement", "savedWindow", "runtime"]) &&
+    show.windowId === windowId && requested?.presentation === "normal" &&
+    validBounds(requested.normalBounds) && validBounds(requested.savedWorkArea) &&
+    saved?.id === windowId && saved.name === "Chromium E2E Game Window" && sameValue(saved.tabs, []) &&
+    saved.placement?.presentation === "normal" &&
+    sameBounds(saved.placement.normalBounds, baseline.saved.placement.normalBounds) &&
+    sameBounds(saved.placement.savedWorkArea, requested.savedWorkArea),
+  "initial visible Show lost the requested or accepted empty-window placement");
+  requireRuntime(runtime?.windowId === windowId && runtime.visible === true && runtime.focused === true &&
+    runtime.hostKind === (platform === "macos" ? "appkit-chromium" : "bundled-chromium") &&
+    sameValue(runtime.coreTabIds, []) && sameValue(runtime.nativeTabIds, []) &&
+    Number.isSafeInteger(runtime.windowGeneration) && runtime.windowGeneration > 0 &&
+    runtime.windowGeneration === baseline.runtime?.windowGeneration &&
+    Number.isSafeInteger(runtime.topologyRevision) && runtime.topologyRevision > 0 &&
+    runtime.topologyRevision <= baseline.runtime?.topologyRevision &&
+    Number.isSafeInteger(runtime.parentNativeHostId) && runtime.parentNativeHostId > 0 &&
+    runtime.parentNativeHostId === baseline.runtime?.parentNativeHostId &&
+    sameValue(runtime.appKitIdentity, baseline.runtime?.appKitIdentity) &&
+    runtime.nativeDisplay?.presentation === "normal" &&
+    runtime.nativeDisplay.displayId === saved.targetDisplay?.id &&
+    sameBounds(runtime.nativeDisplay.bounds, saved.placement.normalBounds) &&
+    sameBounds(runtime.nativeDisplay.workArea, saved.placement.savedWorkArea),
+  "initial visible Show lacks exact accepted Core/native placement and owner fences");
+  const nativeFit = !sameBounds(requested.normalBounds, saved.placement.normalBounds);
+  requireRuntime(!nativeFit || runtime.topologyRevision > 1,
+    "initial visible Show accepted native fitting without a committed placement revision");
+  return { nativeFit, topologyRevision: runtime.topologyRevision };
+}
+
 async function validatePresentationStages({ phase, phaseDirectory, platform, windowId }) {
   const stages = JSON.parse(await readFile(
     resolve(phaseDirectory, "game-window-presentation-stages.json"), "utf8"
@@ -64,7 +106,9 @@ async function validatePresentationStages({ phase, phaseDirectory, platform, win
       `${phase}: ${entry.stage} lacks matching native presentation`);
     }
   }
-  return { baselinePresentation, normalBounds, stages: expectedStages };
+  const initialShow = phase === "chromium-game-window-ui-seed"
+    ? await validateInitialShow({ phaseDirectory, platform, windowId, baseline: stages[0] }) : undefined;
+  return { baselinePresentation, initialShow, normalBounds, stages: expectedStages };
 }
 
 export async function validateChromiumGameWindowRuntimeEvidence({
@@ -166,6 +210,10 @@ export async function validateChromiumGameWindowRuntimeEvidence({
     coreTabIds: runtime.coreTabIds,
     focused: runtime.focused,
     hostKind: runtime.hostKind,
+    ...(presentationEvidence.initialShow ? {
+      initialNativeFit: presentationEvidence.initialShow.nativeFit,
+      initialTopologyRevision: presentationEvidence.initialShow.topologyRevision
+    } : {}),
     nativeTabIds: runtime.nativeTabIds,
     parentNativeHostId: runtime.parentNativeHostId,
     presentation: runtime.nativeDisplay.presentation,

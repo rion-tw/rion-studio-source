@@ -4,7 +4,7 @@ import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eProbe } f
 import { readVisibleElectronCanvasPoint } from "../support/electron-role-surface";
 import { fixtureCursor, fixtureEvents, fixtureState } from "../support/fixture";
 import { clickMacosVisibleRoleControl } from "../support/macos-appkit-ui";
-import { pressVisibleMacosRoleKey, pressVisibleWindowsApplicationShortcut,
+import { withVisibleMacosRoleKeyReceipt, pressVisibleWindowsApplicationShortcut,
   type VisibleFunctionKey } from "../support/native-application-actions";
 import { rendererCall } from "../support/renderer-bridge";
 import { rendererEventCursor, waitForMacroProjection } from "../support/renderer-events";
@@ -50,26 +50,38 @@ export async function exerciseFunctionKeyMacros(input: Readonly<{
     const index = cases.push({ ...evidence, status: "started" }) - 1;
     await savePartial();
     try {
-      if (input.platform === "macos") await pressVisibleMacosRoleKey({ code, processId,
-        runtimeTabName: input.roleName, runtimeWindowId: input.windowId });
-      else await pressVisibleWindowsApplicationShortcut({ command: code, processId, targetMode: "focused-runtime" });
+      const receive = async () => {
+        cases[index] = { ...cases[index], receiverAssertionsStartedAt: new Date().toISOString() };
+        await savePartial();
+        await waitForMacroProjection({ absent: true, afterSequence: projection, macroId: macro.id });
+        let events: Awaited<ReturnType<typeof fixtureEvents>> = [];
+        await browser.waitUntil(async () => {
+          events = (await Promise.all(["consumer-keydown", "consumer-keyup"].map(kind =>
+            fixtureEvents({ afterSequence, roleId: input.fixtureRoleId, kind })))).flat()
+            .sort((left, right) => left.sequence - right.sequence);
+          return events.some(event => event.kind === "consumer-keyup" && event.code === "Digit7");
+        }, { timeout: 10_000, timeoutMsg: `${code} did not complete its Macro output` });
+        expect(events.filter(event => event.code === "Digit7" &&
+          ["consumer-keydown", "consumer-keyup"].includes(event.kind)).map(event => event.kind))
+          .toEqual(["consumer-keydown", "consumer-keyup"]);
+        const after = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
+        expect(after.presentation).toBe(before.presentation);
+        expect(after.native.fullscreen).toBe(before.native.fullscreen);
+        expect(after.surfaces).toEqual(before.surfaces);
+        cases[index] = { ...cases[index], receiverAssertionsCompletedAt: new Date().toISOString() };
+        return { after, events };
+      };
+      let received: Awaited<ReturnType<typeof receive>>;
+      if (input.platform === "macos") {
+        received = await withVisibleMacosRoleKeyReceipt({ code, processId,
+          runtimeTabName: input.roleName, runtimeWindowId: input.windowId }, receive);
+      } else {
+        await pressVisibleWindowsApplicationShortcut({ command: code, processId, targetMode: "focused-runtime" });
+        received = await receive();
+      }
       cases[index] = { ...cases[index], nativeHelperReturnedAt: new Date().toISOString() };
       await savePartial();
-      await waitForMacroProjection({ absent: true, afterSequence: projection, macroId: macro.id });
-      let events: Awaited<ReturnType<typeof fixtureEvents>> = [];
-      await browser.waitUntil(async () => {
-        events = (await Promise.all(["consumer-keydown", "consumer-keyup"].map(kind =>
-          fixtureEvents({ afterSequence, roleId: input.fixtureRoleId, kind })))).flat()
-          .sort((left, right) => left.sequence - right.sequence);
-        return events.some(event => event.kind === "consumer-keyup" && event.code === "Digit7");
-      }, { timeout: 10_000, timeoutMsg: `${code} did not complete its Macro output` });
-      expect(events.filter(event => event.code === "Digit7" &&
-        ["consumer-keydown", "consumer-keyup"].includes(event.kind)).map(event => event.kind))
-        .toEqual(["consumer-keydown", "consumer-keyup"]);
-      const after = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
-      expect(after.presentation).toBe(before.presentation);
-      expect(after.native.fullscreen).toBe(before.native.fullscreen);
-      expect(after.surfaces).toEqual(before.surfaces);
+      const { after, events } = received;
       results.push({ code, events, presentation: after.presentation });
       const physical = await fixtureEvents({ afterSequence, roleId: input.fixtureRoleId }).then(
         value => ({ events: value, error: null }),

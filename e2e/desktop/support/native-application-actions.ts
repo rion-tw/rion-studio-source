@@ -3,7 +3,8 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
-import { boundedNativeProcessFailure as boundedPowerShellFailure, runMacosNativeFocus } from "./compiled-macos-native-focus";
+import { boundedNativeProcessFailure as boundedPowerShellFailure, runMacosNativeFocus,
+  withMacosNativeFocusReceipt } from "./compiled-macos-native-focus";
 import { electronDesktopE2eProbe } from "./electron-driver";
 import { windowsNativeDialogDeclarations } from "./windows-native-dialog";
 import { captureNativeProcessAttribution } from "./native-process-attribution";
@@ -372,6 +373,26 @@ export async function pressVisibleMacosRoleKey(input: Readonly<{
     `com.rionstudio.runtime.appkit-window.v1:${input.runtimeWindowId}`,
     input.runtimeTabName, "roleKey", input.code
   ], 15_000);
+}
+
+/** Diagnostic-only sender lifetime: acknowledge only after the original receiver assertions. */
+export async function withVisibleMacosRoleKeyReceipt<T>(input: Readonly<{
+  code: VisibleFunctionKey;
+  processId: number;
+  runtimeTabName: string;
+  runtimeWindowId: string;
+}>, receive: () => Promise<T>): Promise<T> {
+  if (process.platform !== "darwin" || !validProcessId(input.processId) ||
+      !/^(?:Ctrl\+)?F(?:[1-9]|1[0-2])$/u.test(input.code) ||
+      input.runtimeTabName.length === 0 || input.runtimeTabName.trim() !== input.runtimeTabName ||
+      input.runtimeWindowId.length === 0 || input.runtimeWindowId.trim() !== input.runtimeWindowId) {
+    throw new Error("The native macOS function-key receipt requires one exact AppKit owner");
+  }
+  return withMacosNativeFocusReceipt([
+    String(input.processId),
+    `com.rionstudio.runtime.appkit-window.v1:${input.runtimeWindowId}`,
+    input.runtimeTabName, "roleKey", input.code
+  ], receive);
 }
 
 /** Sends one key chord to the selected exact-PID Windows native window mode. */

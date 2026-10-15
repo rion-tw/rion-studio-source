@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -6,6 +7,9 @@ import { promisify } from "node:util";
 const executeFile = promisify(execFile);
 const nativeFocusScript = fileURLToPath(new URL("./macos-native-focus.swift", import.meta.url));
 const executables = new Map<string, Promise<string>>();
+type NativeFocusArguments = readonly [
+  string, string, string, "focus" | "observe" | "shortcut" | "roleKey", string
+];
 
 export function boundedNativeProcessFailure(error: unknown): string {
   if (typeof error !== "object" || error === null) return "unknown failure";
@@ -57,8 +61,135 @@ export async function prepareMacosNativeFocus(): Promise<string> {
 
 /** Separate cold compilation from each exact, single-invocation native action. */
 export async function runMacosNativeFocus(
-  args: readonly [string, string, string, "focus" | "observe" | "shortcut" | "roleKey", string],
+  args: NativeFocusArguments,
   timeout: 15_000 | 30_000
 ): Promise<void> {
   await execute(`Run macos-native-focus ${args[3]}`, await prepareMacosNativeFocus(), args, timeout);
+}
+
+/** Diagnostic candidate: retain this exact sender until the existing target assertions acknowledge it. */
+export async function withMacosNativeFocusReceipt<Value>(
+  args: NativeFocusArguments,
+  receive: () => Promise<Value>
+): Promise<Value> {
+  const executable = await prepareMacosNativeFocus();
+  const nonce = randomUUID();
+  return new Promise<Value>((resolveReceipt, rejectReceipt) => {
+    let output = "";
+    let submitted = false;
+    let completed = false;
+    let received = false;
+    let acknowledgementSent = false;
+    let processClosed = false;
+    let closeCode: number | null = null;
+    let closeSignal: NodeJS.Signals | null = null;
+    let callbackOutcome: Readonly<{ error: Error | null; stdout: string; stderr: string }> | null = null;
+    let retirementRequested = false;
+    let settled = false;
+    let failed = false;
+    let failure: unknown;
+    let value: Value;
+
+    const protocolError = (message: string): Error =>
+      new Error(`macos-native-focus receipt failed: ${message}`);
+    const finish = (): void => {
+      if (!processClosed || !callbackOutcome || settled) return;
+      if (failed) {
+        settled = true;
+        rejectReceipt(failure);
+      } else if (closeCode !== 0 || closeSignal !== null) {
+        settled = true;
+        rejectReceipt(protocolError(`the exact child closed with code ${String(closeCode)} and signal ${String(closeSignal)} ` +
+          `(${boundedNativeProcessFailure({ code: closeCode, signal: closeSignal,
+            stdout: callbackOutcome.stdout, stderr: callbackOutcome.stderr })})`));
+      } else if (!submitted || !received || !completed || !acknowledgementSent) {
+        settled = true;
+        rejectReceipt(protocolError("the exact child exited before its complete target acknowledgement"));
+      } else {
+        settled = true;
+        resolveReceipt(value);
+      }
+    };
+    const child = execFile(executable, [...args, "receipt", nonce], {
+      encoding: "utf8", timeout: 15_000, maxBuffer: 4_096
+    }, (error, stdout, stderr) => {
+      callbackOutcome = { error, stdout, stderr };
+      if (error) abort(new Error(`Run macos-native-focus receipt failed (${boundedNativeProcessFailure({ ...error, stdout, stderr })})`,
+        { cause: error }));
+      finish();
+    });
+    const abort = (error: unknown): void => {
+      if (settled) return;
+      if (!failed) {
+        failed = true;
+        failure = error;
+      }
+      // A failed target receipt never authorizes success. Retire only this child,
+      // then require both its actual close event and the execFile outcome.
+      if (!processClosed && !retirementRequested) {
+        retirementRequested = true;
+        try { child.stdin?.end(`cancel:${nonce}\n`); } catch { /* Exact child retirement below remains mandatory. */ }
+        try { child.kill("SIGKILL"); } catch { /* The exact close event remains mandatory; a thrown kill is not retirement. */ }
+      }
+      finish();
+    };
+    const receiveTarget = (): void => {
+      void Promise.resolve().then(() => {
+        if (failed || settled || processClosed) throw protocolError("the sender retired before target observation");
+        return receive();
+      }).then((result) => {
+        if (failed || settled || processClosed) return;
+        received = true;
+        value = result;
+        acknowledgementSent = true;
+        try {
+          // The child's exact completed nonce plus pipe-close exit 0 is the
+          // authoritative ACK readback, independent of local write-callback order.
+          child.stdin!.end(`received:${nonce}\n`, "utf8");
+        } catch (error) { abort(error); }
+      }, abort).catch(abort);
+    };
+    child.on("error", abort);
+    child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+      if (processClosed) return;
+      processClosed = true;
+      closeCode = code;
+      closeSignal = signal;
+      finish();
+    });
+    if (!child.stdin || !child.stdout || !child.stderr) {
+      abort(protocolError("the exact child did not expose its receipt pipes"));
+      return;
+    }
+    child.stdin.on("error", abort);
+    child.stdout.on("error", abort);
+    child.stderr.on("error", abort);
+    child.stdout.on("data", (chunk: string | Buffer) => {
+      if (failed || settled) return;
+      output += chunk.toString();
+      if (output.length > 256) {
+        abort(protocolError("the child emitted an oversized receipt"));
+        return;
+      }
+      const newline = output.indexOf("\n");
+      if (newline < 0) return;
+      const line = output.slice(0, newline);
+      output = output.slice(newline + 1);
+      if (output.length > 0) {
+        abort(protocolError("the child emitted an unsolicited receipt"));
+        return;
+      }
+      if (!submitted && line === `submitted:${nonce}`) {
+        submitted = true;
+        receiveTarget();
+      } else if (submitted && received && acknowledgementSent && !completed && line === `completed:${nonce}`) {
+        completed = true;
+      } else {
+        abort(protocolError("the child emitted an out-of-order or mismatched nonce receipt"));
+      }
+    });
+    child.stdout.on("end", () => {
+      if (output.length > 0) abort(protocolError("the child closed a partial receipt"));
+    });
+  });
 }

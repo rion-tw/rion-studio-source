@@ -3,6 +3,8 @@ import { MacosAppKitChromiumRuntimeHostFactory } from
   "../main/macosAppKitRuntimeHostFactory";
 import { MacosAppKitRuntimePresentationController } from
   "../main/macosAppKitRuntimePresentationController";
+import { ChromiumRuntimeLaunchCoordinator } from "../main/chromiumRuntimeLaunchCoordinator";
+import { ElectronDisplayTopologyController } from "../main/electronDisplayTopologyController";
 import {
   appendCoreFlowObservation,
   describeCoreFlowError,
@@ -28,6 +30,36 @@ export function installAppKitInitialPresentationProbe(): void {
         fullscreenable: native.isFullScreenable(), maximized: native.isMaximized(),
         bounds: native.getBounds(), normalBounds: native.getNormalBounds() };
     } catch (error) { return { readError: describeCoreFlowError(error) }; }
+  };
+  const displays = ElectronDisplayTopologyController.prototype;
+  const refresh = displays.refresh;
+  const previousTopologies = new WeakMap<ElectronDisplayTopologyController,
+    ReturnType<typeof refresh>>();
+  displays.refresh = function (cause) {
+    const before = previousTopologies.get(this);
+    const after = refresh.call(this, cause);
+    previousTopologies.set(this, after);
+    if (before?.revision !== after.revision) {
+      journal("appKitDisplayTopologyChanged", `display:${after.revision}`,
+        { before: before ?? null, after });
+    }
+    return after;
+  };
+  const launches = ChromiumRuntimeLaunchCoordinator.prototype;
+  const openEmpty = launches.openEmptySavedGameWindow;
+  launches.openEmptySavedGameWindow = function (window) {
+    const identity = nextCoreFlowIdentity(`appkit-empty-open:${window.id}`);
+    journal("appKitEmptySavedWindowOpen", identity, { window }, "started");
+    let result: ReturnType<typeof openEmpty>;
+    try { result = openEmpty.call(this, window); }
+    catch (error) {
+      journal("appKitEmptySavedWindowOpen", identity, { windowId: window.id }, "rejected", error);
+      throw error;
+    }
+    void result.then(() => journal("appKitEmptySavedWindowOpen", identity,
+      { windowId: window.id }), (error: unknown) => journal("appKitEmptySavedWindowOpen",
+      identity, { windowId: window.id }, "rejected", error));
+    return result;
   };
   const factory = MacosAppKitChromiumRuntimeHostFactory;
   const fromElectron = factory.fromElectronBaseWindow;

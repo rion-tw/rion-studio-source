@@ -30,8 +30,10 @@ export async function resizeReadyTabWhileSiblingLoads(input: {
   let resized = before;
   // A standalone AppKit Role has no Workspace corner grip. Use its native
   // right/bottom borders separately so both dimensions actually move.
+  // Leave travel for native tracking and window-edge alignment; every gesture
+  // must still change its measured dimension.
   const drags = input.platform === "macos"
-    ? [{ edge: "right" as const, x: -48, y: 0 }, { edge: "bottom" as const, x: 0, y: -32 }]
+    ? [{ edge: "right" as const, x: -96, y: 0 }, { edge: "bottom" as const, x: 0, y: -96 }]
     : [{ edge: "bottomRight" as const, x: -48, y: -32 }];
   for (const drag of drags) {
     // End-live-resize commits a new Core revision for the next native gesture.

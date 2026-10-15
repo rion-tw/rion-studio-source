@@ -338,6 +338,7 @@ NS_ASSUME_NONNULL_BEGIN
   BOOL _placementZoomed;
   NSUInteger _windowedGeometryMutationDepth;
   BOOL _windowedGeometryFailed;
+  BOOL _initialWindowedFitPending;
   BOOL _hasFullscreenRestoreGeometry;
   RionRuntimeWindowedGeometry _fullscreenRestoreGeometry;
   NSNumber *_fullscreenRestoreScreenNumber;
@@ -600,10 +601,17 @@ NS_ASSUME_NONNULL_BEGIN
   [self configureAccessoryForTitlebar];
   [self attachAccessoryController];
   [self layoutTitlebarContent];
-  if (initiallyWindowed &&
-      ![self restoreWindowedGeometry:initialGeometry allowNativeFit:YES]) {
-    _windowedGeometryMutationDepth = 0;
-    return nil;
+  if (initiallyWindowed) {
+    const BOOL restored =
+        [self restoreWindowedGeometry:initialGeometry allowNativeFit:YES];
+    const RionRuntimeWindowedGeometry attachedGeometry =
+        [self captureWindowedGeometry];
+    if (!restored || !attachedGeometry.valid) {
+      _windowedGeometryMutationDepth = 0;
+      return nil;
+    }
+    _initialWindowedFitPending =
+        !RionRuntimeWindowedGeometryMatches(initialGeometry, attachedGeometry);
   }
   _windowedGeometryMutationDepth = 0;
   [self captureWindowedTrafficLightFrames];

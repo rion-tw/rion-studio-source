@@ -262,6 +262,10 @@ NS_ASSUME_NONNULL_BEGIN
       _windowID.length == 0 ||
       _windowedGeometryMutationDepth > 0 ||
       (_fullscreenTransitionActive && !_fullscreenHostReady)) return;
+  if (!_fullscreenTransitionActive &&
+      (_window.styleMask & NSWindowStyleMaskFullScreen) == 0) {
+    _initialWindowedFitPending = NO;
+  }
   NSEvent *currentEvent = NSApp.currentEvent;
   BOOL keyboardTrigger = currentEvent.type == NSEventTypeKeyDown ||
       currentEvent.type == NSEventTypeKeyUp ||
@@ -301,6 +305,16 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)emitWindowFocusObservation {
   if (_destroyed || !_actionHandler || _windowID.length == 0) return;
+  if (_initialWindowedFitPending && _window.isVisible &&
+      !_fullscreenTransitionActive && _windowedGeometryMutationDepth == 0 &&
+      !_windowedGeometryFailed &&
+      (_window.styleMask & NSWindowStyleMaskFullScreen) == 0) {
+    // The initial native fit happened before window observers were installed.
+    // This real focus event supplies its one missing placement receipt before
+    // the unchanged focus action; later focus events never replay the fit.
+    _initialWindowedFitPending = NO;
+    [self emitWindowPlacementObservation];
+  }
   _actionHandler(@{
     @"type" : @"windowFocusChanged",
     @"sourceWindowId" : _windowID,

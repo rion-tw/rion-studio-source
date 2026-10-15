@@ -727,8 +727,15 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         completeMacosAppKitRuntimeInitialPresentation({
           record: record as HostRecord, request,
           requireCurrent: () => this.#withCurrent(record as HostRecord, () => undefined),
+          refreshNormalBounds: () => this.#refreshNormalBounds(record as HostRecord),
           refreshLayout: () => this.#refreshLayout(record as HostRecord),
-          publishLayout: () => this.#publishLayout(record as HostRecord, true)
+          publishLayout: () => this.#publishLayout(record as HostRecord, true),
+          publishPlacement: () => this.#input.onAction({
+            identity: record.identity,
+            action: Object.freeze({ type: "windowPlacementChanged",
+              sourceWindowId: record.identity.logicalWindowId }),
+            hosts: Object.freeze([this.#snapshotObservation(record as HostRecord)])
+          })
         }),
       desktopE2eShowAppKitTabMenu: (tabId: string) => this.#withCurrent(
         record as HostRecord, () => requireNativeController(

@@ -1,6 +1,13 @@
+import Foundation
+
+func quantizedResizeMouseDelta(from previous: CGFloat, to target: CGFloat) -> Int64 {
+  // Round the endpoints so successive integer deltas retain the whole move.
+  return Int64(target.rounded()) - Int64(previous.rounded())
+}
+
+#if !RION_RESIZE_DELTA_TEST
 import AppKit
 import ApplicationServices
-import Foundation
 
 let input = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))) as! [String: Any]
 let pid = (input["processId"] as! NSNumber).int32Value
@@ -30,8 +37,8 @@ func postMouse(_ type: CGEventType, _ target: CGPoint) {
   }
   event.flags = []
   event.setIntegerValueField(.mouseEventClickState, value: 1)
-  event.setIntegerValueField(.mouseEventDeltaX, value: Int64((target.x - previousPoint.x).rounded()))
-  event.setIntegerValueField(.mouseEventDeltaY, value: Int64((target.y - previousPoint.y).rounded()))
+  event.setIntegerValueField(.mouseEventDeltaX, value: quantizedResizeMouseDelta(from: previousPoint.x, to: target.x))
+  event.setIntegerValueField(.mouseEventDeltaY, value: quantizedResizeMouseDelta(from: previousPoint.y, to: target.y))
   event.post(tap: .cghidEventTap)
   previousPoint = target
 }
@@ -85,3 +92,4 @@ while true {
 }
 let observedPointer = CGEvent(source: nil)!.location
 print(String(decoding: try JSONSerialization.data(withJSONObject: ["x": point.x, "y": point.y, "pointerX": observedPointer.x, "pointerY": observedPointer.y, "width": extent.width, "height": extent.height, "windowX":origin.x, "windowY":origin.y]), as: UTF8.self))
+#endif

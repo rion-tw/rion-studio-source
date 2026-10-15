@@ -70,15 +70,21 @@ export async function runMacosNativeFocus(
 /** Retain this exact sender until the target assertions acknowledge it. */
 export async function withMacosNativeFocusReceipt<Value>(
   args: NativeFocusArguments,
-  receive: () => Promise<Value>
+  receive: (signal: AbortSignal) => Promise<Value>,
+  parentSignal?: AbortSignal
 ): Promise<Value> {
+  parentSignal?.throwIfAborted();
   const executable = await prepareMacosNativeFocus();
+  parentSignal?.throwIfAborted();
   const nonce = randomUUID();
   return new Promise<Value>((resolveReceipt, rejectReceipt) => {
+    const controller = new AbortController();
     let output = "";
     let submitted = false;
     let completed = false;
     let received = false;
+    let receiveStarted = false;
+    let receiveSettled = false;
     let acknowledgementSent = false;
     let processClosed = false;
     let closeCode: number | null = null;
@@ -92,16 +98,20 @@ export async function withMacosNativeFocusReceipt<Value>(
 
     const protocolError = (message: string): Error =>
       new Error(`macos-native-focus receipt failed: ${message}`);
+    const closedError = (): Error => protocolError(
+      `the exact child closed with code ${String(closeCode)} and signal ${String(closeSignal)} ` +
+      `(${boundedNativeProcessFailure({ code: closeCode, signal: closeSignal,
+        stdout: callbackOutcome?.stdout, stderr: callbackOutcome?.stderr })})`
+    );
     const finish = (): void => {
-      if (!processClosed || !callbackOutcome || settled) return;
+      if (!processClosed || !callbackOutcome || settled || (receiveStarted && !receiveSettled)) return;
+      parentSignal?.removeEventListener("abort", onParentAbort);
       if (failed) {
         settled = true;
         rejectReceipt(failure);
       } else if (closeCode !== 0 || closeSignal !== null) {
         settled = true;
-        rejectReceipt(protocolError(`the exact child closed with code ${String(closeCode)} and signal ${String(closeSignal)} ` +
-          `(${boundedNativeProcessFailure({ code: closeCode, signal: closeSignal,
-            stdout: callbackOutcome.stdout, stderr: callbackOutcome.stderr })})`));
+        rejectReceipt(closedError());
       } else if (!submitted || !received || !completed || !acknowledgementSent) {
         settled = true;
         rejectReceipt(protocolError("the exact child exited before its complete target acknowledgement"));
@@ -124,6 +134,7 @@ export async function withMacosNativeFocusReceipt<Value>(
         failed = true;
         failure = error;
       }
+      if (!controller.signal.aborted) controller.abort(failure);
       // A failed target receipt never authorizes success. Retire only this child,
       // then require both its actual close event and the execFile outcome.
       if (!processClosed && !retirementRequested) {
@@ -136,7 +147,8 @@ export async function withMacosNativeFocusReceipt<Value>(
     const receiveTarget = (): void => {
       void Promise.resolve().then(() => {
         if (failed || settled || processClosed) throw protocolError("the sender retired before target observation");
-        return receive();
+        receiveStarted = true;
+        return receive(controller.signal);
       }).then((result) => {
         if (failed || settled || processClosed) return;
         received = true;
@@ -147,14 +159,22 @@ export async function withMacosNativeFocusReceipt<Value>(
           // authoritative ACK readback, independent of local write-callback order.
           child.stdin!.end(`received:${nonce}\n`, "utf8");
         } catch (error) { abort(error); }
-      }, abort).catch(abort);
+      }, abort).finally(() => {
+        receiveSettled = true;
+        finish();
+      }).catch(abort);
     };
+    const onParentAbort = (): void => { abort(parentSignal!.reason); };
     child.on("error", abort);
     child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
       if (processClosed) return;
       processClosed = true;
       closeCode = code;
       closeSignal = signal;
+      if (code !== 0 || signal !== null) abort(closedError());
+      else if (!submitted || !received || !completed || !acknowledgementSent) {
+        abort(protocolError("the exact child exited before its complete target acknowledgement"));
+      }
       finish();
     });
     if (!child.stdin || !child.stdout || !child.stderr) {
@@ -191,5 +211,7 @@ export async function withMacosNativeFocusReceipt<Value>(
     child.stdout.on("end", () => {
       if (output.length > 0) abort(protocolError("the child closed a partial receipt"));
     });
+    parentSignal?.addEventListener("abort", onParentAbort, { once: true });
+    if (parentSignal?.aborted) onParentAbort();
   });
 }

@@ -17,10 +17,12 @@ function nativeChild() {
   let complete!: Completion;
   let markStarted!: () => void;
   const started = new Promise<void>(resolveStarted => { markStarted = resolveStarted; });
+  let markKilled!: () => void;
+  const killed = new Promise<void>(resolveKilled => { markKilled = resolveKilled; });
   let input = "";
   const child = Object.assign(new EventEmitter(), {
     stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
-    kill: vi.fn(() => true)
+    kill: vi.fn(() => { markKilled(); return true; })
   });
   child.stdin.on("data", (chunk: Buffer) => { input += chunk.toString(); });
   executeRaw.mockImplementationOnce((_file, _args, _options, callback: Completion) => {
@@ -28,7 +30,7 @@ function nativeChild() {
     markStarted();
     return child;
   });
-  return { child, started, input: () => input,
+  return { child, started, killed, input: () => input,
     callback: (error: Error | null = null, stdout = "", stderr = "") => complete(error, stdout, stderr),
     closed: (code: number | null = 0, signal: NodeJS.Signals | null = null) => child.emit("close", code, signal),
     close: (error: Error | null = null, stdout = "", stderr = "") => {
@@ -37,16 +39,30 @@ function nativeChild() {
     } };
 }
 
-async function begin<Value>(receive: () => Promise<Value>) {
+async function begin<Value>(receive: (signal: AbortSignal) => Promise<Value>, code = "F6", parentSignal?: AbortSignal) {
   const helper = await import("../e2e/desktop/support/compiled-macos-native-focus");
   await helper.prepareMacosNativeFocus();
   const native = nativeChild();
-  const pending = helper.withMacosNativeFocusReceipt(args, receive);
+  const pending = helper.withMacosNativeFocusReceipt([args[0], args[1], args[2], args[3], code], receive, parentSignal);
   const outcome = pending.then(value => ({ value }), error => ({ error }));
   await native.started;
   const argv = executeRaw.mock.calls.at(-1)![1] as string[];
   const nonce = argv.at(-1)!;
   return { ...native, pending, outcome, nonce, argv };
+}
+
+async function beginNested<Value>(receive: (signal: AbortSignal) => Promise<Value>, parentSignal?: AbortSignal) {
+  let receiveInner!: (inner: Awaited<ReturnType<typeof begin<Value>>>) => void;
+  const innerReady = new Promise<Awaited<ReturnType<typeof begin<Value>>>>(resolveInner => { receiveInner = resolveInner; });
+  const outer = await begin(async signal => {
+    const inner = await begin(receive, "Digit3", signal);
+    receiveInner(inner);
+    return inner.pending;
+  }, "Digit2", parentSignal);
+  return { ...outer, startInner: () => {
+    outer.child.stdout.write(`submitted:${outer.nonce}\n`);
+    return innerReady;
+  } };
 }
 
 beforeEach(() => {
@@ -194,11 +210,15 @@ describe("macOS native sender lifetime receipt", () => {
     const cause = Object.assign(new Error("external process deadline"), {
       code: "ETIMEDOUT", killed: true, signal: "SIGTERM"
     });
+    let settled = false;
+    void work.outcome.then(() => { settled = true; });
     work.close(cause, "bounded native tail", "native deadline");
+    await turn();
+    expect(settled).toBe(false);
+    completeTarget();
     await expect(work.pending).rejects.toMatchObject({
       cause, message: expect.stringMatching(/ETIMEDOUT.*killed=true.*SIGTERM.*native deadline/u)
     });
-    completeTarget();
     await turn();
     expect(work.input()).toBe(`cancel:${work.nonce}\n`);
     expect(work.input()).not.toContain("received:");
@@ -276,5 +296,190 @@ describe("macOS native sender lifetime receipt", () => {
     expect(result).toBeUndefined();
     work.callback();
     await expect(work.pending).resolves.toBe("exact target");
+  });
+
+  it("keeps both nested senders until the inner target proof, exact completion and actual close precede the outer ACK", async () => {
+    let completeTarget!: (value: { owned: true }) => void;
+    const receive = vi.fn(() => new Promise<{ owned: true }>(resolveTarget => { completeTarget = resolveTarget; }));
+    const outer = await beginNested(receive);
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    const inner = await outer.startInner();
+    expect(outer.argv[4]).toBe("Digit2");
+    expect(inner.argv[4]).toBe("Digit3");
+    expect(inner.nonce).not.toBe(outer.nonce);
+    expect(receive).not.toHaveBeenCalled();
+    expect(outer.input()).toBe("");
+    inner.child.stdout.write(`submitted:${inner.nonce}\n`);
+    await turn();
+    expect(receive).toHaveBeenCalledTimes(1);
+    expect(outer.child.stdin.writableEnded).toBe(false);
+    expect(inner.child.stdin.writableEnded).toBe(false);
+    completeTarget({ owned: true });
+    await turn();
+    expect(inner.input()).toBe(`received:${inner.nonce}\n`);
+    expect(outer.input()).toBe("");
+    inner.child.stdout.write(`completed:${inner.nonce}\n`);
+    inner.callback();
+    await turn();
+    expect(outer.input()).toBe("");
+    inner.closed();
+    await turn();
+    expect(outer.input()).toBe(`received:${outer.nonce}\n`);
+    outer.child.stdout.write(`completed:${outer.nonce}\n`);
+    outer.close();
+    await expect(outer.pending).resolves.toEqual({ owned: true });
+    expect(outer.child.kill).not.toHaveBeenCalled();
+    expect(inner.child.kill).not.toHaveBeenCalled();
+    expect(compile).toHaveBeenCalledTimes(1);
+    expect(executeRaw).toHaveBeenCalledTimes(2);
+    for (const call of executeRaw.mock.calls) expect(call[2]).toMatchObject({ timeout: 15_000 });
+  });
+
+  it.each(["wrong-nonce", "receiver-reject", "timeout-late-resolve", "timeout-late-reject"])(
+    "retires both exact nested children and preserves the inner %s cause without a late ACK", async (failure) => {
+      const original = Object.assign(new Error("original inner target/native failure"), { code: "ETIMEDOUT" });
+      let completeTarget!: () => void;
+      const receive = vi.fn(() => failure === "receiver-reject" ? Promise.reject(original) :
+        new Promise<void>((resolveTarget, rejectTarget) => {
+          completeTarget = () => failure === "timeout-late-reject" ? rejectTarget(new Error("late target")) : resolveTarget();
+        }));
+      const outer = await beginNested(receive);
+      let settled = false;
+      void outer.outcome.then(() => { settled = true; });
+      const inner = await outer.startInner();
+      inner.child.stdout.write(`submitted:${failure === "wrong-nonce" ? outer.nonce : inner.nonce}\n`);
+      await turn();
+      if (failure.startsWith("timeout")) inner.callback(original, "", "native inner timeout");
+      expect(inner.child.kill).toHaveBeenCalledExactlyOnceWith("SIGKILL");
+      expect(inner.input()).toBe(`cancel:${inner.nonce}\n`);
+      expect(outer.child.kill).not.toHaveBeenCalled();
+      expect(outer.input()).toBe("");
+      expect(settled).toBe(false);
+      if (!failure.startsWith("timeout")) inner.callback(new Error("cleanup callback"));
+      inner.closed(null, "SIGKILL");
+      await turn();
+      if (failure.startsWith("timeout")) {
+        expect(outer.child.kill).not.toHaveBeenCalled();
+        completeTarget();
+      }
+      const innerOutcome = await inner.outcome;
+      await outer.killed;
+      expect(innerOutcome).toHaveProperty("error");
+      const innerError = (innerOutcome as { error: unknown }).error;
+      if (failure === "receiver-reject") expect(innerError).toBe(original);
+      if (failure.startsWith("timeout")) expect(innerError).toMatchObject({ cause: original });
+      if (failure === "wrong-nonce") expect(innerError).toMatchObject({ message: expect.stringContaining("mismatched nonce") });
+      expect(outer.child.kill).toHaveBeenCalledExactlyOnceWith("SIGKILL");
+      expect(outer.input()).toBe(`cancel:${outer.nonce}\n`);
+      expect(settled).toBe(false);
+      outer.callback(new Error("outer cleanup callback"));
+      expect(settled).toBe(false);
+      outer.closed(null, "SIGKILL");
+      await expect(outer.pending).rejects.toBe(innerError);
+      expect(inner.input()).not.toContain("received:");
+      expect(outer.input()).not.toContain("received:");
+      expect(executeRaw).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it.each([
+    ["native-error", "resolve"], ["native-error", "reject"],
+    ["premature-exit", "resolve"], ["premature-exit", "reject"],
+    ["parent-cancel", "resolve"], ["parent-cancel", "reject"]
+  ])(
+    "cancels and joins the nested sender after outer %s and late target %s", async (failure, late) => {
+      const parent = new AbortController();
+      let finishTarget!: () => void;
+      let targetSignal!: AbortSignal;
+      const original = new Error("original outer failure");
+      const receive = vi.fn((signal: AbortSignal) => {
+        targetSignal = signal;
+        return new Promise<void>((resolveTarget, rejectTarget) => {
+          finishTarget = () => late === "resolve" ? resolveTarget() : rejectTarget(new Error("late rejected target"));
+        });
+      });
+      const outer = await beginNested(receive, parent.signal);
+      const inner = await outer.startInner();
+      inner.child.stdout.write(`submitted:${inner.nonce}\n`);
+      await turn();
+      let result: unknown;
+      void outer.outcome.then(outcome => { result = outcome; });
+      if (failure === "native-error") outer.callback(original);
+      if (failure === "premature-exit") outer.close();
+      if (failure === "parent-cancel") parent.abort(original);
+      await turn();
+      expect(targetSignal.aborted).toBe(true);
+      expect(inner.child.kill).toHaveBeenCalledExactlyOnceWith("SIGKILL");
+      if (failure !== "premature-exit") expect(outer.child.kill).toHaveBeenCalledExactlyOnceWith("SIGKILL");
+      expect(result).toBeUndefined();
+      if (failure !== "premature-exit") {
+        if (failure === "parent-cancel") outer.callback(new Error("outer cleanup"));
+        outer.closed(null, "SIGKILL");
+      }
+      inner.callback(new Error("inner cleanup"));
+      inner.closed(null, "SIGKILL");
+      await turn();
+      expect(result).toBeUndefined();
+      finishTarget();
+      const outcome = await outer.outcome;
+      expect(outcome).toHaveProperty("error");
+      const error = (outcome as { error: unknown }).error;
+      expect(error).toBe(targetSignal.reason);
+      if (failure === "native-error") expect(error).toMatchObject({ cause: original });
+      if (failure === "parent-cancel") expect(error).toBe(original);
+      if (failure === "premature-exit") expect(error).toMatchObject({ message: expect.stringContaining("exited before") });
+      expect(outer.input()).not.toContain("received:");
+      expect(inner.input()).not.toContain("received:");
+      expect(executeRaw).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it("rejects a pre-aborted parent before compilation or native submission", async () => {
+    const parent = new AbortController();
+    const original = new Error("parent already stopped");
+    parent.abort(original);
+    const helper = await import("../e2e/desktop/support/compiled-macos-native-focus");
+    const receive = vi.fn();
+    await expect(helper.withMacosNativeFocusReceipt(args, receive, parent.signal)).rejects.toBe(original);
+    expect(compile).not.toHaveBeenCalled();
+    expect(executeRaw).not.toHaveBeenCalled();
+    expect(receive).not.toHaveBeenCalled();
+  });
+
+  it("rechecks cancellation after shared compilation without cancelling or retrying the compiler", async () => {
+    let finishCompile!: () => void;
+    compile.mockImplementationOnce(() => new Promise<void>(resolveCompile => { finishCompile = resolveCompile; }));
+    const parent = new AbortController();
+    const original = new Error("parent stopped during compilation");
+    const helper = await import("../e2e/desktop/support/compiled-macos-native-focus");
+    const receive = vi.fn();
+    const pending = helper.withMacosNativeFocusReceipt(args, receive, parent.signal);
+    const outcome = pending.catch((error: unknown) => error);
+    const shared = helper.prepareMacosNativeFocus();
+    parent.abort(original);
+    finishCompile();
+    await expect(shared).resolves.toBe(resolve("receipt-phase", "macos-native-focus"));
+    await expect(outcome).resolves.toBe(original);
+    expect(compile).toHaveBeenCalledTimes(1);
+    expect(executeRaw).not.toHaveBeenCalled();
+    expect(receive).not.toHaveBeenCalled();
+  });
+
+  it("detaches the exact parent abort listener after success and ignores subsequent cancellation", async () => {
+    const parent = new AbortController();
+    const add = vi.spyOn(parent.signal, "addEventListener");
+    const remove = vi.spyOn(parent.signal, "removeEventListener");
+    const work = await begin(async () => "exact target", "Digit2", parent.signal);
+    const listener = add.mock.calls.find(call => call[0] === "abort")?.[1];
+    expect(listener).toBeTypeOf("function");
+    work.child.stdout.write(`submitted:${work.nonce}\n`);
+    await turn();
+    work.child.stdout.write(`completed:${work.nonce}\n`);
+    work.close();
+    await expect(work.pending).resolves.toBe("exact target");
+    expect(remove.mock.calls.some(call => call[0] === "abort" && call[1] === listener)).toBe(true);
+    parent.abort(new Error("later unrelated parent stop"));
+    expect(work.child.kill).not.toHaveBeenCalled();
+    expect(work.input()).toBe(`received:${work.nonce}\n`);
   });
 });

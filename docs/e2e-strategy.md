@@ -402,6 +402,13 @@ prove hidden, revealed, pinned, reverse-live-update, and terminal normal states,
 and retain the auto-hide preference across a clean restart. It never mutates
 runtime state or substitutes for any primary action.
 
+The macOS held-key overlap journey uses the same nonce-bound receipt for Digit2
+followed by Digit3. Both exact senders and their native sources and posted key
+events remain alive through the original trusted Digit3 keyup and Core-held
+consumer assertions. Linked cancellation retires each exact child and joins
+receiver work and child termination before rejecting; a late receiver cannot
+acknowledge canceled input, and an unknown physical input outcome is never replayed.
+
 The Electron foundation build substitutes dedicated E2E main and preload entry
 points. Before loading the production main entry, that E2E main may seed the
 retained-v22 reset precondition through the native Core binding. The renderer

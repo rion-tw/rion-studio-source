@@ -13,6 +13,11 @@ on:
         type: choice
         default: macos
         options: [macos]
+      native_only:
+        description: Collect only independent native probe evidence; skip the proved visible journey
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +25,7 @@ permissions:
 jobs:
   appkit-initial-presentation:
     name: Diagnostic AppKit initial presentation (no release quality claim)
+    if: ${{ !inputs.native_only }}
     runs-on: macos-latest
     timeout-minutes: 35
     steps:

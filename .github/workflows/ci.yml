@@ -23,7 +23,7 @@ on:
         required: true
         type: choice
         default: game-window-ui-restart
-        options: [game-window-ui-restart, keyboard, background-tab]
+        options: [game-window-ui-restart, keyboard, background-tab, mixed-recovery]
 
 permissions:
   contents: read
@@ -56,7 +56,7 @@ jobs:
           cache-bin: "false"
           shared-key: electron-platform-ci-${{ runner.os }}-${{ runner.arch }}
       - name: Preserve existing macOS keyboard preference overrides
-        if: ${{ inputs.macos_phase != 'game-window-ui-restart' }}
+        if: ${{ inputs.macos_phase == 'keyboard' || inputs.macos_phase == 'background-tab' }}
         shell: bash
         run: |
           mkdir -p .desktop-e2e-artifacts/runner-keyboard-preferences
@@ -75,7 +75,7 @@ jobs:
           capture_domain NSGlobalDomain global-keyboard-preferences
           capture_domain com.apple.keyboard keyboard-preferences
       - name: Read effective symbolic hotkeys through the public Carbon API
-        if: ${{ inputs.macos_phase != 'game-window-ui-restart' }}
+        if: ${{ inputs.macos_phase == 'keyboard' || inputs.macos_phase == 'background-tab' }}
         shell: bash
         run: |
           root=".desktop-e2e-artifacts/runner-keyboard-preferences/effective-symbolic-hotkeys"
@@ -115,7 +115,7 @@ jobs:
         timeout-minutes: 25
         run: node scripts/runDesktopE2e.mjs --profile=chromium-macos-appkit-smoke --phase="$RION_STUDIO_DIAGNOSTIC_MACOS_PHASE"
         env:
-          RION_STUDIO_DIAGNOSTIC_MACOS_PHASE: ${{ inputs.macos_phase == 'keyboard' && 'chromium-macro-cutover-keyboard' || inputs.macos_phase == 'background-tab' && 'chromium-macro-background-tab' || 'chromium-game-window-ui-restart' }}
+          RION_STUDIO_DIAGNOSTIC_MACOS_PHASE: ${{ inputs.macos_phase == 'keyboard' && 'chromium-macro-cutover-keyboard' || inputs.macos_phase == 'background-tab' && 'chromium-macro-background-tab' || inputs.macos_phase == 'mixed-recovery' && 'chromium-mixed-recovery-restore' || 'chromium-game-window-ui-restart' }}
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
       - name: Preserve diagnostic evidence
         if: always()

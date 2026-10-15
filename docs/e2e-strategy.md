@@ -48,6 +48,11 @@ traverses the managed Chromium page's Accessibility tree to rediscover a known
 tab. Windows sends real WebDriver pointer/context-menu input to the bundled host.
 Read-only evidence binds Core and native order, generation, topology revision,
 parent handle, and the selected-detach successor before and after restart.
+Native geometry reads require one coherent Core/native snapshot pair before a
+visible action. A focus or placement event may commit a newer Core revision
+before its native projection finishes; reading that intermediate pair cannot
+authorize a click. Preserve exact revision, generation, native owner and tab
+cohort checks after admitted projection work, and propagate failed receipts.
 Windows also resizes two exact hosts and proves content bounds equal the Chromium
 viewport, then minimizes and visibly restores without a resize event. Debug
 bridges only read these receipts and never perform a tab mutation.
@@ -60,6 +65,14 @@ The macOS Workspace evidence helpers bound cold Swift SDK compilation separately
 from native execution (120 seconds and 30 seconds respectively). Both failures
 record their stage, elapsed time, exit code, signal, and compiler/native stderr;
 a failed compilation stays failed for the phase, and native input is never retried.
+The macOS focus/shortcut helper likewise compiles once per phase before the WDIO
+session can capture input eligibility. Compilation has its own 120-second bound;
+each acknowledged executable invocation retains its original 15/30-second bound.
+Compiler failure remains terminal, and an unknown input outcome is never replayed.
+The launcher AX activation helper also compiles before session eligibility with
+the same separate 120-second compilation bound. Its exact-owner activation keeps
+the original 10-second native bound and strict receipt checks; compile and run
+failures retain bounded process metadata without retrying an unknown action.
 
 The paired `chromium-workspace-gap-dividers-seed` / `restart` phases create a
 `main_left_stack_right` Workspace with two Roles and one Website, open it with a
@@ -382,12 +395,24 @@ the Windows phase clicks the Settings switch and invokes the native View-menu
 fullscreen item with its visible Alt+V, F mnemonic. Function-key Macro journeys
 exercise F1–F12 and Ctrl+F1–F12 through physical input, requiring one complete
 Macro output per chord, neutral cleanup and unchanged native presentation.
+On macOS, retain the native sender, CGEventSource and posted function-key events until those
+exact receiver assertions acknowledge the invocation. A nonce binds submitted,
+received and completed messages; actual normal child close is also required.
+The existing 15-second native-process boundary can only fail an unknown receipt;
+submission or elapsed time never proves delivery, and no input is retried.
 Both move the real WebDriver pointer to the physical reveal edge and consume an
 E2E-only, token-authenticated observation history. That history must bind a
 nonempty live Role/tab set to exact Core/native generation and topology fences,
 prove hidden, revealed, pinned, reverse-live-update, and terminal normal states,
 and retain the auto-hide preference across a clean restart. It never mutates
 runtime state or substitutes for any primary action.
+
+The macOS held-key overlap journey uses the same nonce-bound receipt for Digit2
+followed by Digit3. Both exact senders and their native sources and posted key
+events remain alive through the original trusted Digit3 keyup and Core-held
+consumer assertions. Linked cancellation retires each exact child and joins
+receiver work and child termination before rejecting; a late receiver cannot
+acknowledge canceled input, and an unknown physical input outcome is never replayed.
 
 The Electron foundation build substitutes dedicated E2E main and preload entry
 points. Before loading the production main entry, that E2E main may seed the

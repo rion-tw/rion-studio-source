@@ -55,6 +55,62 @@ jobs:
         with:
           cache-bin: "false"
           shared-key: electron-platform-ci-${{ runner.os }}-${{ runner.arch }}
+      - name: Preserve existing macOS keyboard preference overrides
+        if: ${{ inputs.macos_phase == 'keyboard' }}
+        shell: bash
+        run: |
+          mkdir -p .desktop-e2e-artifacts/runner-keyboard-preferences
+          capture_domain() {
+            local domain="$1"
+            local name="$2"
+            local root=".desktop-e2e-artifacts/runner-keyboard-preferences/$name"
+            if /usr/bin/defaults export "$domain" - >"$root.plist" 2>"$root.stderr"; then
+              printf '{"domain":"%s","status":"exported","meaning":"raw overrides only; unspecified bindings remain unknown"}\n' "$domain" >"$root.status.json"
+            else
+              local result=$?
+              printf '{"domain":"%s","status":"unknown","exitCode":%s}\n' "$domain" "$result" >"$root.status.json"
+            fi
+          }
+          capture_domain com.apple.symbolichotkeys symbolic-hotkeys
+          capture_domain NSGlobalDomain global-keyboard-preferences
+          capture_domain com.apple.keyboard keyboard-preferences
+      - name: Read effective symbolic hotkeys through the public Carbon API
+        if: ${{ inputs.macos_phase == 'keyboard' }}
+        shell: bash
+        run: |
+          root=".desktop-e2e-artifacts/runner-keyboard-preferences/effective-symbolic-hotkeys"
+          binary="$RUNNER_TEMP/rion-symbolic-hotkeys-$GITHUB_RUN_ID"
+          cat >"$root.swift" <<'SWIFT'
+          import Carbon
+          import Foundation
+          var unmanaged: Unmanaged<CFArray>?
+          let status = CopySymbolicHotKeys(&unmanaged)
+          let raw = unmanaged?.takeRetainedValue()
+          let bindings = raw as? [[String: Any]]
+          let modifierConstants = ["cmdKey": Int(cmdKey), "shiftKey": Int(shiftKey),
+            "optionKey": Int(optionKey), "controlKey": Int(controlKey)]
+          let value: [String: Any] = status == noErr && bindings != nil
+            ? ["status": "captured", "osStatus": status, "bindings": bindings!, "modifierConstants": modifierConstants]
+            : ["status": "unknown", "osStatus": status, "modifierConstants": modifierConstants]
+          do {
+            let data = try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
+            FileHandle.standardOutput.write(data)
+            FileHandle.standardOutput.write(Data([10]))
+          } catch {
+            print("{\"status\":\"unknown\",\"reason\":\"public-api-result-was-not-json-compatible\"}")
+          }
+          SWIFT
+          if /usr/bin/xcrun swiftc "$root.swift" -o "$binary" >"$root.compile.stdout" 2>"$root.compile.stderr"; then
+            if "$binary" >"$root.json" 2>"$root.stderr"; then
+              printf '{"compile":"success","run":"success","result":"see public API JSON; unknown remains unknown"}\n' >"$root.status.json"
+            else
+              result=$?
+              printf '{"compile":"success","run":"unknown","exitCode":%s}\n' "$result" >"$root.status.json"
+            fi
+          else
+            result=$?
+            printf '{"compile":"unknown","result":"unknown","exitCode":%s}\n' "$result" >"$root.status.json"
+          fi
       - name: Run the exact selected visible macOS journey
         timeout-minutes: 25
         run: node scripts/runDesktopE2e.mjs --profile=chromium-macos-appkit-smoke --phase="$RION_STUDIO_DIAGNOSTIC_MACOS_PHASE"

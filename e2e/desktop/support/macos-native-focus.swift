@@ -130,7 +130,7 @@ if mode == "shortcut" || mode == "roleKey" {
   let functionNumber = functionName.hasPrefix("F") ? Int(functionName.dropFirst()) : nil
   if mode == "roleKey", let number = functionNumber, (1...12).contains(number) {
     key = functionCodes[number - 1]
-    flags = command.hasPrefix("Ctrl+") ? [.maskSecondaryFn, .maskControl] : [.maskSecondaryFn]
+    flags = command.hasPrefix("Ctrl+") ? [.maskControl] : []
   } else {
   switch command {
   case "AltDown" where mode == "roleKey": key = 58; flags = [.maskAlternate]

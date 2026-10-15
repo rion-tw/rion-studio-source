@@ -326,8 +326,10 @@ async function revealVisibleFullscreenControls(windowId: string, platform: "maco
   }
   await browser.waitUntil(async () => {
     const inspection = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
-    return inspection.presentation === "fullscreen" && inspection.native.toolbarVisible &&
-      inspection.native.nativeControlsVisible;
+    // An empty AppKit window has no visible tab strip; its three native
+    // traffic lights still reveal and provide the visible close control.
+    return inspection.presentation === "fullscreen" && inspection.native.nativeControlsVisible &&
+      (platform === "macos" || inspection.native.toolbarVisible);
   }, { timeout: 15_000, timeoutMsg: "Fullscreen window controls did not become visible" });
 }
 

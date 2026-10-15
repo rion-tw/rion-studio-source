@@ -4,6 +4,32 @@ import { fileURLToPath } from "node:url";
 
 const object = (value) => !!value && typeof value === "object" && !Array.isArray(value);
 const natural = (value) => Number.isSafeInteger(value) && value >= 0;
+const selectors = ["windowWillResize:toSize:", "constrainFrameRect:toScreen:",
+  "setFrame:display:", "nextEventMatchingMask:untilDate:inMode:dequeue:"];
+
+function methodWitness(snapshot) {
+  const installation = snapshot.journal.records.at(-1)?.hookInstallation;
+  if (!Array.isArray(installation) || installation.length < 4 || installation.length > 8 ||
+      installation.some((entry) => !object(entry) || !selectors.includes(entry.selector) ||
+        typeof entry.wrappedClass !== "string" || typeof entry.definingClass !== "string" ||
+        !["installed", "unsupported", "error"].includes(entry.status) ||
+        (entry.status === "installed" && (!entry.wrappedClass || !entry.definingClass)) ||
+        (entry.status !== "installed" && (typeof entry.reason !== "string" || !entry.reason)))) {
+    throw new Error("The native resize method hook installation evidence is missing or malformed");
+  }
+  if (installation.some((entry) => entry.status === "error")) {
+    throw new Error("The native resize method hook installation failed");
+  }
+  if (selectors.some((selector) => !installation.some((entry) => entry.selector === selector))) {
+    throw new Error("The native resize method hook installation omitted a selector");
+  }
+  // A method that AppKit never called is still valid evidence. Unsupported
+  // shapes remain explicit; this check never invents a size proposal or event.
+  const returned = snapshot.journal.records.filter((record) => record.reason === "method:return");
+  return { windowId: snapshot.identity.logicalWindowId, installation,
+    returned: Object.fromEntries(selectors.map((selector) => [selector,
+      returned.filter((record) => record.method?.selector === selector).length])) };
+}
 
 /** A diagnostic channel proof, never a visible journey or release verdict. */
 export function verifyAppKitResizeDiagnosticCarrier(value) {
@@ -54,7 +80,8 @@ export function verifyAppKitResizeDiagnosticCarrier(value) {
   return { populatedOwners: populated.length,
     records: populated.reduce((total, snapshot) => total + snapshot.journal.records.length, 0),
     nativeDropped: populated.reduce((total, snapshot) => total + snapshot.journal.dropped, 0),
-    droppedOwners: value.droppedOwners };
+    droppedOwners: value.droppedOwners,
+    methodWitnesses: populated.map(methodWitness) };
 }
 
 async function main() {

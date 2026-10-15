@@ -463,6 +463,9 @@ NS_ASSUME_NONNULL_BEGIN
   _workspaceSlotStatusViews = nil;
   _workspaceSlotLoads = nil;
   if (_destroyed) return;
+#if defined(RION_DESKTOP_E2E)
+  RionUnbindResizeDiagnosticHooks(_window, self);
+#endif
   [self removeWorkspaceDividerEventMonitor];
   RionRuntimeTabsRootView *root =
       [_accessoryController.view isKindOfClass:RionRuntimeTabsRootView.class]

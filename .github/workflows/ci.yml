@@ -74,6 +74,16 @@ jobs:
           capture_domain com.apple.symbolichotkeys symbolic-hotkeys
           capture_domain NSGlobalDomain global-keyboard-preferences
           capture_domain com.apple.keyboard keyboard-preferences
+      - name: Compile and test exact AppKit resize method forwarding
+        if: ${{ inputs.macos_phase == 'tabs-visible' }}
+        shell: bash
+        run: |
+          root=".desktop-e2e-artifacts/native-resize-method-witness"
+          mkdir -p "$root"
+          /usr/bin/xcrun clang++ -std=c++20 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+            -framework AppKit tests/fixtures/appkit-resize-diagnostic-hooks.mm \
+            -o "$root/forwarding-fixture" >"$root/compile.stdout" 2>"$root/compile.stderr"
+          "$root/forwarding-fixture" >"$root/forwarding-proof.json" 2>"$root/forwarding.stderr"
       - name: Check the feature-enabled AppKit callback boundary
         if: ${{ inputs.macos_phase == 'tabs-visible' }}
         run: cargo clippy --locked -p rion-node --features desktop-e2e --all-targets --no-deps -- -D warnings

@@ -3,6 +3,16 @@ NS_ASSUME_NONNULL_BEGIN
 #if defined(RION_DESKTOP_E2E)
 // Disposable diagnostic branch: one controller-local ring, no events or I/O.
 - (void)recordResizeDiagnostic:(NSString *)reason event:(nullable NSEvent *)event {
+  [self recordResizeDiagnostic:reason event:event details:nil];
+}
+
+- (BOOL)resizeDiagnosticOwnsWindow:(NSWindow *)window {
+  return _resizeDiagnosticRecords && !_destroyed && _window == window;
+}
+
+- (void)recordResizeDiagnostic:(NSString *)reason
+                         event:(nullable NSEvent *)event
+                       details:(nullable NSDictionary *)details {
   if (!_resizeDiagnosticRecords || _destroyed || !_window ||
       !NSThread.isMainThread) return;
   @try {
@@ -22,6 +32,7 @@ NS_ASSUME_NONNULL_BEGIN
       @"sequence" : @(++_resizeDiagnosticSequence),
       @"capturedAtUnixSeconds" : @(NSDate.date.timeIntervalSince1970),
       @"reason" : reason,
+      @"method" : details ?: @{},
       @"windowID" : _windowID ?: @"",
       @"controllerPointer" : [NSString stringWithFormat:@"%p", self],
       @"windowPointer" : [NSString stringWithFormat:@"%p", window],
@@ -64,6 +75,12 @@ NS_ASSUME_NONNULL_BEGIN
           @"hitViewClass" : hit ? NSStringFromClass(hit.class) : @"",
           @"hitPhysicalTarget" : @(RionRuntimePhysicalInputTarget(hit) != nil) }
     };
+    if ([reason isEqualToString:[NSWindowWillStartLiveResizeNotification stringByAppendingString:@":before"]] ||
+        [reason isEqualToString:[NSWindowDidEndLiveResizeNotification stringByAppendingString:@":before"]]) {
+      NSMutableDictionary *withViews = [record mutableCopy];
+      withViews[@"existingViewConstraints"] = RionResizeExistingViewMetadata(content, _accessoryController.view);
+      record = withViews;
+    }
     if (![NSJSONSerialization isValidJSONObject:record]) {
       ++_resizeDiagnosticDropped;
       return;
@@ -96,9 +113,18 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (NSDictionary *)resizeDiagnosticJournal {
+  NSMutableArray *records = [_resizeDiagnosticRecords mutableCopy] ?: [NSMutableArray array];
+  if (records.count) {
+    // The final exported row carries the immutable setup proof even when the
+    // bounded ring has dropped its installation row, without duplicating it
+    // in every retained record.
+    NSMutableDictionary *last = [records.lastObject mutableCopy];
+    last[@"hookInstallation"] = _resizeDiagnosticHookStatus ?: @[];
+    records[records.count - 1] = last;
+  }
   return @{ @"journalVersion" : @1, @"capacity" : @128,
             @"dropped" : @(_resizeDiagnosticDropped), @"sequence" : @(_resizeDiagnosticSequence),
-            @"records" : [_resizeDiagnosticRecords copy] ?: @[] };
+            @"records" : records };
 }
 #endif
 

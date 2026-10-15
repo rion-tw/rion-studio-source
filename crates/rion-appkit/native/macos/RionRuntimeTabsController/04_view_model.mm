@@ -331,6 +331,7 @@ NS_ASSUME_NONNULL_BEGIN
   NSMutableArray<NSDictionary<NSString *, id> *> *_resizeDiagnosticRecords;
   uint64_t _resizeDiagnosticSequence;
   uint64_t _resizeDiagnosticDropped;
+  NSArray<NSDictionary *> *_resizeDiagnosticHookStatus;
 #endif
   BOOL _alwaysHideTabCloseButton;
   BOOL _destroyed;
@@ -628,6 +629,12 @@ NS_ASSUME_NONNULL_BEGIN
   _windowedGeometryMutationDepth = 0;
   [self captureWindowedTrafficLightFrames];
   [self installWindowObservers];
+#if defined(RION_DESKTOP_E2E)
+  if (_resizeDiagnosticRecords) {
+    _resizeDiagnosticHookStatus = RionBindResizeDiagnosticHooks(_window, self);
+    [self recordResizeDiagnostic:@"hookInstallation" event:NSApp.currentEvent details:nil];
+  }
+#endif
   __weak RionRuntimeTabsController *weakShortcutSelf = self;
   _tabShortcutMonitor = [NSEvent
       addLocalMonitorForEventsMatchingMask:(NSEventMaskKeyDown |

@@ -642,7 +642,7 @@
         "success",
         "failure"
       ],
-      "description": "Launch the Chromium v23 main shell on macOS, prove the isolated preload bridge and Core snapshot are live, and verify Electron's native non-client renderer gesture contract. Retained AppKit game-window/tab evidence remains a separate target requirement."
+      "description": "Launch the Chromium v23 main shell on macOS, prove the isolated preload bridge and Core snapshot are live, and verify Electron's native non-client renderer gesture contract. The visible-control harness retains one exact-PID launcher AXUIElement through one AXRaise and AXMain/foreground readback before DOM focus, within its existing bounded native acknowledgement budget; this is internal-only E2E input preconditioning. Retained AppKit game-window/tab evidence remains a separate target requirement."
     },
     {
       "id": "CHROMIUM-WINDOWS-SHELL-001",
@@ -729,7 +729,7 @@
         "success",
         "failure"
       ],
-      "description": "Open the isolated Rion Studio Dock item through macOS accessibility, require the complete localized Roles, Workspaces, and Windows Quick Menu sections, invoke its visible Open Rion Studio item, and prove that the exact-PID Electron launcher becomes frontmost again. Launch a fixture Role into a saved Game Window through visible Quick Access, minimize it through its visible control, select its direct top-level Dock item, and prove restored native focus and stable exact AppKit identity. Close it through visible chrome and require its top-level menu item to disappear."
+      "description": "Open the isolated Rion Studio Dock item through macOS accessibility, require the complete localized Roles, Workspaces, and Windows Quick Menu sections, invoke its visible Open Rion Studio item, and prove that the exact-PID Electron launcher becomes frontmost again. Launch a fixture Role into a saved Game Window through visible Quick Access; its control precondition retains the admitted launcher AXUIElement through activation and exact AXMain/foreground readback before the existing trusted physical destination click. Minimize it through its visible control, select its direct top-level Dock item, and prove restored native focus and stable exact AppKit identity. Close it through visible chrome and require its top-level menu item to disappear."
     },
     {
       "id": "CHROMIUM-WINDOWS-QUICK-MENU-033",

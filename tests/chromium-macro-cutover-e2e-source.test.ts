@@ -76,7 +76,7 @@ describe("Chromium Macro paired cutover E2E source", () => {
   });
 
   it("uses visible managed Role/native controls and read-only exact evidence", async () => {
-    const [support, keyboard, recovery, topology, cleanup, driver, evidence] =
+    const [support, keyboard, recovery, topology, cleanup, driver, evidence, launcher] =
       await Promise.all([
         source("e2e/desktop/specs/chromium-macro-cutover-support.ts"),
         source("e2e/desktop/specs/chromium-macro-cutover-keyboard.ts"),
@@ -84,9 +84,10 @@ describe("Chromium Macro paired cutover E2E source", () => {
         source("e2e/desktop/specs/chromium-macro-cutover-topology.ts"),
         source("e2e/desktop/specs/chromium-macro-cutover-cleanup.ts"),
         source("e2e/desktop/support/electron-role-surface.ts"),
-        source("scripts/desktopE2eChromiumMacroCutoverEvidence.mjs")
+        source("scripts/desktopE2eChromiumMacroCutoverEvidence.mjs"),
+        source("e2e/desktop/support/macos-launcher-activation.swift")
       ]);
-    const combined = [support, keyboard, recovery, topology, cleanup].join("\n");
+    const combined = [support, launcher, keyboard, recovery, topology, cleanup].join("\n");
     for (const marker of [
       "button[aria-label='Start']",
       "button[aria-label='Stop']",
@@ -105,9 +106,10 @@ describe("Chromium Macro paired cutover E2E source", () => {
       "[data-selection-id='${window.id}'] button[aria-label='Show']",
       '"physical",',
       '"AXButton"',
-      "set activationExpiry to (current date) + 10",
-      "ambiguous exact Rion launcher AXWindow",
-      "delay 0.05",
+      "activateMacosLauncherForVisibleControl",
+      "Date().addingTimeInterval(10)",
+      "ambiguous exact non-AppKit launcher AXWindow",
+      "CFEqual(current, launcher)",
       "CFEqual($0, element)",
       "kAXFocusedAttribute",
       "launcherRoots[0]",

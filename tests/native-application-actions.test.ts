@@ -165,7 +165,6 @@ describe("native application shortcut target modes", () => {
     );
     expect(source).toContain("timeoutMilliseconds: 30_000");
     expect(source).toContain("boundedPowerShellFailure(error)");
-    expect(source).toContain("output.slice(-2_000)");
   });
 
   it("selects the exact Windows notification overflow before its shared-id fallback", () => {

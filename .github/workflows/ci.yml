@@ -18,13 +18,19 @@ on:
         required: true
         type: boolean
         default: false
+      macos_phase:
+        description: Select the existing macOS visible journey without changing its prerequisites
+        required: true
+        type: choice
+        default: game-window-ui-restart
+        options: [game-window-ui-restart, keyboard]
 
 permissions:
   contents: read
 
 jobs:
   appkit-initial-presentation:
-    name: Diagnostic AppKit initial presentation (no release quality claim)
+    name: Diagnostic macOS focused journey (no release quality claim)
     if: ${{ inputs.platform_scope == 'macos' && !inputs.native_only }}
     runs-on: macos-latest
     timeout-minutes: 35
@@ -49,10 +55,11 @@ jobs:
         with:
           cache-bin: "false"
           shared-key: electron-platform-ci-${{ runner.os }}-${{ runner.arch }}
-      - name: Run exact visible Game Window journey with passive native submission evidence
+      - name: Run the exact selected visible macOS journey
         timeout-minutes: 25
-        run: node scripts/runDesktopE2e.mjs --profile=chromium-macos-appkit-smoke --phase=chromium-game-window-ui-restart
+        run: node scripts/runDesktopE2e.mjs --profile=chromium-macos-appkit-smoke --phase="$RION_STUDIO_DIAGNOSTIC_MACOS_PHASE"
         env:
+          RION_STUDIO_DIAGNOSTIC_MACOS_PHASE: ${{ inputs.macos_phase == 'keyboard' && 'chromium-macro-cutover-keyboard' || 'chromium-game-window-ui-restart' }}
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
       - name: Preserve diagnostic evidence
         if: always()
@@ -69,7 +76,7 @@ jobs:
 
   appkit-native-restore-geometry:
     name: Diagnostic AppKit native restore geometry (no release quality claim)
-    if: ${{ inputs.platform_scope == 'macos' }}
+    if: ${{ inputs.platform_scope == 'macos' && (inputs.native_only || inputs.macos_phase != 'keyboard') }}
     runs-on: macos-latest
     timeout-minutes: 20
     steps:

@@ -33,7 +33,12 @@ try {
 }
 `;
 
-export function createEncodedPowerShellJsonInvocation(trustedScript, payload) {
+export function createEncodedPowerShellJsonInvocation(trustedScript, payload, options = {}) {
+  const apartmentState = options.apartmentState;
+  if (apartmentState !== undefined && apartmentState !== "MTA" && apartmentState !== "STA") {
+    throw new Error("Encoded PowerShell requires an MTA or STA apartment state.");
+  }
+  const apartmentArguments = apartmentState === undefined ? [] : [`-${apartmentState}`];
   if (
     typeof trustedScript !== "string" || trustedScript.length === 0 ||
     trustedScript.includes("\0")
@@ -77,6 +82,7 @@ export function createEncodedPowerShellJsonInvocation(trustedScript, payload) {
       "-NoLogo",
       "-NoProfile",
       "-NonInteractive",
+      ...apartmentArguments,
       "-EncodedCommand",
       encodedCommand
     ]),
@@ -88,6 +94,7 @@ export function createEncodedPowerShellJsonInvocation(trustedScript, payload) {
       "-NoLogo",
       "-NoProfile",
       "-NonInteractive",
+      ...apartmentArguments,
       "-Command",
       "-"
     ])
@@ -136,7 +143,8 @@ export async function runEncodedPowerShellJson(
   }
   const invocation = createEncodedPowerShellJsonInvocation(
     trustedScript,
-    payload
+    payload,
+    { apartmentState: options.apartmentState }
   );
   const result = await executePowerShellStandardInput(
     invocation,

@@ -23,7 +23,7 @@ on:
         required: true
         type: choice
         default: game-window-ui-restart
-        options: [game-window-ui-restart, keyboard, background-tab, mixed-recovery, role-reset, role-isolation, app-recovery]
+        options: [game-window-ui-restart, keyboard, background-tab, mixed-recovery, role-reset, role-isolation, app-recovery, tabs-visible]
 
 permissions:
   contents: read
@@ -115,7 +115,7 @@ jobs:
         timeout-minutes: 25
         run: node scripts/runDesktopE2e.mjs --profile=chromium-macos-appkit-smoke --phase="$RION_STUDIO_DIAGNOSTIC_MACOS_PHASE"
         env:
-          RION_STUDIO_DIAGNOSTIC_MACOS_PHASE: ${{ inputs.macos_phase == 'keyboard' && 'chromium-macro-cutover-keyboard' || inputs.macos_phase == 'background-tab' && 'chromium-macro-background-tab' || inputs.macos_phase == 'mixed-recovery' && 'chromium-mixed-recovery-restore' || inputs.macos_phase == 'role-reset' && 'chromium-role-session-reset-restart' || inputs.macos_phase == 'role-isolation' && 'chromium-role-session-isolation-restart' || inputs.macos_phase == 'app-recovery' && 'chromium-app-recovery-restore' || 'chromium-game-window-ui-restart' }}
+          RION_STUDIO_DIAGNOSTIC_MACOS_PHASE: ${{ inputs.macos_phase == 'keyboard' && 'chromium-macro-cutover-keyboard' || inputs.macos_phase == 'background-tab' && 'chromium-macro-background-tab' || inputs.macos_phase == 'mixed-recovery' && 'chromium-mixed-recovery-restore' || inputs.macos_phase == 'role-reset' && 'chromium-role-session-reset-restart' || inputs.macos_phase == 'role-isolation' && 'chromium-role-session-isolation-restart' || inputs.macos_phase == 'app-recovery' && 'chromium-app-recovery-restore' || inputs.macos_phase == 'tabs-visible' && 'chromium-tabs-visible-restart' || 'chromium-game-window-ui-restart' }}
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
       - name: Preserve diagnostic evidence
         if: always()

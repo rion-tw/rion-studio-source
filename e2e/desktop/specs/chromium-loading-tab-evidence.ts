@@ -5,6 +5,23 @@ import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eApplicati
 import { captureWorkspacePixels } from "../support/workspace-pixels";
 import { resizeWorkspaceWindow } from "../support/workspace-window-resize";
 
+type ResizeInspection = Awaited<ReturnType<typeof electronDesktopE2eFullscreenToolbarRuntime>>;
+
+function requireOriginalResizeOwner(original: ResizeInspection, current: ResizeInspection): void {
+  const surfaceIdentities = (inspection: ResizeInspection) => inspection.surfaces
+    .map(({ id, kind, tabId, generation }) => JSON.stringify([id, kind, tabId, generation])).sort();
+  const originalSurfaces = surfaceIdentities(original);
+  const currentSurfaces = surfaceIdentities(current);
+  if (current.windowId !== original.windowId || current.windowGeneration !== original.windowGeneration ||
+      current.hostKind !== original.hostKind || current.nativeWindowHandle !== original.nativeWindowHandle ||
+      current.tabIds.length !== original.tabIds.length ||
+      current.tabIds.some((tabId, index) => tabId !== original.tabIds[index]) ||
+      currentSurfaces.length !== originalSurfaces.length ||
+      currentSurfaces.some((surface, index) => surface !== originalSurfaces[index])) {
+    throw new Error("Native resize lost the original window, tab, or surface owner");
+  }
+}
+
 export async function resizeReadyTabWhileSiblingLoads(input: {
   platform: "macos" | "windows"; windowId: string; tabId: string;
 }) {
@@ -16,16 +33,21 @@ export async function resizeReadyTabWhileSiblingLoads(input: {
   const drags = input.platform === "macos"
     ? [{ edge: "right" as const, x: -48, y: 0 }, { edge: "bottom" as const, x: 0, y: -32 }]
     : [{ edge: "bottomRight" as const, x: -48, y: -32 }];
-  for (const drag of drags) await resizeWorkspaceWindow({ inspection, edge: drag.edge, moves: [drag],
-    whileHeld: async () => {
-      await browser.waitUntil(async () => {
-        const current = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
-        resized = current.surfaces.find(surface => surface.tabId === input.tabId)!.bounds;
-        return (drag.x === 0 || resized.width < before.width) &&
-          (drag.y === 0 || resized.height < before.height);
-      }, { timeout: 20_000, timeoutMsg: "Native resize did not update A while B was loading" });
-    }
-  });
+  for (const drag of drags) {
+    // End-live-resize commits a new Core revision for the next native gesture.
+    const current = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
+    requireOriginalResizeOwner(inspection, current);
+    await resizeWorkspaceWindow({ inspection: current, edge: drag.edge, moves: [drag],
+      whileHeld: async () => {
+        await browser.waitUntil(async () => {
+          const current = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
+          resized = current.surfaces.find(surface => surface.tabId === input.tabId)!.bounds;
+          return (drag.x === 0 || resized.width < before.width) &&
+            (drag.y === 0 || resized.height < before.height);
+        }, { timeout: 20_000, timeoutMsg: "Native resize did not update A while B was loading" });
+      }
+    });
+  }
   expect(resized.width).toBeLessThan(before.width);
   expect(resized.height).toBeLessThan(before.height);
   return resized;

@@ -17,6 +17,22 @@ function isAscii(value: string): boolean {
 }
 
 describe("encoded PowerShell JSON transport", () => {
+  it.each(["MTA", "STA"] as const)("selects an explicit %s apartment for both transports", (apartmentState) => {
+    const invocation = createEncodedPowerShellJsonInvocation("Write-Output 'ready'", {}, { apartmentState });
+    expect(invocation.arguments.slice(0, -1)).toEqual([
+      "-NoLogo", "-NoProfile", "-NonInteractive", `-${apartmentState}`, "-EncodedCommand"
+    ]);
+    expect(invocation.standardInputArguments).toEqual([
+      "-NoLogo", "-NoProfile", "-NonInteractive", `-${apartmentState}`, "-Command", "-"
+    ]);
+  });
+
+  it("rejects an invalid apartment before creating an invocation", () => {
+    expect(() => createEncodedPowerShellJsonInvocation("exit 0", {}, {
+      apartmentState: "MTA -Command exit 73" as "MTA"
+    })).toThrow("MTA or STA apartment state");
+  });
+
   it("keeps caller-controlled names and paths out of command text", () => {
     const payload = {
       buttonName: "Click `$([Environment]::Exit(73)) {ENTER}",

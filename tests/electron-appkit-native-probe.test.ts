@@ -34,7 +34,8 @@ describe("Electron retained AppKit native probe contract", () => {
   it("proves native AppKit geometry, action identity, focus, and fullscreen state", async () => {
     const source = await readFile("scripts/electronAppKitRuntimeProbe.cjs", "utf8");
 
-    expect(source).toContain("addon.appKitRuntimeAbiVersion() !== 6");
+    expect(source).toContain('await import("./verifyElectronRuntime.mjs")');
+    expect(source).toContain("appKitRuntimeAbi !== EXPECTED_APPKIT_RUNTIME_ABI");
     expect(source).toContain("new WebContentsView");
     expect(source).toContain('evidenceScope: desktopE2eBuild');
     expect(source).toContain('"standalone-native-appkit-chromium-adapter"');

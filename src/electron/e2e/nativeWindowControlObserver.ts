@@ -5,6 +5,7 @@ import { ChromiumRuntimeNativeWindowController } from
   "../main/chromiumRuntimeNativeWindowController";
 import { WindowsRuntimeHostChromeController } from
   "../main/windowsRuntimeHostChromeController";
+import { installAppKitInitialPresentationProbe } from "./appKitInitialPresentationObserver";
 import {
   appendCoreFlowObservation,
   describeCoreFlowError,
@@ -13,6 +14,7 @@ import {
 
 /** Journals each boundary of the Windows runtime fullscreen ingress. */
 export function installElectronDesktopE2eNativeWindowControlObserver(): void {
+  installAppKitInitialPresentationProbe();
   installWindowTransitionObservation();
   const chrome = WindowsRuntimeHostChromeController.prototype;
   const originalReadActiveTabId = chrome.readActiveTabId;

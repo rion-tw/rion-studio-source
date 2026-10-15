@@ -7,7 +7,10 @@ export interface EncodedPowerShellJsonInvocation {
 
 export function createEncodedPowerShellJsonInvocation(
   trustedScript: string,
-  payload: Readonly<Record<string, unknown>>
+  payload: Readonly<Record<string, unknown>>,
+  options?: {
+    readonly apartmentState?: "MTA" | "STA";
+  }
 ): EncodedPowerShellJsonInvocation;
 
 export function runEncodedPowerShellJson(
@@ -15,5 +18,6 @@ export function runEncodedPowerShellJson(
   payload: Readonly<Record<string, unknown>>,
   options: {
     readonly timeoutMilliseconds: number;
+    readonly apartmentState?: "MTA" | "STA";
   }
 ): Promise<string>;

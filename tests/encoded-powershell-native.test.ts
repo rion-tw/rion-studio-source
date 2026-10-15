@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { runEncodedPowerShellJson } from "../scripts/encodedPowerShell.mjs";
 
 describe.runIf(process.platform === "win32")("native Windows PowerShell script terminality", () => {
+  it.each(["MTA", "STA"] as const)("executes the script on the requested %s apartment", async (apartmentState) => {
+    const output = await runEncodedPowerShellJson(
+      "[Console]::WriteLine([Threading.Thread]::CurrentThread.GetApartmentState())",
+      {}, { timeoutMilliseconds: 8000, apartmentState }
+    );
+    expect(output).toBe(apartmentState);
+  });
+
   it("stops after the original exception even when a later statement would succeed", async () => {
     const result = await runEncodedPowerShellJson(
       'throw "primary-native-failure"\nWrite-Output "must-not-run"',

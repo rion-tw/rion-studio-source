@@ -18,8 +18,8 @@ let command = CommandLine.arguments[5]
 let receiptNonce = CommandLine.arguments.count == 8 ? CommandLine.arguments[7] : nil
 if let receiptNonce {
   guard CommandLine.arguments[6] == "receipt", mode == "roleKey",
-        command.range(of: "^(Ctrl\\+)?F([1-9]|1[0-2])$", options: .regularExpression) != nil,
-        UUID(uuidString: receiptNonce) != nil else { fail("invalid native function-key receipt mode") }
+        command.range(of: "^((Ctrl\\+)?F([1-9]|1[0-2])|Digit[23])$", options: .regularExpression) != nil,
+        UUID(uuidString: receiptNonce) != nil else { fail("invalid native Role key receipt mode") }
 }
 guard ["focus", "observe", "roleKey", "shortcut"].contains(mode) else { fail("unknown focus mode") }
 let appKitPrefix = "com.rionstudio.runtime.appkit-window.v1:"
@@ -284,7 +284,7 @@ if mode == "shortcut" || mode == "roleKey" {
       print("submitted:\(receiptNonce)")
       fflush(stdout)
       guard let receipt = readLine(), receipt == "received:\(receiptNonce)" else {
-        fail("native function-key receipt was cancelled, absent, or mismatched")
+        fail("native Role key receipt was cancelled, absent, or mismatched")
       }
       print("completed:\(receiptNonce)")
       fflush(stdout)

@@ -223,8 +223,12 @@ void (async () => {
     app.setPath("userData", userDataDirectory);
     await app.whenReady();
     const addon = require(addonPath);
-  if (addon.appKitRuntimeAbiVersion() !== 6) {
-      throw new Error("The shared AppKit ABI v4 is unavailable.");
+    const { EXPECTED_APPKIT_RUNTIME_ABI } = await import("./verifyElectronRuntime.mjs");
+    const appKitRuntimeAbi = addon.appKitRuntimeAbiVersion();
+    if (appKitRuntimeAbi !== EXPECTED_APPKIT_RUNTIME_ABI) {
+      throw new Error(
+        `AppKit runtime ABI mismatch: expected ${EXPECTED_APPKIT_RUNTIME_ABI}, received ${appKitRuntimeAbi}.`
+      );
     }
     if (typeof addon.attachAppKitRuntimeHost !== "function") {
       throw new Error("The AppKit N-API attach function is unavailable.");

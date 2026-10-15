@@ -1,6 +1,8 @@
 #if defined(RION_DESKTOP_E2E)
 #include <initializer_list>
 
+NS_ASSUME_NONNULL_BEGIN
+
 // Disposable diagnostic branch. These wrappers only witness existing calls.
 @interface RionRuntimeTabsController (RionResizeMethodDiagnostics)
 - (BOOL)resizeDiagnosticOwnsWindow:(NSWindow *)window;
@@ -10,9 +12,9 @@
 @end
 
 @interface RionResizeDiagnosticOwner : NSObject
-@property(nonatomic, weak) RionRuntimeTabsController *controller;
-@property(nonatomic, weak) NSWindow *window;
-@property(nonatomic, weak) id delegate;
+@property(nonatomic, weak, nullable) RionRuntimeTabsController *controller;
+@property(nonatomic, weak, nullable) NSWindow *window;
+@property(nonatomic, weak, nullable) id delegate;
 @property(nonatomic) BOOL hadDelegate;
 @property(nonatomic) uint64_t bindingSequence;
 @end
@@ -21,8 +23,8 @@
 
 @interface RionResizeDiagnosticCall : NSObject
 @property(nonatomic, strong) RionResizeDiagnosticOwner *owner;
-@property(nonatomic, weak) NSWindow *window;
-@property(nonatomic, weak) id delegate;
+@property(nonatomic, weak, nullable) NSWindow *window;
+@property(nonatomic, weak, nullable) id delegate;
 @property(nonatomic) BOOL requiresDelegate;
 @property(nonatomic, strong, nullable) NSEvent *event;
 @property(nonatomic, copy) NSDictionary *details;
@@ -42,12 +44,15 @@ static NSDictionary *RionResizeSize(NSSize size) {
   return @{ @"width" : @(size.width), @"height" : @(size.height) };
 }
 
-static NSDictionary *RionResizeExistingViewMetadata(NSView *content, NSView *accessoryRoot) {
+static NSDictionary *RionResizeExistingViewMetadata(NSView * _Nullable content,
+                                                   NSView * _Nullable accessoryRoot) {
   @try {
     NSMutableArray<NSView *> *roots = [NSMutableArray array];
-    for (id candidate in @[ content ?: NSNull.null, content.superview ?: NSNull.null,
-                            accessoryRoot ?: NSNull.null, accessoryRoot.superview ?: NSNull.null ]) {
-      if ([candidate isKindOfClass:NSView.class] && [roots indexOfObjectIdenticalTo:candidate] == NSNotFound) [roots addObject:candidate];
+    NSView * _Nullable candidates[] = {
+      content, content.superview, accessoryRoot, accessoryRoot.superview
+    };
+    for (NSView *candidate : candidates) {
+      if (candidate && [roots indexOfObjectIdenticalTo:candidate] == NSNotFound) [roots addObject:candidate];
     }
     NSMutableArray<NSView *> *views = [roots mutableCopy];
     NSUInteger omittedChildReferences = 0;
@@ -100,7 +105,8 @@ static NSDictionary *RionResizeExistingViewMetadata(NSView *content, NSView *acc
   }
 }
 
-static RionResizeDiagnosticOwner *RionResizeOwner(NSWindow *window, id delegate) {
+static RionResizeDiagnosticOwner * _Nullable RionResizeOwner(
+    NSWindow * _Nullable window, id _Nullable delegate) {
   if (!NSThread.isMainThread || !window) return nil;
   RionResizeDiagnosticOwner *owner =
       objc_getAssociatedObject(window, &RionResizeDiagnosticOwnerKey);
@@ -114,8 +120,8 @@ static RionResizeDiagnosticOwner *RionResizeOwner(NSWindow *window, id delegate)
   return owner;
 }
 
-static RionResizeDiagnosticCall *RionResizeBegin(
-    NSWindow *window, id delegate, id receiver, SEL selector, Class wrappedClass) {
+static RionResizeDiagnosticCall * _Nullable RionResizeBegin(
+    NSWindow * _Nullable window, id _Nullable delegate, id receiver, SEL selector, Class wrappedClass) {
   @try {
     RionResizeDiagnosticOwner *owner = RionResizeOwner(window, delegate);
     if (!owner) return nil;
@@ -140,7 +146,7 @@ static RionResizeDiagnosticCall *RionResizeBegin(
   }
 }
 
-static void RionResizeComplete(RionResizeDiagnosticCall *call,
+static void RionResizeComplete(RionResizeDiagnosticCall * _Nullable call,
                                NSDictionary *(^result)(void)) {
   if (!call) return;
   @try {
@@ -158,7 +164,7 @@ static void RionResizeComplete(RionResizeDiagnosticCall *call,
   }
 }
 
-static Method RionResizeDirectMethod(Class target, SEL selector) {
+static Method _Nullable RionResizeDirectMethod(Class target, SEL selector) {
   unsigned count = 0;
   Method *methods = class_copyMethodList(target, &count);
   Method found = nullptr;
@@ -169,21 +175,21 @@ static Method RionResizeDirectMethod(Class target, SEL selector) {
   return found;
 }
 
-static Class RionResizeDefiningClass(Class target, SEL selector) {
+static Class _Nullable RionResizeDefiningClass(Class _Nullable target, SEL selector) {
   for (Class candidate = target; candidate; candidate = class_getSuperclass(candidate)) {
     if (RionResizeDirectMethod(candidate, selector)) return candidate;
   }
   return Nil;
 }
 
-static BOOL RionResizeType(const char *actual, const char *expected) {
+static BOOL RionResizeType(const char * _Nullable actual, const char *expected) {
   while (actual && *actual && std::strchr("rnNoORV", *actual)) ++actual;
   if (!actual) return NO;
   return expected[0] == '@' ? actual[0] == '@' && actual[1] != '?'
                             : std::strcmp(actual, expected) == 0;
 }
 
-static BOOL RionResizeSignature(Method method, const char *result,
+static BOOL RionResizeSignature(Method _Nullable method, const char *result,
                                 std::initializer_list<const char *> arguments) {
   if (!method) return NO;
   NSMethodSignature *signature = [NSMethodSignature
@@ -204,7 +210,7 @@ static BOOL RionResizeSignature(Method method, const char *result,
   return YES;
 }
 
-static NSDictionary *RionResizeInstall(Class target, SEL selector) {
+static NSDictionary *RionResizeInstall(Class _Nullable target, SEL selector) {
   static NSMutableDictionary<NSString *, NSDictionary *> *installed =
       [NSMutableDictionary dictionary];
   NSString *key = [NSString stringWithFormat:@"%p/%@", target, NSStringFromSelector(selector)];
@@ -236,9 +242,9 @@ static NSDictionary *RionResizeInstall(Class target, SEL selector) {
     };
   } else if (selector == @selector(constrainFrameRect:toScreen:) &&
       RionResizeSignature(method, @encode(NSRect), { @encode(NSRect), @encode(NSScreen *) })) {
-    block = ^NSRect(NSWindow *receiver, NSRect proposed, NSScreen *screen) {
+    block = ^NSRect(NSWindow *receiver, NSRect proposed, NSScreen * _Nullable screen) {
       RionResizeDiagnosticCall *call = RionResizeBegin(receiver, nil, receiver, selector, target);
-      using Function = NSRect (*)(id, SEL, NSRect, NSScreen *);
+      using Function = NSRect (*)(id, SEL, NSRect, NSScreen * _Nullable);
       const NSRect result = reinterpret_cast<Function>(original)(receiver, selector, proposed, screen);
       RionResizeComplete(call, ^NSDictionary *{ return @{
         @"proposedFrame" : RionResizeRect(proposed), @"returnedFrame" : RionResizeRect(result),
@@ -259,9 +265,9 @@ static NSDictionary *RionResizeInstall(Class target, SEL selector) {
   } else if (selector == @selector(nextEventMatchingMask:untilDate:inMode:dequeue:) &&
       RionResizeSignature(method, @encode(NSEvent *), {
         @encode(NSEventMask), @encode(NSDate *), @encode(NSRunLoopMode), @encode(BOOL) })) {
-    block = ^NSEvent *(NSApplication *receiver, NSEventMask mask, NSDate *until,
+    block = ^NSEvent * _Nullable(NSApplication *receiver, NSEventMask mask, NSDate * _Nullable until,
                        NSRunLoopMode mode, BOOL dequeue) {
-      using Function = NSEvent *(*)(id, SEL, NSEventMask, NSDate *, NSRunLoopMode, BOOL);
+      using Function = NSEvent * _Nullable (*)(id, SEL, NSEventMask, NSDate * _Nullable, NSRunLoopMode, BOOL);
       const uint64_t beforeBindingSequence = NSThread.isMainThread
           ? RionResizeDiagnosticBindingSequence : 0;
       const NSTimeInterval enteredAt = CFAbsoluteTimeGetCurrent() + kCFAbsoluteTimeIntervalSince1970;
@@ -299,7 +305,7 @@ static NSDictionary *RionResizeInstall(Class target, SEL selector) {
 }
 
 static NSArray<NSDictionary *> *RionBindResizeDiagnosticHooks(
-    NSWindow *window, RionRuntimeTabsController *controller) {
+    NSWindow * _Nullable window, RionRuntimeTabsController * _Nullable controller) {
   NSMutableArray *statuses = [NSMutableArray array];
   if (!NSThread.isMainThread || !window || !controller) return statuses;
   @try {
@@ -327,7 +333,9 @@ static NSArray<NSDictionary *> *RionBindResizeDiagnosticHooks(
   return [statuses copy];
 }
 
-static void RionUnbindResizeDiagnosticHooks(NSWindow *window, RionRuntimeTabsController *controller) {
+static void RionUnbindResizeDiagnosticHooks(NSWindow * _Nullable window,
+                                           RionRuntimeTabsController * _Nullable controller) {
+  if (!window || !controller) return;
   @try {
     RionResizeDiagnosticOwner *owner = objc_getAssociatedObject(window, &RionResizeDiagnosticOwnerKey);
     if (owner.controller == controller && owner.window == window) {
@@ -335,4 +343,5 @@ static void RionUnbindResizeDiagnosticHooks(NSWindow *window, RionRuntimeTabsCon
     }
   } @catch (__unused NSException *exception) { }
 }
+NS_ASSUME_NONNULL_END
 #endif

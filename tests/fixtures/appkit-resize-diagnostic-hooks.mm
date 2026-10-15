@@ -274,9 +274,10 @@ static void Run(NSMutableArray<NSString *> *passed, NSString *name, void (^test)
 
 int main(void) {
   @autoreleasepool {
-    ResizeFixtureApplication *application = [ResizeFixtureApplication sharedApplication];
-    Require(object_getClass(application) == ResizeFixtureApplication.class,
+    NSApplication *shared = [ResizeFixtureApplication sharedApplication];
+    Require(object_getClass(shared) == ResizeFixtureApplication.class,
             @"fixture must own the application method receiver");
+    ResizeFixtureApplication *application = (ResizeFixtureApplication *)shared;
     NSMutableArray<NSString *> *passed = [NSMutableArray array];
 
     Run(passed, @"delegate size ABI and original receiver/selector/arguments", ^{

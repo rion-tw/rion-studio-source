@@ -41,7 +41,7 @@ describe("Chromium permanent Game Window exact replacement source", () => {
     expect(spec).not.toContain('rendererCall("showGameWindow"');
     expect(new Set(
       [...spec.matchAll(/rendererCall\("([^"]+)"/gu)].map((match) => match[1])
-    )).toEqual(new Set(["listGameWindows"]));
+    )).toEqual(new Set(["listGameWindows", "getDisplayTopology"]));
   });
 
   it("keeps the E2E identity path read-only and validates exact Core/native fences", async () => {

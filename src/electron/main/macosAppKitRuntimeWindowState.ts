@@ -205,7 +205,17 @@ export function snapshotMacosAppKitRuntimeHostObservation(input: Readonly<{
     contentBounds: input.contentBounds,
     normalBounds: Object.freeze({ ...record.normalBounds }),
     savedWorkArea: Object.freeze({ ...display.workArea }),
-    targetDisplay: Object.freeze({ id: display.id }),
+    targetDisplay: Object.freeze({
+      id: display.id,
+      fingerprint: Object.freeze({
+        label: display.label,
+        bounds: Object.freeze({ ...display.bounds }),
+        resolution: Object.freeze({ ...display.resolution }),
+        scaleFactor: display.scaleFactor,
+        isPrimary: display.isPrimary,
+        isInternal: display.isInternal
+      })
+    }),
     presentation: record.native.isFullScreen()
       ? "fullscreen" as const
       : record.native.isMaximized() ? "maximized" as const : "normal" as const,

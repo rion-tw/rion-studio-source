@@ -52,6 +52,7 @@ import { ElectronFocusedApplicationShortcutController } from "./electronFocusedA
 import { createElectronDiagnosticsComposition } from "./electronDiagnosticsComposition";
 import { resolveElectronNewGameWindowTarget } from "./electronNewGameWindowTarget";
 import { projectCoreAppSnapshot } from "./appSnapshotProjection";
+import { appKitDisplays } from "./macosAppKitDisplayResolver";
 import { ElectronApplicationLifecycleController } from "./applicationLifecycleController";
 import { ChromiumRuntimeLaunchCoordinator } from "./chromiumRuntimeLaunchCoordinator";
 import { observeChromiumRuntimeWindowProgress, waitForChromiumRuntimeProjection } from "./chromiumRuntimeProjectionProgress";
@@ -258,7 +259,7 @@ function createMacosAppKitAdapter(
       addon,
       BaseWindow,
       {
-        displays: { displayMatching },
+        displays: appKitDisplays(screen),
         onAction: (event) => {
           logMacosAppKitWindowPlacement(runtimeLogs, event);
           eventBridge.receiveAction(event);

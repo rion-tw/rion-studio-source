@@ -413,6 +413,47 @@ function projectOwnedRuntime(
   };
 }
 
+export function projectElectronDisplay(
+  display: ElectronDisplayDescriptor,
+  primaryDisplayId: number
+): DisplayTopology["displays"][number] {
+  if (!Number.isSafeInteger(display.id) || !Number.isSafeInteger(primaryDisplayId)) {
+    throw new RionBridgeError({
+      code: "ELECTRON_DISPLAY_TOPOLOGY_INVALID",
+      message: "Electron reported an invalid display identifier."
+    });
+  }
+  if (!Number.isFinite(display.scaleFactor) || display.scaleFactor <= 0) {
+    throw new RionBridgeError({
+      code: "ELECTRON_DISPLAY_TOPOLOGY_INVALID",
+      message: `Electron reported an invalid scale factor for display ${display.id}.`
+    });
+  }
+  return {
+    id: display.id,
+    label: display.label.trim() || `Display ${display.id}`,
+    bounds: {
+      x: finiteInteger(display.bounds.x, "bounds.x"),
+      y: finiteInteger(display.bounds.y, "bounds.y"),
+      width: finiteInteger(display.bounds.width, "bounds.width"),
+      height: finiteInteger(display.bounds.height, "bounds.height")
+    },
+    workArea: {
+      x: finiteInteger(display.workArea.x, "workArea.x"),
+      y: finiteInteger(display.workArea.y, "workArea.y"),
+      width: finiteInteger(display.workArea.width, "workArea.width"),
+      height: finiteInteger(display.workArea.height, "workArea.height")
+    },
+    resolution: {
+      width: finiteInteger(display.size.width, "size.width"),
+      height: finiteInteger(display.size.height, "size.height")
+    },
+    scaleFactor: display.scaleFactor,
+    isPrimary: display.id === primaryDisplayId,
+    isInternal: display.internal
+  };
+}
+
 export function projectElectronDisplayTopology(
   input: ElectronDisplayTopologyInput
 ): DisplayTopology {
@@ -438,35 +479,7 @@ export function projectElectronDisplayTopology(
       });
     }
     displayIds.add(display.id);
-    if (!Number.isFinite(display.scaleFactor) || display.scaleFactor <= 0) {
-      throw new RionBridgeError({
-        code: "ELECTRON_DISPLAY_TOPOLOGY_INVALID",
-        message: `Electron reported an invalid scale factor for display ${display.id}.`
-      });
-    }
-    return {
-      id: display.id,
-      label: display.label.trim() || `Display ${display.id}`,
-      bounds: {
-        x: finiteInteger(display.bounds.x, "bounds.x"),
-        y: finiteInteger(display.bounds.y, "bounds.y"),
-        width: finiteInteger(display.bounds.width, "bounds.width"),
-        height: finiteInteger(display.bounds.height, "bounds.height")
-      },
-      workArea: {
-        x: finiteInteger(display.workArea.x, "workArea.x"),
-        y: finiteInteger(display.workArea.y, "workArea.y"),
-        width: finiteInteger(display.workArea.width, "workArea.width"),
-        height: finiteInteger(display.workArea.height, "workArea.height")
-      },
-      resolution: {
-        width: finiteInteger(display.size.width, "size.width"),
-        height: finiteInteger(display.size.height, "size.height")
-      },
-      scaleFactor: display.scaleFactor,
-      isPrimary: display.id === input.primaryDisplayId,
-      isInternal: display.internal
-    };
+    return projectElectronDisplay(display, input.primaryDisplayId);
   }).sort((left, right) => left.id - right.id);
 
   if (!displayIds.has(input.primaryDisplayId)) {

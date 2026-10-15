@@ -53,6 +53,7 @@ describe("Electron Chromium empty saved-window placement admission", () => {
   ];
 
   it.each(cases)("rejects $name after an exact native placement commit", async ({ initiallyAbsent, change }) => {
+    let committed: StateGameWindowRecord | undefined;
     const { coordinator, coreInvoke, launchCommands, state } = launchHarness({
       onRegister: (_command, harness) => {
         harness.coreSnapshot.state.gameWindows = harness.coreSnapshot.state.gameWindows.map(window => {
@@ -60,6 +61,7 @@ describe("Electron Chromium empty saved-window placement admission", () => {
           current.placement.normalBounds = { x: 120, y: 84, width: 1080, height: 700 };
           current.updatedAt = "2026-08-30T12:00:01.000Z";
           change(current);
+          committed = current;
           return current;
         });
         advanceWindowTopology(harness, 2, {
@@ -82,6 +84,8 @@ describe("Electron Chromium empty saved-window placement admission", () => {
     }));
     expect(state.coreSnapshot.logicalWindows).toEqual([]);
     expect(state.nativeSnapshot.windows).toEqual([]);
+    expect(committed).toBeDefined();
+    expect(state.coreSnapshot.state.gameWindows).toEqual([committed]);
     expect(launchCommands).toHaveLength(0);
   });
 });

@@ -1,4 +1,5 @@
 import type {
+  DisplayInfoRecord,
   EmbeddedLaunchTargetRecord,
   EmbeddedTabEffectRecord
 } from "../../src/shared/generated";
@@ -545,13 +546,20 @@ export class Fixture {
   > = vi.fn(async () => {
     this.order.push("input-host-close");
   });
+  display: DisplayInfoRecord = {
+    id: 7,
+    label: "Built-in Display",
+    bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+    workArea: { x: 0, y: 0, width: 1920, height: 1080 },
+    resolution: { width: 1920, height: 1080 },
+    scaleFactor: 2,
+    isPrimary: true,
+    isInternal: true
+  };
   readonly factory = new MacosAppKitChromiumRuntimeHostFactory({
     addon: this.addon,
     displays: {
-      displayMatching: () => ({
-        id: 7,
-        workArea: { x: 0, y: 0, width: 1920, height: 1080 }
-      })
+      displayMatching: () => this.display
     },
     lifecycleEpoch: () => this.lifecycleEpoch,
     windows: {

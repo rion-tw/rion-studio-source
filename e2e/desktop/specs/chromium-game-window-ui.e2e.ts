@@ -2,7 +2,7 @@ import { $, browser, expect } from "@wdio/globals";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import type { GameWindow } from "../../../src/shared/types";
+import type { DisplayTopology, GameWindow } from "../../../src/shared/types";
 import {
   electronDesktopE2eGameWindowRuntime,
   electronDesktopE2eFullscreenToolbarRuntime,
@@ -208,18 +208,44 @@ function expectExactNativeIdentity(
   }
 }
 
+function expectRetainedDisplayTarget(
+  saved: GameWindow,
+  initialTargetDisplay: GameWindow["targetDisplay"],
+  topology: DisplayTopology
+): void {
+  const displays = topology.displays.filter(({ id }) => id === initialTargetDisplay.id);
+  expect(displays).toHaveLength(1);
+  const display = displays[0]!;
+  expect(initialTargetDisplay).toEqual({
+    id: display.id,
+    fingerprint: {
+      label: display.label,
+      bounds: display.bounds,
+      resolution: display.resolution,
+      scaleFactor: display.scaleFactor,
+      isPrimary: display.isPrimary,
+      isInternal: display.isInternal
+    }
+  });
+  expect(saved.targetDisplay).toEqual(initialTargetDisplay);
+}
+
 async function recordPresentationStage(
   stage: string,
   saved: GameWindow,
-  runtime: ElectronDesktopE2eGameWindowRuntimeInspection["currentRuntime"]
+  runtime: ElectronDesktopE2eGameWindowRuntimeInspection["currentRuntime"],
+  initialTargetDisplay: GameWindow["targetDisplay"]
 ): Promise<void> {
-  presentationStages.push({ stage, saved, runtime });
+  const displayTopology = await rendererCall("getDisplayTopology");
+  presentationStages.push({ stage, saved, runtime, initialTargetDisplay, displayTopology });
   await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
     "game-window-presentation-stages.json"), `${JSON.stringify(presentationStages, null, 2)}\n`);
+  expectRetainedDisplayTarget(saved, initialTargetDisplay, displayTopology);
 }
 
 async function waitForSavedPresentation(input: Readonly<{
   gameWindow: GameWindow;
+  initialTargetDisplay: GameWindow["targetDisplay"];
   platform: "macos" | "windows";
   presentation: Presentation;
   stage: string;
@@ -257,7 +283,7 @@ async function waitForSavedPresentation(input: Readonly<{
   }
   expect(saved!.placement.normalBounds).toEqual(input.gameWindow.placement.normalBounds);
   expectExactNativeIdentity({ currentRuntime: runtime, windowId: input.gameWindow.id }, input.platform);
-  await recordPresentationStage(input.stage, saved!, runtime);
+  await recordPresentationStage(input.stage, saved!, runtime, input.initialTargetDisplay);
   return { saved: saved!, runtime: runtime! };
 }
 
@@ -294,6 +320,7 @@ async function revealVisibleFullscreenControls(windowId: string, platform: "maco
 
 async function closeAndReopenSavedPresentation(input: Readonly<{
   gameWindow: GameWindow;
+  initialTargetDisplay: GameWindow["targetDisplay"];
   mainWindowHandle: string;
   platform: "macos" | "windows";
   presentation: Presentation;
@@ -308,7 +335,7 @@ async function closeAndReopenSavedPresentation(input: Readonly<{
   const saved = await waitForNamedWindow();
   expect(saved.placement.presentation).toBe(input.presentation);
   expect(saved.placement.normalBounds).toEqual(input.gameWindow.placement.normalBounds);
-  await recordPresentationStage(`${input.presentation}-closed`, saved, null);
+  await recordPresentationStage(`${input.presentation}-closed`, saved, null, input.initialTargetDisplay);
   await showThroughVisibleUi(saved);
   await waitForSavedPresentation({ ...input, stage: `${input.presentation}-reopened` });
 }
@@ -325,22 +352,32 @@ describe("Chromium permanent Game Window UI", () => {
     await openGameWindowsThroughVisibleUi();
 
     let gameWindow: GameWindow;
+    let initialSavedWindow: GameWindow;
     if (phase === "chromium-game-window-ui-seed") {
       const before = new Set((await rendererCall("listGameWindows")).map((window) => window.id));
       const create = await $("button=New game window");
       await create.waitForClickable({ timeout: 10_000 });
       await create.click();
       gameWindow = await waitForCreatedWindow(before);
+      initialSavedWindow = gameWindow;
       await renameThroughLabeledStandardInput(gameWindow);
       gameWindow = await waitForNamedWindow();
     } else {
       gameWindow = await waitForNamedWindow();
+      initialSavedWindow = gameWindow;
       const row = await $(`[data-selection-id='${gameWindow.id}']`);
       await row.waitForDisplayed({ timeout: 10_000 });
       expect(await row.getText()).toContain(WINDOW_NAME);
       expect(gameWindow.tabs).toEqual([]);
     }
 
+    const initialTargetDisplay = initialSavedWindow.targetDisplay;
+    const displayTopology = await rendererCall("getDisplayTopology");
+    await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
+      "game-window-display-identity.json"), `${JSON.stringify({
+      phase, windowId: gameWindow.id, initialSavedWindow, savedBeforeShow: gameWindow, displayTopology
+    }, null, 2)}\n`);
+    expectRetainedDisplayTarget(gameWindow, initialTargetDisplay, displayTopology);
     const requestedSavedPlacement = gameWindow.placement;
     const inspection = await showThroughVisibleUi(gameWindow);
     expect(inspection.windowId).toBe(gameWindow.id);
@@ -348,13 +385,13 @@ describe("Chromium permanent Game Window UI", () => {
     const baselinePresentation = platform === "windows" ? "maximized" : "fullscreen";
     if (phase === "chromium-game-window-ui-restart") {
       expect(gameWindow.placement.presentation).toBe(baselinePresentation);
-      await waitForSavedPresentation({ gameWindow, platform,
+      await waitForSavedPresentation({ gameWindow, initialTargetDisplay, platform,
         presentation: baselinePresentation, stage: "restart-restored" });
       return;
     }
 
     gameWindow = await waitForNamedWindow();
-    const baseline = await waitForSavedPresentation({ gameWindow, platform,
+    const baseline = await waitForSavedPresentation({ gameWindow, initialTargetDisplay, platform,
       presentation: "normal", stage: "normal-baseline" });
     await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
       "game-window-initial-show.json"), `${JSON.stringify({
@@ -367,26 +404,26 @@ describe("Chromium permanent Game Window UI", () => {
       expect(baseline.runtime.topologyRevision).toBeGreaterThan(1);
     }
     await toggleVisibleFullscreen(gameWindow.id, platform);
-    await waitForSavedPresentation({ gameWindow, platform,
+    await waitForSavedPresentation({ gameWindow, initialTargetDisplay, platform,
       presentation: "fullscreen", stage: "fullscreen-applied" });
-    await closeAndReopenSavedPresentation({ gameWindow, mainWindowHandle, platform,
+    await closeAndReopenSavedPresentation({ gameWindow, initialTargetDisplay, mainWindowHandle, platform,
       presentation: "fullscreen" });
     await toggleVisibleFullscreen(gameWindow.id, platform);
-    await waitForSavedPresentation({ gameWindow, platform,
+    await waitForSavedPresentation({ gameWindow, initialTargetDisplay, platform,
       presentation: "normal", stage: "normal-restored" });
     await clickVisibleRuntimeWindowControl({ command: "maximize", mainWindowHandle,
       platform, windowId: gameWindow.id });
-    await waitForSavedPresentation({ gameWindow, platform,
+    await waitForSavedPresentation({ gameWindow, initialTargetDisplay, platform,
       presentation: "maximized", stage: "maximized-applied" });
-    await closeAndReopenSavedPresentation({ gameWindow, mainWindowHandle, platform,
+    await closeAndReopenSavedPresentation({ gameWindow, initialTargetDisplay, mainWindowHandle, platform,
       presentation: "maximized" });
     if (platform === "macos") {
       await clickVisibleRuntimeWindowControl({ command: "maximize", mainWindowHandle,
         platform, windowId: gameWindow.id });
-      await waitForSavedPresentation({ gameWindow, platform,
+      await waitForSavedPresentation({ gameWindow, initialTargetDisplay, platform,
         presentation: "normal", stage: "normal-after-maximize" });
       await toggleVisibleFullscreen(gameWindow.id, platform);
-      await waitForSavedPresentation({ gameWindow, platform,
+      await waitForSavedPresentation({ gameWindow, initialTargetDisplay, platform,
         presentation: "fullscreen", stage: "fullscreen-baseline" });
     }
   });

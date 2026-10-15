@@ -2,7 +2,8 @@ import type { BaseWindow, BaseWindowConstructorOptions } from "electron";
 
 import type {
   AppKitRuntimeHostObservationRecord,
-  AppKitRuntimeWorkspaceDividerLayoutRecord
+  AppKitRuntimeWorkspaceDividerLayoutRecord,
+  DisplayInfoRecord
 } from "../../shared/generated";
 import type { ChromiumRoleSurfaceBounds } from "./chromiumRoleSurfacePorts";
 import type { ChromiumRuntimeHostPort } from "./chromiumRuntimeHostPorts";
@@ -176,10 +177,7 @@ export interface MacosAppKitBaseWindowPort {
   showInactive: () => void;
 }
 
-export interface MacosAppKitDisplayPort {
-  readonly id: number;
-  readonly workArea: ChromiumRoleSurfaceBounds;
-}
+export type MacosAppKitDisplayPort = Readonly<DisplayInfoRecord>;
 
 export interface MacosAppKitDisplayResolverPort {
   displayMatching: (bounds: ChromiumRoleSurfaceBounds) => MacosAppKitDisplayPort;

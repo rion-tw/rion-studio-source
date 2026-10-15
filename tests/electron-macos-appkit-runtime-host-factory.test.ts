@@ -986,7 +986,13 @@ describe("macOS AppKit Chromium runtime host", () => {
       displays: {
         displayMatching: () => ({
           id: 7,
-          workArea: { x: 0, y: 0, width: 1920, height: 1080 }
+          label: "Built-in Display",
+          workArea: { x: 0, y: 0, width: 1920, height: 1080 },
+          bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+          resolution: { width: 1920, height: 1080 },
+          scaleFactor: 2,
+          isPrimary: true,
+          isInternal: true
         })
       },
       windows: { create: vi.fn() },

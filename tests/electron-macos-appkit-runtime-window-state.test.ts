@@ -6,6 +6,50 @@ import { Fixture, tab, target } from
   "./support/macosAppKitRuntimeHostFactoryFixtures";
 
 describe("macOS AppKit runtime-window state stream", () => {
+  it("preserves the current complete display fingerprint in native placement observations", async () => {
+    const fixture = new Fixture();
+    const host = await fixture.factory.createEmpty(target(), {
+      attemptGeneration: "launch-generation-1", windowGeneration: 1, topologyRevision: 1
+    });
+    host.applyAppKitPhaseProjection!({ windowId: "window-1", windowGeneration: 1,
+      topologyRevision: 1, tabIds: [], hiddenTabIds: [], tabPhases: [] });
+    await Promise.resolve();
+    const before = fixture.factory.captureHostObservations(["window-1"])[0]!;
+    expect(before.targetDisplay).toEqual({
+      id: fixture.display.id,
+      fingerprint: {
+        label: fixture.display.label,
+        bounds: fixture.display.bounds,
+        resolution: fixture.display.resolution,
+        scaleFactor: fixture.display.scaleFactor,
+        isPrimary: fixture.display.isPrimary,
+        isInternal: fixture.display.isInternal
+      }
+    });
+    fixture.display = { ...fixture.display, id: 8, label: "External Display",
+      workArea: { x: 1920, y: 24, width: 1920, height: 1056 },
+      bounds: { x: 1920, y: 0, width: 1920, height: 1080 },
+      scaleFactor: 1, isPrimary: false, isInternal: false };
+    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
+      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+    const current = fixture.onAction.mock.lastCall![0].hosts[0]!;
+    expect(current.targetDisplay).toEqual({ id: 8, fingerprint: {
+      label: "External Display", bounds: fixture.display.bounds,
+      resolution: fixture.display.resolution, scaleFactor: 1,
+      isPrimary: false, isInternal: false
+    } });
+    expect(current.savedWorkArea).toEqual(fixture.display.workArea);
+    expect(before.targetDisplay.id).toBe(7);
+    expect(Object.isFrozen(current.targetDisplay)).toBe(true);
+    expect(Object.isFrozen(current.targetDisplay.fingerprint)).toBe(true);
+    expect(Object.isFrozen(current.targetDisplay.fingerprint!.bounds)).toBe(true);
+    expect(Object.isFrozen(current.targetDisplay.fingerprint!.resolution)).toBe(true);
+    fixture.display.bounds.x = 3000;
+    fixture.display.resolution.width = 2560;
+    expect(current.targetDisplay.fingerprint!.bounds.x).toBe(1920);
+    expect(current.targetDisplay.fingerprint!.resolution.width).toBe(1920);
+  });
+
   it("preserves a key-window event emitted before order-front visibility settles", async () => {
     const fixture = new Fixture();
     const host = await fixture.factory.create(target(), tab(target()));

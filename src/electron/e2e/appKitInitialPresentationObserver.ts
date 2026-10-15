@@ -24,6 +24,7 @@ export function installAppKitInitialPresentationProbe(): void {
   const resizeOwnerCapacity = 32;
   let droppedResizeOwners = 0;
   let resizeCaptureErrors = 0;
+  let staleResizeCallbacksIgnored = 0;
   let lastResizeCaptureError: string | null = null;
   const object = (value: unknown): value is Record<string, unknown> =>
     !!value && typeof value === "object" && !Array.isArray(value);
@@ -34,8 +35,9 @@ export function installAppKitInitialPresentationProbe(): void {
         `${JSON.stringify({ journalVersion: 1, ownerCapacity: resizeOwnerCapacity,
           nativeCapacity: 128, droppedOwners: droppedResizeOwners,
           captureErrors: resizeCaptureErrors, lastCaptureError: lastResizeCaptureError,
+          staleCallbacksIgnored: staleResizeCallbacksIgnored,
           flushedAt: new Date().toISOString(), flushStage: stage,
-          coverage: "Snapshots from existing placement/focus callbacks; no added native event or ACK.",
+          coverage: "Snapshots from the existing placementDiagnostics JSON C carrier; no added native event or ACK.",
           snapshots: [...resizeSnapshots.values()] }, null, 2)}\n`, "utf8");
     } catch { /* Diagnostic output cannot alter native ownership or terminality. */ }
   };
@@ -127,12 +129,29 @@ export function installAppKitInitialPresentationProbe(): void {
         const attachedIdentity = Object.freeze({ ...identity });
         const attachedHandle = Buffer.from(handle);
         let firstWindowPointer: string | undefined;
+        let controllerRetired = false;
         const captureResize = (event: unknown): unknown => {
           if (!resizeEnabled || !object(event) || !object(event.action)) return event;
-          const raw = event.action.diagnosticResizeJournal;
-          if (!object(raw)) return event;
+          if (event.action.type !== "windowPlacementChanged") return event;
+          const diagnostics = event.action.placementDiagnostics;
+          if (!object(diagnostics) || !Object.hasOwn(diagnostics, "diagnosticResizeJournal")) return event;
+          const raw = diagnostics.diagnosticResizeJournal;
+          if (!object(raw)) {
+            resizeCaptureErrors++;
+            lastResizeCaptureError = "The placement JSON C carrier contained a malformed diagnostic resize journal";
+            return event;
+          }
           const summary = { capacity: raw.capacity, dropped: raw.dropped,
             sequence: raw.sequence, recordCount: Array.isArray(raw.records) ? raw.records.length : null };
+          const summarized = { ...event, action: { ...event.action, placementDiagnostics: {
+            ...diagnostics, diagnosticResizeJournal: summary
+          } } };
+          // A TSFN payload already queued before native retirement is legal.
+          // Preserve the last live proof instead of replacing it at teardown.
+          if (controllerRetired || (native && (native.isDestroyed() || windows.get(native.id) !== native))) {
+            staleResizeCallbacksIgnored++;
+            return summarized;
+          }
           try {
             if (raw.journalVersion !== 1 || raw.capacity !== 128 || !Array.isArray(raw.records) ||
                 raw.records.length > 128 || !Number.isSafeInteger(raw.sequence) || Number(raw.sequence) < 0 ||
@@ -174,8 +193,9 @@ export function installAppKitInitialPresentationProbe(): void {
             lastResizeCaptureError = describeCoreFlowError(error).slice(0, 2_000);
           }
           // Avoid repeatedly exporting 128 native rows in the general Core journal.
-          // The original eventJson still reaches the product callback unchanged.
-          return { ...event, action: { ...event.action, diagnosticResizeJournal: summary } };
+          // The product callback below receives the same truth fields without
+          // this diagnostic-only key, retaining its original 96 KiB boundary.
+          return summarized;
         };
         journal("appKitControllerAttach", identity.logicalWindowId, { identity, native: read(native) });
         const controller = addon.attachAppKitRuntimeHost(handle, identity, (eventJson) => {
@@ -183,10 +203,26 @@ export function installAppKitInitialPresentationProbe(): void {
           try { event = JSON.parse(eventJson); } catch { event = { invalidJson: true }; }
           journal("appKitNativeCallback", identity.logicalWindowId,
             { identity, event: captureResize(event), native: read(native) });
-          callback(eventJson);
+          if (object(event) && object(event.action) &&
+              event.action.type === "windowPlacementChanged" &&
+              object(event.action.placementDiagnostics) &&
+              Object.hasOwn(event.action.placementDiagnostics, "diagnosticResizeJournal")) {
+            const placementDiagnostics = { ...event.action.placementDiagnostics };
+            delete placementDiagnostics.diagnosticResizeJournal;
+            callback(JSON.stringify({ ...event, action: { ...event.action, placementDiagnostics } }));
+          } else {
+            callback(eventJson);
+          }
         });
         return new Proxy(controller, { get(target, property) {
           const value: unknown = Reflect.get(target, property, target);
+          if (property === "destroy" && typeof value === "function") {
+            return (...args: unknown[]) => {
+              const result: unknown = Reflect.apply(value, target, args);
+              if (result === true) controllerRetired = true;
+              return result;
+            };
+          }
           if (property === "prepareFullscreen" && typeof value === "function") {
             return (...args: unknown[]) => {
               journal("appKitPrepareFullscreen", identity.logicalWindowId,

@@ -1,4 +1,6 @@
 mod controller_lifecycle;
+mod native_callback_json;
+use native_callback_json::{optional_placement_diagnostics, serialize_native_event};
 mod workspace_slot_loading;
 use controller_lifecycle::{ControllerLifecycle, ControllerResource};
 use std::{
@@ -283,14 +285,10 @@ impl AppKitCallbackContext {
         if !self.accepting.load(Ordering::Acquire) {
             return;
         }
-        let Ok(serialized) = serde_json::to_string(&event) else {
+        let Ok(serialized) = serialize_native_event(&event) else {
             self.fail(CallbackFailure::InvalidNativeEvent);
             return;
         };
-        if serialized.len() > MAX_SERIALIZED_EVENT_BYTES {
-            self.fail(CallbackFailure::InvalidNativeEvent);
-            return;
-        }
         if self
             .callback
             .call(serialized, ThreadsafeFunctionCallMode::NonBlocking)
@@ -1485,9 +1483,10 @@ unsafe extern "C" fn appkit_action_callback(
                         status_identity_json,
                         serde_json::Value::is_object,
                     ) }?,
-                    "placementDiagnostics": unsafe { optional_native_json(
+                    "placementDiagnostics": unsafe { optional_placement_diagnostics(
+                        &action_type,
+                        &context.identity.logical_window_id,
                         placement_diagnostics_json,
-                        valid_placement_diagnostics,
                     ) }?,
                     "screenX": finite_number(screen_x),
                     "screenY": finite_number(screen_y),
@@ -1517,70 +1516,6 @@ unsafe extern "C" fn appkit_action_callback(
     if emitted.is_err() {
         context.fail(CallbackFailure::PanicContained);
     }
-}
-
-fn valid_placement_diagnostics(value: &serde_json::Value) -> bool {
-    const FIELDS: [&str; 12] = [
-        "zoomed",
-        "fullScreen",
-        "minimized",
-        "frameX",
-        "frameY",
-        "frameWidth",
-        "frameHeight",
-        "triggerEventType",
-        "triggerKeyCode",
-        "triggerModifierFlags",
-        "firstResponderCategory",
-        "physicalInputSequence",
-    ];
-    let Some(value) = value.as_object() else {
-        return false;
-    };
-    let finite = |field: &str| {
-        value
-            .get(field)
-            .and_then(serde_json::Value::as_f64)
-            .is_some_and(f64::is_finite)
-    };
-    let sequence = value
-        .get("physicalInputSequence")
-        .and_then(serde_json::Value::as_str);
-    value.len() == FIELDS.len()
-        && value.keys().all(|field| FIELDS.contains(&field.as_str()))
-        && ["zoomed", "fullScreen", "minimized"].iter().all(|field| {
-            value
-                .get(*field)
-                .and_then(serde_json::Value::as_bool)
-                .is_some()
-        })
-        && ["frameX", "frameY", "frameWidth", "frameHeight"]
-            .iter()
-            .all(|field| finite(field))
-        && value.get("frameWidth").and_then(serde_json::Value::as_f64) > Some(0.0)
-        && value.get("frameHeight").and_then(serde_json::Value::as_f64) > Some(0.0)
-        && value
-            .get("triggerEventType")
-            .and_then(serde_json::Value::as_u64)
-            .is_some()
-        && value
-            .get("triggerKeyCode")
-            .and_then(serde_json::Value::as_u64)
-            .is_some_and(|code| code <= u16::MAX.into())
-        && value
-            .get("triggerModifierFlags")
-            .and_then(serde_json::Value::as_u64)
-            .is_some()
-        && matches!(
-            value
-                .get("firstResponderCategory")
-                .and_then(serde_json::Value::as_str),
-            Some("roleSurface" | "nativeText" | "nativeChrome")
-        )
-        && sequence.is_some_and(|raw| {
-            raw.parse::<u64>()
-                .is_ok_and(|parsed| parsed.to_string() == raw)
-        })
 }
 
 fn retain_native_action_fields(

@@ -74,6 +74,20 @@ jobs:
           capture_domain com.apple.symbolichotkeys symbolic-hotkeys
           capture_domain NSGlobalDomain global-keyboard-preferences
           capture_domain com.apple.keyboard keyboard-preferences
+      - name: Check the feature-enabled AppKit callback boundary
+        if: ${{ inputs.macos_phase == 'tabs-visible' }}
+        run: cargo clippy --locked -p rion-node --features desktop-e2e --all-targets --no-deps -- -D warnings
+      - name: Test the feature-enabled AppKit callback boundary
+        if: ${{ inputs.macos_phase == 'tabs-visible' }}
+        run: |
+          cargo test --locked -p rion-node --features desktop-e2e appkit_runtime_host::native_callback_json::
+        env:
+          RION_TEST_RESIZE_CHANNEL_FIXTURE: "1"
+      - name: Test Rust carrier output through the diagnostic observer and production host boundary
+        if: ${{ inputs.macos_phase == 'tabs-visible' }}
+        run: |
+          test -s .desktop-e2e-artifacts/native-resize-channel/rust-native-event.json
+          pnpm exec vitest run tests/appkit-resize-diagnostic-carrier.test.mjs tests/appkit-resize-diagnostic-observer.test.ts
       - name: Read effective symbolic hotkeys through the public Carbon API
         if: ${{ inputs.macos_phase == 'keyboard' || inputs.macos_phase == 'background-tab' }}
         shell: bash
@@ -117,6 +131,9 @@ jobs:
         env:
           RION_STUDIO_DIAGNOSTIC_MACOS_PHASE: ${{ inputs.macos_phase == 'keyboard' && 'chromium-macro-cutover-keyboard' || inputs.macos_phase == 'background-tab' && 'chromium-macro-background-tab' || inputs.macos_phase == 'mixed-recovery' && 'chromium-mixed-recovery-restore' || inputs.macos_phase == 'role-reset' && 'chromium-role-session-reset-restart' || inputs.macos_phase == 'role-isolation' && 'chromium-role-session-isolation-restart' || inputs.macos_phase == 'app-recovery' && 'chromium-app-recovery-restore' || inputs.macos_phase == 'tabs-visible' && 'chromium-tabs-visible-restart' || 'chromium-game-window-ui-restart' }}
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+      - name: Verify the native resize carrier reached the terminal artifact
+        if: ${{ always() && inputs.macos_phase == 'tabs-visible' }}
+        run: node scripts/verifyAppKitResizeDiagnosticCarrier.mjs .desktop-e2e-artifacts
       - name: Preserve diagnostic evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

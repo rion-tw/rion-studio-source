@@ -402,7 +402,11 @@ NS_ASSUME_NONNULL_BEGIN
 #if defined(RION_DESKTOP_E2E)
   if (_resizeDiagnosticRecords) {
     NSMutableDictionary *diagnosticAction = [action mutableCopy];
-    diagnosticAction[@"diagnosticResizeJournal"] = [self resizeDiagnosticJournal];
+    NSMutableDictionary *placementDiagnostics =
+        [action[@"placementDiagnostics"] mutableCopy];
+    placementDiagnostics[@"diagnosticResizeJournal"] =
+        [self resizeDiagnosticJournal];
+    diagnosticAction[@"placementDiagnostics"] = placementDiagnostics;
     action = diagnosticAction;
   }
 #endif
@@ -428,13 +432,6 @@ NS_ASSUME_NONNULL_BEGIN
     @"minimized" : @(_window.isMiniaturized),
     @"visible" : @(_window.isVisible)
   };
-#if defined(RION_DESKTOP_E2E)
-  if (_resizeDiagnosticRecords) {
-    NSMutableDictionary *diagnosticAction = [action mutableCopy];
-    diagnosticAction[@"diagnosticResizeJournal"] = [self resizeDiagnosticJournal];
-    action = diagnosticAction;
-  }
-#endif
   _actionHandler(action);
 }
 

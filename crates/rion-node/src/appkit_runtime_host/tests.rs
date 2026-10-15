@@ -1,3 +1,4 @@
+use super::native_callback_json::valid_placement_diagnostics;
 use super::*;
 
 #[test]

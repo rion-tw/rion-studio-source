@@ -35,14 +35,15 @@ export function installAppKitInitialPresentationProbe(): void {
     const observedConstructor = new Proxy(Constructor, {
       construct(target, args) {
         const native = Reflect.construct(target, args, target) as BaseWindow;
-        windows.set(native.id, native);
-        const identity = `appkit-native:${native.id}`;
+        const nativeId = native.id;
+        windows.set(nativeId, native);
+        const identity = `appkit-native:${nativeId}`;
         journal("appKitNativeCreated", identity, read(native));
         for (const event of ["enter-full-screen", "leave-full-screen", "maximize",
           "unmaximize", "show", "focus", "blur", "closed"]) {
           native.on(event as "show", () => {
             journal("appKitNativeEvent", identity, { event, native: read(native) });
-            if (event === "closed") windows.delete(native.id);
+            if (event === "closed") windows.delete(nativeId);
           });
         }
         for (const name of ["setFullScreen", "maximize"] as const) {

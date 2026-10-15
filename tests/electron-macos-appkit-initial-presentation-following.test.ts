@@ -66,6 +66,7 @@ describe.each(["fullscreen", "maximized"] as const)(
       if (presentation === "fullscreen") expect(submit).toHaveBeenCalledWith(true);
       expect(host.readProjection().presentation).toBe("normal");
       expect(fixture.onLayout).not.toHaveBeenCalled();
+      expect(fixture.onAction).not.toHaveBeenCalled();
       await expectPending(execution.completion);
 
       fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: {
@@ -77,6 +78,7 @@ describe.each(["fullscreen", "maximized"] as const)(
       native.emit(presentation === "fullscreen" ? "enter-full-screen" : "maximize");
       native.emit("resize");
       expect(fixture.onLayout).not.toHaveBeenCalled();
+      expect(fixture.onAction).not.toHaveBeenCalled();
       await expectPending(execution.completion);
 
       fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: {
@@ -93,7 +95,18 @@ describe.each(["fullscreen", "maximized"] as const)(
       expect(fixture.onLayout.mock.calls[0]![0].hosts[0]).toMatchObject({
         windowGeneration: 8, topologyRevision: 8, presentation, visible: true, focused: true
       });
-      expect(fixture.onAction).not.toHaveBeenCalled();
+      expect(fixture.onAction).toHaveBeenCalledExactlyOnceWith({
+        identity: host.appKitIdentity,
+        action: { type: "windowPlacementChanged", sourceWindowId: fence.windowId },
+        hosts: [expect.objectContaining({
+          identity: host.appKitIdentity,
+          windowGeneration: fence.windowGeneration,
+          topologyRevision: fence.topologyRevision,
+          presentation, visible: true, focused: true, minimized: false,
+          normalBounds: { x: 100, y: 80, width: 960, height: 640 },
+          contentBounds: { x: 0, y: 0, width: 960, height: 640 }
+        })]
+      });
       expect(fixture.onError).not.toHaveBeenCalled();
     });
   }

@@ -585,6 +585,7 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
 
 - (void)prepareForFullscreenTransition:(BOOL)fullScreen {
   if (_destroyed || !_window) return;
+  if (fullScreen) [self captureFullscreenRestoreGeometry];
   [self ensureTitlebarHeightOverride];
   if (fullScreen) _hasFullscreenAutoHideContentLayout = NO;
 
@@ -628,14 +629,16 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
     [self updateFullscreenToolbarPresentationPolicy];
     return;
   }
-  _fullscreenTransitionActive = NO;
-  _fullscreenHostReady = NO;
-  [self updateFullscreenToolbarPresentationPolicy];
-  [self detachTitlebarWidgetInsetOverrides];
-  [self restoreWindowedTitlebarHost];
-  [self installFreshToolbarForWindowedMode];
-  [self applyLiquidGlassTitlebarAppearance];
-  [self applyFullScreenPolicy];
+  [self performFullscreenExitChromeMutation:^{
+    _fullscreenTransitionActive = NO;
+    _fullscreenHostReady = NO;
+    [self updateFullscreenToolbarPresentationPolicy];
+    [self detachTitlebarWidgetInsetOverrides];
+    [self restoreWindowedTitlebarHost];
+    [self installFreshToolbarForWindowedMode];
+    [self applyLiquidGlassTitlebarAppearance];
+    [self applyFullScreenPolicy];
+  }];
 }
 
 - (void)setRevealLocked:(BOOL)locked {
@@ -649,7 +652,7 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
 
 - (RionRuntimeContentLayout)contentLayout {
   RionRuntimeContentLayout emptyLayout = {0, 0, NO};
-  if (_destroyed || !_window) return emptyLayout;
+  if (_destroyed || !_window || _windowedGeometryFailed) return emptyLayout;
 
   NSView *contentView = _window.contentView;
   if (!contentView) return emptyLayout;
@@ -831,22 +834,24 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
     return;
   }
 
-  if (_previousFullSizeContentView) {
-    _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
-  } else {
-    _window.styleMask &= ~NSWindowStyleMaskFullSizeContentView;
-  }
-  if (_window.toolbar != _toolbar) _window.toolbar = _toolbar;
-  [self restoreWindowedTitlebarHost];
-  [self applyLiquidGlassTitlebarAppearance];
-  [self layoutTitlebarContent];
-  if (shouldShow) {
-    [self revealToolbarAndOrderBelowAccessory];
-  } else {
-    _toolbar.visible = NO;
-  }
-  [self updateTrafficLightObservation];
-  [self scheduleContentLayoutNotification];
+  [self performWindowedChromeMutation:^{
+    if (_previousFullSizeContentView) {
+      _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
+    } else {
+      _window.styleMask &= ~NSWindowStyleMaskFullSizeContentView;
+    }
+    if (_window.toolbar != _toolbar) _window.toolbar = _toolbar;
+    [self restoreWindowedTitlebarHost];
+    [self applyLiquidGlassTitlebarAppearance];
+    [self layoutTitlebarContent];
+    if (shouldShow) {
+      [self revealToolbarAndOrderBelowAccessory];
+    } else {
+      _toolbar.visible = NO;
+    }
+    [self updateTrafficLightObservation];
+    [self scheduleContentLayoutNotification];
+  }];
 }
 
 NS_ASSUME_NONNULL_END

@@ -94,8 +94,178 @@ NS_ASSUME_NONNULL_BEGIN
   return item;
 }
 
+- (RionRuntimeWindowedGeometry)captureWindowedGeometry {
+  RionRuntimeWindowedGeometry geometry = {};
+  NSWindow *window = _window;
+  NSView *contentView = window.contentView;
+  if (_destroyed || !window || !contentView) return geometry;
+  [contentView.superview layoutSubtreeIfNeeded];
+  [contentView layoutSubtreeIfNeeded];
+  const NSRect contentBounds = contentView.bounds;
+  const NSRect layoutRect =
+      [contentView convertRect:window.contentLayoutRect fromView:nil];
+  const RionRuntimeContentLayout layout = RionRuntimeContentLayoutForRects(
+      contentBounds, layoutRect, contentView.isFlipped);
+  geometry.frame = window.frame;
+  geometry.contentSize = NSMakeSize(
+      NSWidth(contentBounds), NSHeight(contentBounds) - layout.heightInset);
+  geometry.valid = layout.valid &&
+      std::isfinite(NSMinX(geometry.frame)) &&
+      std::isfinite(NSMinY(geometry.frame)) &&
+      std::isfinite(NSWidth(geometry.frame)) &&
+      std::isfinite(NSHeight(geometry.frame)) &&
+      std::isfinite(NSMaxY(geometry.frame)) &&
+      NSWidth(geometry.frame) > 0 && NSHeight(geometry.frame) > 0 &&
+      std::isfinite(geometry.contentSize.width) &&
+      std::isfinite(geometry.contentSize.height) &&
+      geometry.contentSize.width > 0 && geometry.contentSize.height > 0 &&
+      !_destroyed && _window == window;
+  return geometry;
+}
+
+- (BOOL)restoreWindowedGeometry:(RionRuntimeWindowedGeometry)geometry
+                allowNativeFit:(BOOL)allowNativeFit {
+  NSWindow *window = _window;
+  RionRuntimeWindowedGeometry current = [self captureWindowedGeometry];
+  if (!geometry.valid || !current.valid || _destroyed || !window ||
+      _window != window) {
+    _windowedGeometryFailed = YES;
+    [self scheduleContentLayoutNotification];
+    return NO;
+  }
+  if (RionRuntimeWindowedGeometryMatches(geometry, current)) return YES;
+
+  // Preserve the native outer top/left and the unobscured content size, not
+  // Electron's raw content-view size or the transient full-size frame.
+  NSRect frame = current.frame;
+  frame.size.width += geometry.contentSize.width - current.contentSize.width;
+  frame.size.height += geometry.contentSize.height - current.contentSize.height;
+  frame.origin.x = NSMinX(geometry.frame);
+  frame.origin.y = NSMaxY(geometry.frame) - NSHeight(frame);
+  if (!std::isfinite(NSMinX(frame)) || !std::isfinite(NSMinY(frame)) ||
+      !std::isfinite(NSWidth(frame)) || !std::isfinite(NSHeight(frame)) ||
+      NSWidth(frame) <= 0 || NSHeight(frame) <= 0) {
+    _windowedGeometryFailed = YES;
+    [self scheduleContentLayoutNotification];
+    return NO;
+  }
+  [window setFrame:frame display:NO];
+  current = [self captureWindowedGeometry];
+  const BOOL restored = !_destroyed && _window == window && current.valid &&
+      (RionRuntimeWindowedGeometryMatches(geometry, current) || allowNativeFit);
+  if (!restored) {
+    // The existing invalid-layout callback rejects the owning presentation;
+    // a failed native readback must never become a successful placement ACK.
+    _windowedGeometryFailed = YES;
+    [self scheduleContentLayoutNotification];
+  }
+  return restored;
+}
+
+- (void)performWindowedChromeMutation:(dispatch_block_t)mutation {
+  if (_destroyed || !_window) return;
+  if (_windowedGeometryMutationDepth > 0 || _fullscreenTransitionActive ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
+    mutation();
+    return;
+  }
+  ++_windowedGeometryMutationDepth;
+  @try {
+    // Every synchronous chrome refresh owns its current geometry. In
+    // particular, a deferred presentation rehost must retain a user's later
+    // resize/move rather than replay the earlier fullscreen restore witness.
+    const RionRuntimeWindowedGeometry geometry = [self captureWindowedGeometry];
+    mutation();
+    [self restoreWindowedGeometry:geometry allowNativeFit:NO];
+  } @finally {
+    --_windowedGeometryMutationDepth;
+  }
+}
+
+- (void)captureFullscreenRestoreGeometry {
+  if (_destroyed || !_window || _hasFullscreenRestoreGeometry ||
+      _fullscreenTransitionActive ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) != 0) return;
+  // Explicit preparation and NSWindowWillEnterFullScreen may both enter here.
+  // Only the first pre-mutation windowed state belongs to this transition.
+  ++_windowedGeometryMutationDepth;
+  @try {
+    _fullscreenRestoreGeometry = [self captureWindowedGeometry];
+    _hasFullscreenRestoreGeometry = _fullscreenRestoreGeometry.valid;
+    NSScreen *screen = _window.screen;
+    _fullscreenRestoreScreenNumber =
+        [screen.deviceDescription[@"NSScreenNumber"] copy];
+    _fullscreenRestoreScreenFrame = screen.frame;
+    _fullscreenRestoreScreenScale = screen.backingScaleFactor;
+    if (!_hasFullscreenRestoreGeometry) {
+      _windowedGeometryFailed = YES;
+      [self scheduleContentLayoutNotification];
+    }
+  } @finally {
+    --_windowedGeometryMutationDepth;
+  }
+}
+
+- (BOOL)fullscreenRestoreScreenIsCurrent {
+  if (![_fullscreenRestoreScreenNumber isKindOfClass:NSNumber.class] ||
+      _fullscreenRestoreScreenNumber.unsignedLongLongValue == 0 ||
+      !std::isfinite(_fullscreenRestoreScreenScale) ||
+      _fullscreenRestoreScreenScale <= 0 ||
+      !std::isfinite(NSMinX(_fullscreenRestoreScreenFrame)) ||
+      !std::isfinite(NSMinY(_fullscreenRestoreScreenFrame)) ||
+      !std::isfinite(NSWidth(_fullscreenRestoreScreenFrame)) ||
+      !std::isfinite(NSHeight(_fullscreenRestoreScreenFrame)) ||
+      NSWidth(_fullscreenRestoreScreenFrame) <= 0 ||
+      NSHeight(_fullscreenRestoreScreenFrame) <= 0) return NO;
+  NSScreen *currentScreen = _window.screen;
+  if (![currentScreen.deviceDescription[@"NSScreenNumber"]
+          isEqual:_fullscreenRestoreScreenNumber] ||
+      !NSEqualRects(currentScreen.frame, _fullscreenRestoreScreenFrame) ||
+      currentScreen.backingScaleFactor != _fullscreenRestoreScreenScale) {
+    return NO;
+  }
+  for (NSScreen *screen in NSScreen.screens) {
+    if ([screen.deviceDescription[@"NSScreenNumber"]
+            isEqual:_fullscreenRestoreScreenNumber]) {
+      // A Space's workArea may change during fullscreen. Physical display
+      // replacement, removal or scale/bounds changes invalidate old coordinates.
+      return NSEqualRects(screen.frame, _fullscreenRestoreScreenFrame) &&
+          screen.backingScaleFactor == _fullscreenRestoreScreenScale;
+    }
+  }
+  return NO;
+}
+
+- (void)performFullscreenExitChromeMutation:(dispatch_block_t)mutation {
+  if (_destroyed || !_window) return;
+  if (!_hasFullscreenRestoreGeometry && !_fullscreenTransitionActive) {
+    [self performWindowedChromeMutation:mutation];
+    return;
+  }
+  const BOOL restoreCaptured = _hasFullscreenRestoreGeometry &&
+      [self fullscreenRestoreScreenIsCurrent];
+  ++_windowedGeometryMutationDepth;
+  @try {
+    mutation();
+    if (restoreCaptured) {
+      [self restoreWindowedGeometry:_fullscreenRestoreGeometry allowNativeFit:NO];
+    }
+  } @finally {
+    --_windowedGeometryMutationDepth;
+    _hasFullscreenRestoreGeometry = NO;
+    _fullscreenRestoreScreenNumber = nil;
+  }
+}
+
 - (void)emitWindowPlacementObservation {
-  if (_destroyed || !_actionHandler || _windowID.length == 0) return;
+  if (_destroyed || _windowedGeometryFailed || !_actionHandler ||
+      _windowID.length == 0 ||
+      _windowedGeometryMutationDepth > 0 ||
+      (_fullscreenTransitionActive && !_fullscreenHostReady)) return;
+  if (!_fullscreenTransitionActive &&
+      (_window.styleMask & NSWindowStyleMaskFullScreen) == 0) {
+    _initialWindowedFitPending = NO;
+  }
   NSEvent *currentEvent = NSApp.currentEvent;
   BOOL keyboardTrigger = currentEvent.type == NSEventTypeKeyDown ||
       currentEvent.type == NSEventTypeKeyUp ||
@@ -135,6 +305,16 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)emitWindowFocusObservation {
   if (_destroyed || !_actionHandler || _windowID.length == 0) return;
+  if (_initialWindowedFitPending && _window.isVisible &&
+      !_fullscreenTransitionActive && _windowedGeometryMutationDepth == 0 &&
+      !_windowedGeometryFailed &&
+      (_window.styleMask & NSWindowStyleMaskFullScreen) == 0) {
+    // The initial native fit happened before window observers were installed.
+    // This real focus event supplies its one missing placement receipt before
+    // the unchanged focus action; later focus events never replay the fit.
+    _initialWindowedFitPending = NO;
+    [self emitWindowPlacementObservation];
+  }
   _actionHandler(@{
     @"type" : @"windowFocusChanged",
     @"sourceWindowId" : _windowID,
@@ -261,27 +441,30 @@ NS_ASSUME_NONNULL_BEGIN
         [strongSelf detachAccessoryController];
       } else if ([notification.name
                      isEqualToString:NSWindowDidExitFullScreenNotification]) {
-        strongSelf->_fullscreenTransitionActive = NO;
-        strongSelf->_fullscreenHostReady = NO;
+        [strongSelf performFullscreenExitChromeMutation:^{
+          strongSelf->_fullscreenTransitionActive = NO;
+          strongSelf->_fullscreenHostReady = NO;
+          strongSelf->_placementZoomed = strongSelf->_window.isZoomed;
+          [strongSelf updateFullscreenToolbarPresentationPolicy];
+          [strongSelf detachTitlebarWidgetInsetOverrides];
+          if (!strongSelf->_previousFullSizeContentView) {
+            strongSelf->_window.styleMask &=
+                ~NSWindowStyleMaskFullSizeContentView;
+          }
+          // The fullscreen toolbar belongs to NSToolbarFullScreenWindow. Give
+          // the normal titlebar a fresh toolbar as well; otherwise AppKit can
+          // retain the fullscreen exit control in place of the three standard
+          // traffic lights after the transition.
+          [strongSelf restoreWindowedTitlebarHost];
+          [strongSelf installFreshToolbarForWindowedMode];
+          // Do not attach the trailing accessory in the same AppKit turn that
+          // rebuilds the normal titlebar. On macOS 26 that races the standard
+          // button layout and collapses the traffic lights into the temporary
+          // fullscreen-exit pill. The scheduled rehost runs after AppKit has
+          // established the windowed button geometry.
+          [strongSelf applyLiquidGlassTitlebarAppearance];
+        }];
         strongSelf->_placementZoomed = strongSelf->_window.isZoomed;
-        [strongSelf updateFullscreenToolbarPresentationPolicy];
-        [strongSelf detachTitlebarWidgetInsetOverrides];
-        if (!strongSelf->_previousFullSizeContentView) {
-          strongSelf->_window.styleMask &=
-              ~NSWindowStyleMaskFullSizeContentView;
-        }
-        // The fullscreen toolbar belongs to NSToolbarFullScreenWindow. Give
-        // the normal titlebar a fresh toolbar as well; otherwise AppKit can
-        // retain the fullscreen exit control in place of the three standard
-        // traffic lights after the transition.
-        [strongSelf restoreWindowedTitlebarHost];
-        [strongSelf installFreshToolbarForWindowedMode];
-        // Do not attach the trailing accessory in the same AppKit turn that
-        // rebuilds the normal titlebar. On macOS 26 that races the standard
-        // button layout and collapses the traffic lights into the temporary
-        // fullscreen-exit pill. The scheduled rehost runs after AppKit has
-        // established the windowed button geometry.
-        [strongSelf applyLiquidGlassTitlebarAppearance];
         [strongSelf scheduleLiquidGlassTitlebarRehost];
         [strongSelf emitWindowPlacementObservation];
       } else {
@@ -497,37 +680,39 @@ NS_ASSUME_NONNULL_BEGIN
     RionRuntimeTabsController *strongSelf = weakSelf;
     if (!strongSelf || strongSelf->_destroyed || !strongSelf->_window) return;
 
-    // The WebView host can finish its own fullscreen transition after AppKit's
-    // did-enter/did-exit notification. Reinstall the same toolbar and accessory
-    // after both directions so neither mode briefly inherits default metrics.
-    BOOL fullScreen = strongSelf->_fullscreenTransitionActive ||
-        (strongSelf->_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
-    if (strongSelf->_window.toolbar != strongSelf->_toolbar) {
-      strongSelf->_window.toolbar = strongSelf->_toolbar;
-    }
-    [strongSelf applyFullScreenPolicy];
-    if (!fullScreen) {
-      [strongSelf restoreWindowedTrafficLightFrames];
-      dispatch_async(dispatch_get_main_queue(), ^{
-        [weakSelf restoreWindowedTrafficLightFrames];
-      });
-      dispatch_after(
-          dispatch_time(DISPATCH_TIME_NOW,
-                        (int64_t)(1000 * NSEC_PER_MSEC)),
-          dispatch_get_main_queue(), ^{
-        RionRuntimeTabsController *settledSelf = weakSelf;
-        if (!settledSelf || settledSelf->_destroyed ||
-            settledSelf->_fullscreenTransitionActive ||
-            (settledSelf->_window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
-          return;
-        }
-        // AppKit 26 can recreate its transient fullscreen-exit overlay near
-        // the end of the post-notification titlebar animation. Run one
-        // event-triggered settled pass after that animation; this is
-        // intentionally not a cursor or timer poll.
-        [settledSelf settleWindowedTitlebarAfterFullScreenExit];
-      });
-    }
+    [strongSelf performWindowedChromeMutation:^{
+      // The WebView host can finish its own fullscreen transition after AppKit's
+      // did-enter/did-exit notification. Reinstall the same toolbar and accessory
+      // after both directions so neither mode briefly inherits default metrics.
+      BOOL fullScreen = strongSelf->_fullscreenTransitionActive ||
+          (strongSelf->_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+      if (strongSelf->_window.toolbar != strongSelf->_toolbar) {
+        strongSelf->_window.toolbar = strongSelf->_toolbar;
+      }
+      [strongSelf applyFullScreenPolicy];
+      if (!fullScreen) {
+        [strongSelf restoreWindowedTrafficLightFrames];
+        dispatch_async(dispatch_get_main_queue(), ^{
+          [weakSelf restoreWindowedTrafficLightFrames];
+        });
+        dispatch_after(
+            dispatch_time(DISPATCH_TIME_NOW,
+                          (int64_t)(1000 * NSEC_PER_MSEC)),
+            dispatch_get_main_queue(), ^{
+          RionRuntimeTabsController *settledSelf = weakSelf;
+          if (!settledSelf || settledSelf->_destroyed ||
+              settledSelf->_fullscreenTransitionActive ||
+              (settledSelf->_window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
+            return;
+          }
+          // AppKit 26 can recreate its transient fullscreen-exit overlay near
+          // the end of the post-notification titlebar animation. Run one
+          // event-triggered settled pass after that animation; this is
+          // intentionally not a cursor or timer poll.
+          [settledSelf settleWindowedTitlebarAfterFullScreenExit];
+        });
+      }
+    }];
   });
 }
 
@@ -542,12 +727,14 @@ NS_ASSUME_NONNULL_BEGIN
   // only the Rion-owned toolbar. The private NSToolbarFullScreenWindow belongs
   // to AppKit; ordering that window out during Space teardown can synchronously
   // stall Electron's UI/IPC thread even after Core observed normal placement.
-  [self detachAccessoryController];
+  [self performWindowedChromeMutation:^{
+    [self detachAccessoryController];
 
-  [self installFreshToolbarForWindowedMode];
-  [self applyLiquidGlassTitlebarAppearance];
-  [self applyFullScreenPolicy];
-  [self restoreWindowedTrafficLightFrames];
+    [self installFreshToolbarForWindowedMode];
+    [self applyLiquidGlassTitlebarAppearance];
+    [self applyFullScreenPolicy];
+    [self restoreWindowedTrafficLightFrames];
+  }];
 
   // AppKit 26 performs one last titlebar layout after a fresh NSToolbar is
   // assigned. Reattach the accessory after that turn so it cannot finish
@@ -562,8 +749,10 @@ NS_ASSUME_NONNULL_BEGIN
         (strongSelf->_window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
       return;
     }
-    [strongSelf restoreWindowedTitlebarHost];
-    [strongSelf restoreWindowedTrafficLightFrames];
+    [strongSelf performWindowedChromeMutation:^{
+      [strongSelf restoreWindowedTitlebarHost];
+      [strongSelf restoreWindowedTrafficLightFrames];
+    }];
   });
 }
 

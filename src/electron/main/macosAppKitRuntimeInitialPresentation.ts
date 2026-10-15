@@ -10,8 +10,10 @@ export async function completeMacosAppKitRuntimeInitialPresentation(input: Reado
   record: MacosAppKitRuntimeHostRecord;
   request: InitialRequest;
   requireCurrent: () => void;
+  refreshNormalBounds: () => void;
   refreshLayout: () => void;
   publishLayout: () => void;
+  publishPlacement: () => void;
 }>): Promise<void> {
   const { record, request } = input;
   const presentation = record.pendingInitialPresentation;
@@ -42,6 +44,14 @@ export async function completeMacosAppKitRuntimeInitialPresentation(input: Reado
   };
   requireFence();
   if (!presentation) return;
+  const requestedNormalBounds = { ...record.normalBounds };
+  // Attachment may already have fitted the hidden normal host. Retain that
+  // actual geometry before fullscreen/maximize makes its viewport unavailable.
+  input.refreshNormalBounds();
+  requireFence();
+  const fitted = (["x", "y", "width", "height"] as const).some(
+    key => record.normalBounds[key] !== requestedNormalBounds[key]
+  );
   const projection = await record.presentation.setInitialPresentation(
     { ...request, presentation },
     () => {
@@ -64,6 +74,10 @@ export async function completeMacosAppKitRuntimeInitialPresentation(input: Reado
   // Publish only the acknowledged mode. A synchronous failure retains staging
   // and rejects the owning transaction rather than claiming completion.
   input.publishLayout();
+  requireFence();
+  // The same exact native mode ACK owns this fit receipt. Never publish the
+  // provisional normal mode over Core's staged fullscreen/maximized target.
+  if (fitted) input.publishPlacement();
   requireFence();
   record.pendingInitialPresentation = null;
 }

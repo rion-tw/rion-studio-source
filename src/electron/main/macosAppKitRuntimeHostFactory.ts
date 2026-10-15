@@ -577,7 +577,13 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         windowGeneration: record.windowGeneration,
         windowId: record.identity.logicalWindowId
       }),
-      readProjection
+      readProjection: () => {
+        // A claimed normal-placement ACK must carry the actual native fit.
+        // The consumed callback cannot wait for the ordinary observation path
+        // to replace the retained fullscreen restore bounds afterwards.
+        this.#refreshNormalBounds(record as HostRecord);
+        return readProjection();
+      }
     });
     record.host = Object.freeze({
       tabDrag: createRuntimeTabDragHost({ native,
@@ -721,8 +727,15 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         completeMacosAppKitRuntimeInitialPresentation({
           record: record as HostRecord, request,
           requireCurrent: () => this.#withCurrent(record as HostRecord, () => undefined),
+          refreshNormalBounds: () => this.#refreshNormalBounds(record as HostRecord),
           refreshLayout: () => this.#refreshLayout(record as HostRecord),
-          publishLayout: () => this.#publishLayout(record as HostRecord, true)
+          publishLayout: () => this.#publishLayout(record as HostRecord, true),
+          publishPlacement: () => this.#input.onAction({
+            identity: record.identity,
+            action: Object.freeze({ type: "windowPlacementChanged",
+              sourceWindowId: record.identity.logicalWindowId }),
+            hosts: Object.freeze([this.#snapshotObservation(record as HostRecord)])
+          })
         }),
       desktopE2eShowAppKitTabMenu: (tabId: string) => this.#withCurrent(
         record as HostRecord, () => requireNativeController(

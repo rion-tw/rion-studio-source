@@ -1056,6 +1056,17 @@ accepted display and window revisions cannot regress across awaits. Comparison
 uses the newly accepted work area while saved normal bounds
 and the submitted Core target remain intact. Windows, normal/maximized hosts and
 physical display changes retain their existing rejection behavior.
+AppKit chrome construction preserves the measured outer position and unobscured
+content size. Initial attachment permits the OS to fit that native geometry;
+fullscreen entry retains the actual windowed geometry before Rion changes chrome.
+Initial fitting publishes through the first stable native placement/focus event.
+For a staged fullscreen or maximized host, its acknowledged final mode carries
+the fitted normal bounds; provisional normal observations remain suppressed.
+The matching native exit rebuilds windowed chrome and restores that geometry
+before publishing placement. A changed physical screen discards the old capture
+and reports the actual OS-selected placement. Later titlebar refreshes preserve
+the current measured geometry, so a user resize cannot be overwritten by the old
+fullscreen capture.
 Before entering fullscreen, the Windows host captures its normal restore bounds.
 Fullscreen placement and snapshot readback retain that exact host-owned capture;
 after exit, normal native geometry refreshes it. Electron's fullscreen frame

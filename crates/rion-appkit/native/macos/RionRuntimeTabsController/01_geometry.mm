@@ -983,6 +983,21 @@ static void RionSetFullscreenPresentationPolicyMarker(NSWindow *window,
       active ? @(autoHide) : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+struct RionRuntimeWindowedGeometry {
+  NSRect frame;
+  NSSize contentSize;
+  BOOL valid;
+};
+
+static BOOL RionRuntimeWindowedGeometryMatches(
+    RionRuntimeWindowedGeometry expected,
+    RionRuntimeWindowedGeometry actual) {
+  return expected.valid && actual.valid &&
+      NSMinX(expected.frame) == NSMinX(actual.frame) &&
+      NSMaxY(expected.frame) == NSMaxY(actual.frame) &&
+      NSEqualSizes(expected.contentSize, actual.contentSize);
+}
+
 RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
     NSRect contentBounds, NSRect contentLayoutRect, BOOL contentViewFlipped) {
   RionRuntimeContentLayout result = {0, 0, NO};

@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
+import { boundedNativeProcessFailure as boundedPowerShellFailure, runMacosNativeFocus } from "./compiled-macos-native-focus";
 import { electronDesktopE2eProbe } from "./electron-driver";
 import { windowsNativeDialogDeclarations } from "./windows-native-dialog";
 import { captureNativeProcessAttribution } from "./native-process-attribution";
@@ -11,7 +12,6 @@ import { pressWindowsRuntimeWindowControl } from "./windows-runtime-window-contr
 import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
 
 const executeFile = promisify(execFile);
-const nativeFocusScript = fileURLToPath(new URL("./macos-native-focus.swift", import.meta.url));
 const macosInputSourceScript = fileURLToPath(new URL("./macos-input-source.swift", import.meta.url));
 
 /** Keep physical key assertions independent of the user's active IME. */
@@ -35,30 +35,6 @@ export async function withMacosAnsiInputSource<T>(task: () => Promise<T>): Promi
 
 function validProcessId(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
-}
-
-function boundedPowerShellFailure(error: unknown): string {
-  if (typeof error !== "object" || error === null) return "unknown failure";
-  const failure = error as Readonly<{
-    code?: unknown;
-    killed?: unknown;
-    signal?: unknown;
-    stderr?: unknown;
-    stdout?: unknown;
-  }>;
-  const fields = [
-    `code=${String(failure.code ?? "unknown")}`,
-    `killed=${String(failure.killed ?? false)}`,
-    `signal=${String(failure.signal ?? "none")}`
-  ];
-  const output = [failure.stderr, failure.stdout]
-    .filter((value): value is string =>
-      typeof value === "string" && value.trim().length > 0
-    )
-    .join("\n")
-    .trim();
-  if (output.length > 0) fields.push(`output=${JSON.stringify(output.slice(-2_000))}`);
-  return fields.join(", ");
 }
 
 async function cancelMacosNativeSaveDialog(processId: number): Promise<void> {
@@ -189,13 +165,11 @@ async function settleMacosAppKitRuntimeFocus(input: Readonly<{
   }
   const expectedWindowIdentifier =
     `com.rionstudio.runtime.appkit-window.v1:${input.windowId}`;
-  // Swift compilation on a cold CI runner precedes the helper's own bounded
-  // 10-second AX focus check. Let that check finish and report its exact error.
-  await executeFile("/usr/bin/xcrun", [
-    "swift", nativeFocusScript, String(input.processId), expectedWindowIdentifier,
+  await runMacosNativeFocus([
+    String(input.processId), expectedWindowIdentifier,
     input.runtimeTabName ?? "", input.activate ? "focus" : "observe",
     input.requireActiveTab ? "active" : ""
-  ], { encoding: "utf8", timeout: 30_000 });
+  ], 30_000);
 }
 
 /** Observes Quick Access' exact AppKit focus result without touching the launcher. */
@@ -246,10 +220,10 @@ export async function pressVisibleMacosApplicationShortcut(input: Readonly<{
     const expectedWindowIdentifier = input.runtimeWindowId
       ? `com.rionstudio.runtime.appkit-window.v1:${input.runtimeWindowId}`
       : "";
-    await executeFile("/usr/bin/xcrun", [
-      "swift", nativeFocusScript, String(input.processId), expectedWindowIdentifier,
+    await runMacosNativeFocus([
+      String(input.processId), expectedWindowIdentifier,
       input.runtimeTabName ?? "", "shortcut", input.command
-    ], { encoding: "utf8", timeout: 15_000 });
+    ], 15_000);
     return;
   }
   const script = String.raw`
@@ -393,11 +367,11 @@ export async function pressVisibleMacosRoleKey(input: Readonly<{
   ) {
     throw new Error("The native macOS Role key requires one exact AppKit owner");
   }
-  await executeFile("/usr/bin/xcrun", [
-    "swift", nativeFocusScript, String(input.processId),
+  await runMacosNativeFocus([
+    String(input.processId),
     `com.rionstudio.runtime.appkit-window.v1:${input.runtimeWindowId}`,
     input.runtimeTabName, "roleKey", input.code
-  ], { encoding: "utf8", timeout: 15_000 });
+  ], 15_000);
 }
 
 /** Sends one key chord to the selected exact-PID Windows native window mode. */

@@ -9,6 +9,7 @@ import { desktopE2eSpecForPhase } from "./phaseSpecs";
 import { requestElectronDesktopE2eClose, electronDesktopE2eProbe } from "./support/electron-driver";
 import { electronLauncherWindowHandle } from "./support/window-target";
 import { focusWindowsLauncherForVisibleLaunch } from "./support/windows-launcher-foreground";
+import { prepareMacosNativeFocus } from "./support/compiled-macos-native-focus";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -93,7 +94,10 @@ export const config = {
     // deadlines remain bounded; this outer budget allows the native captures.
     timeout: (phase === "chromium-workspace-gap-dividers-seed" ? 60 : 8) * 60_000
   },
-  beforeSession: (): void => {
+  beforeSession: async (): Promise<void> => {
+    // Compile before any journey can capture an exact input/focus precondition.
+    // Compiler startup does not consume a native action's delivery deadline.
+    if (process.platform === "darwin") await prepareMacosNativeFocus();
     if (packaged) return;
     // WDIO replays commands registered on this protocol stub onto the concrete
     // browser before the real session is returned to Runner.endSession().

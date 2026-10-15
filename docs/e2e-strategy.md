@@ -60,6 +60,10 @@ The macOS Workspace evidence helpers bound cold Swift SDK compilation separately
 from native execution (120 seconds and 30 seconds respectively). Both failures
 record their stage, elapsed time, exit code, signal, and compiler/native stderr;
 a failed compilation stays failed for the phase, and native input is never retried.
+The macOS focus/shortcut helper likewise compiles once per phase before the WDIO
+session can capture input eligibility. Compilation has its own 120-second bound;
+each acknowledged executable invocation retains its original 15/30-second bound.
+Compiler failure remains terminal, and an unknown input outcome is never replayed.
 
 The paired `chromium-workspace-gap-dividers-seed` / `restart` phases create a
 `main_left_stack_right` Workspace with two Roles and one Website, open it with a

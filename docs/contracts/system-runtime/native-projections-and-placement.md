@@ -136,7 +136,7 @@ changed exact identity resolves to the one OS-authoritative primary display and
 clamps the saved normal bounds to its current work area. Launch and empty-window
 registration retain their topology revision fences; an unchanged legacy saved
 record may acknowledge registration before a native placement event persists
-the current display data. Native placement observations persist the complete fingerprint of the current authoritative display together with its work area. AppKit window-state events retain that evidence without substituting an ID alone or an older saved fingerprint.
+the current display data. Empty-window registration seeds the complete current display identity from its revision-fenced Electron inventory, including reopen paths with no native placement event. Core validates its fingerprint, display ID and scale before creating a window context. Native placement observations retain complete current display identity and work area; AppKit events never substitute an ID alone or an older saved fingerprint.
 Each launch admission retains an exact-window event/projection witness across snapshot reads and releases it on success or failure.
 Only work admitted or completed during a read permits a fresh snapshot after a mismatch, including work that has already left the pending set.
 Progress never accepts mismatched generations/revisions, bypasses failed receipts, or retains closed-window history.

@@ -1171,6 +1171,7 @@ describe("Electron Chromium runtime launch coordinator", () => {
 
     expect(coreInvoke).toHaveBeenCalledWith({
       type: "embeddedWindowRegister",
+      targetDisplay: emptySavedWindow().targetDisplay,
       target: {
         windowId: WINDOW_ID,
         persistedName: "Saved",
@@ -1218,6 +1219,7 @@ describe("Electron Chromium runtime launch coordinator", () => {
 
     expect(coreInvoke).toHaveBeenCalledWith({
       type: "embeddedWindowRegister",
+      targetDisplay: emptySavedWindow().targetDisplay,
       target: {
         windowId: WINDOW_ID,
         persistedName: "Saved",
@@ -1239,6 +1241,7 @@ describe("Electron Chromium runtime launch coordinator", () => {
 
     expect(coreInvoke).toHaveBeenCalledWith({
       type: "embeddedWindowRegister",
+      targetDisplay: emptySavedWindow().targetDisplay,
       target
     });
     expect(coreInvoke).not.toHaveBeenCalledWith(expect.objectContaining({

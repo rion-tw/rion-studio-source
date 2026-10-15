@@ -532,6 +532,8 @@ pub enum CoreCommand {
     },
     EmbeddedWindowRegister {
         target: EmbeddedLaunchTargetRecord,
+        #[ts(rename = "targetDisplay")]
+        target_display: DisplayTargetRecord,
     },
     EmbeddedWindowDelete {
         #[ts(rename = "windowId")]

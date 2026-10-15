@@ -788,9 +788,21 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         "The display topology changed before Core could register the empty Game Window."
       );
     }
+    const display = displayById(expectedTopology, target.displayId)!;
     await this.#input.core.invoke({
       type: "embeddedWindowRegister",
-      target: cloneTarget(target)
+      target: cloneTarget(target),
+      targetDisplay: Object.freeze({
+        id: display.id,
+        fingerprint: Object.freeze({
+          label: display.label,
+          bounds: Object.freeze({ ...display.bounds }),
+          resolution: Object.freeze({ ...display.resolution }),
+          scaleFactor: display.scaleFactor,
+          isPrimary: display.isPrimary,
+          isInternal: display.isInternal
+        })
+      })
     });
     try {
       const postRegistrationTopology = await this.#input.readDisplayTopology();

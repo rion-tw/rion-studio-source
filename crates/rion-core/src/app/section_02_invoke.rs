@@ -901,8 +901,11 @@ impl AppCore {
                 serde_json::to_value(self.report_recovered_system_surface(&role_id)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::EmbeddedWindowRegister { target } => {
-                serde_json::to_value(self.register_embedded_window(target)?)
+            CoreCommand::EmbeddedWindowRegister {
+                target,
+                target_display,
+            } => {
+                serde_json::to_value(self.register_embedded_window(target, target_display)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::EmbeddedWindowDelete { window_id: _ } => {

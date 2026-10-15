@@ -2,7 +2,19 @@ impl AppCore {
     fn register_embedded_window(
         &self,
         target: EmbeddedLaunchTargetRecord,
+        target_display: crate::model::DisplayTargetRecord,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        let target_display = crate::domain::validate_display_target(target_display)?;
+        if target_display.id != target.display_id
+            || !target_display.fingerprint.as_ref().is_some_and(|fingerprint| {
+                !fingerprint.label.is_empty() && fingerprint.scale_factor == target.scale_factor
+            })
+        {
+            return Err(runtime_ui_error(
+                "RUNTIME_WINDOW_REGISTER_DISPLAY_INVALID",
+                "The empty-window registration requires its complete matching display identity.",
+            ));
+        }
         let _window_sequence = self.embedded_window_sequence.acquire()?;
         let _runtime_sequence = self.embedded_runtime_sequence.acquire()?;
         let before = self.browser_runtime.snapshot()?;
@@ -22,10 +34,7 @@ impl AppCore {
                     saved_work_area: target.work_area.clone(),
                     presentation: target.presentation.clone(),
                 },
-                target_display: crate::model::DisplayTargetRecord {
-                    id: target.display_id,
-                    fingerprint: None,
-                },
+                target_display,
                 window_generation: existing.map_or_else(
                     || before.revision.saturating_add(1).max(1),
                     |window| window.window_generation.max(1),

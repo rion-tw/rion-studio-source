@@ -100,10 +100,21 @@ export async function fixtureRequest(path: string, body: unknown): Promise<void>
   if (!response.ok) throw new Error(`Fixture ${path} failed with ${response.status}`);
 }
 
-export async function fixtureState(): Promise<Record<string, FixtureRoleState>> {
-  const response = await fetch(fixtureUrl("/api/state"));
-  if (!response.ok) throw new Error(`Fixture state failed with ${response.status}`);
-  return response.json() as Promise<Record<string, FixtureRoleState>>;
+export async function fixtureState(signal?: AbortSignal): Promise<Record<string, FixtureRoleState>> {
+  signal?.throwIfAborted();
+  try {
+    const response = signal
+      ? await fetch(fixtureUrl("/api/state"), { signal })
+      : await fetch(fixtureUrl("/api/state"));
+    signal?.throwIfAborted();
+    if (!response.ok) throw new Error(`Fixture state failed with ${response.status}`);
+    const state = await response.json() as Record<string, FixtureRoleState>;
+    signal?.throwIfAborted();
+    return state;
+  } catch (error) {
+    signal?.throwIfAborted();
+    throw error;
+  }
 }
 
 export async function fixtureCursor(): Promise<number> {
@@ -116,24 +127,29 @@ export async function waitFixtureEvent(input: {
   kind?: string;
   roleId?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }): Promise<FixtureEvent> {
+  input.signal?.throwIfAborted();
   const query = new URLSearchParams({ afterSequence: String(input.afterSequence) });
   if (input.kind) query.set("kind", input.kind);
   if (input.roleId) query.set("roleId", input.roleId);
   let response: Response;
   try {
+    const timeout = AbortSignal.timeout(input.timeoutMs ?? 45_000);
     response = await fetch(fixtureUrl(`/api/events?${query}`), {
-      signal: AbortSignal.timeout(input.timeoutMs ?? 45_000)
+      signal: input.signal ? AbortSignal.any([input.signal, timeout]) : timeout
     });
   } catch (error) {
+    input.signal?.throwIfAborted();
     let diagnostic: unknown;
     try {
       const [events, state] = await Promise.all([
         fixtureEvents({
           afterSequence: input.afterSequence,
-          ...(input.roleId ? { roleId: input.roleId } : {})
+          ...(input.roleId ? { roleId: input.roleId } : {}),
+          ...(input.signal ? { signal: input.signal } : {})
         }),
-        fixtureState()
+        input.signal ? fixtureState(input.signal) : fixtureState()
       ]);
       diagnostic = {
         events: events.slice(-24),
@@ -142,28 +158,49 @@ export async function waitFixtureEvent(input: {
     } catch (diagnosticError) {
       diagnostic = { unavailable: String(diagnosticError) };
     }
+    input.signal?.throwIfAborted();
     throw new Error(
       `Fixture event wait aborted (${query.toString()}): ${String(error)}; ` +
         `diagnostic=${JSON.stringify(diagnostic)}`,
       { cause: error }
     );
   }
+  input.signal?.throwIfAborted();
   if (!response.ok) throw new Error(`Fixture event wait failed with ${response.status}`);
-  return ((await response.json()) as { event: FixtureEvent }).event;
+  let payload: { event: FixtureEvent };
+  try {
+    payload = await response.json() as { event: FixtureEvent };
+  } catch (error) {
+    input.signal?.throwIfAborted();
+    throw error;
+  }
+  input.signal?.throwIfAborted();
+  return payload.event;
 }
 
 export async function fixtureEvents(input: {
   afterSequence: number;
   kind?: string;
   roleId?: string;
+  signal?: AbortSignal;
 }): Promise<FixtureEvent[]> {
+  input.signal?.throwIfAborted();
   const query = new URLSearchParams({ afterSequence: String(input.afterSequence) });
   if (input.kind) query.set("kind", input.kind);
   if (input.roleId) query.set("roleId", input.roleId);
-  const response = await fetch(fixtureUrl(`/api/events/snapshot?${query}`));
-  if (!response.ok) throw new Error(`Fixture event snapshot failed with ${response.status}`);
-  const events = ((await response.json()) as { events: FixtureEvent[] }).events;
-  return input.kind
-    ? events
-    : events.filter((event) => !event.kind.startsWith("consumer-"));
+  try {
+    const response = input.signal
+      ? await fetch(fixtureUrl(`/api/events/snapshot?${query}`), { signal: input.signal })
+      : await fetch(fixtureUrl(`/api/events/snapshot?${query}`));
+    input.signal?.throwIfAborted();
+    if (!response.ok) throw new Error(`Fixture event snapshot failed with ${response.status}`);
+    const events = ((await response.json()) as { events: FixtureEvent[] }).events;
+    input.signal?.throwIfAborted();
+    return input.kind
+      ? events
+      : events.filter((event) => !event.kind.startsWith("consumer-"));
+  } catch (error) {
+    input.signal?.throwIfAborted();
+    throw error;
+  }
 }

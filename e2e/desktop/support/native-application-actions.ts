@@ -148,7 +148,7 @@ export type VisibleMacosRoleKey =
   | "ShiftUp"
   | "AltDown" | "AltUp" | "Alt+Digit1" | "Alt+Digit1Tap";
 
-export type VisibleMacosRoleReceiptKey = VisibleFunctionKey | "Digit2" | "Digit3";
+export type VisibleMacosRoleReceiptKey = VisibleFunctionKey | "KeyY" | "Digit2" | "Digit3";
 
 async function settleMacosAppKitRuntimeFocus(input: Readonly<{
   activate: boolean;
@@ -385,7 +385,7 @@ export async function withVisibleMacosRoleKeyReceipt<T>(input: Readonly<{
   runtimeWindowId: string;
 }>, receive: (signal: AbortSignal) => Promise<T>, parentSignal?: AbortSignal): Promise<T> {
   if (process.platform !== "darwin" || !validProcessId(input.processId) ||
-      !/^(?:(?:Ctrl\+)?F(?:[1-9]|1[0-2])|Digit[23])$/u.test(input.code) ||
+      !/^(?:(?:Ctrl\+)?F(?:[1-9]|1[0-2])|KeyY|Digit[23])$/u.test(input.code) ||
       input.runtimeTabName.length === 0 || input.runtimeTabName.trim() !== input.runtimeTabName ||
       input.runtimeWindowId.length === 0 || input.runtimeWindowId.trim() !== input.runtimeWindowId) {
     throw new Error("The native macOS Role key receipt requires one exact AppKit owner");

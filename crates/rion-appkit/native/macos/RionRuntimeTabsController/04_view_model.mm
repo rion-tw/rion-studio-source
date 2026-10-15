@@ -338,7 +338,7 @@ NS_ASSUME_NONNULL_BEGIN
   BOOL _placementZoomed;
   NSUInteger _windowedGeometryMutationDepth;
   BOOL _windowedGeometryFailed;
-  BOOL _initialWindowedFitPending;
+  BOOL _initialWindowedPlacementPending;
   BOOL _hasFullscreenRestoreGeometry;
   RionRuntimeWindowedGeometry _fullscreenRestoreGeometry;
   NSNumber *_fullscreenRestoreScreenNumber;
@@ -610,8 +610,9 @@ NS_ASSUME_NONNULL_BEGIN
       _windowedGeometryMutationDepth = 0;
       return nil;
     }
-    _initialWindowedFitPending =
-        !RionRuntimeWindowedGeometryMatches(initialGeometry, attachedGeometry);
+    // AppKit may fit again when this hidden window is first revealed. Its
+    // first stable visible focus event owns one initial placement receipt.
+    _initialWindowedPlacementPending = YES;
   }
   _windowedGeometryMutationDepth = 0;
   [self captureWindowedTrafficLightFrames];

@@ -142,6 +142,14 @@ function projectGameWindowRuntime(
   const browserWindow = browserWindows[0]!;
   const native = nativeWindows[0]!;
   const nativeTarget = native.target;
+  if (
+    (platform === "darwin" && !native.appKitIdentity) ||
+    (platform === "win32" && native.appKitIdentity)
+  ) {
+    throw new Error(
+      `Game Window ${windowId} has an invalid platform-native Chromium host.`
+    );
+  }
   const coreTabIds = logical.tabs.map((tab) => tab.id);
   const invalidFence = (
     logical.windowGeneration !== native.windowGeneration ||
@@ -174,14 +182,6 @@ function projectGameWindowRuntime(
     const FenceError = invalidFence ? Error : PendingWindowRevision;
     throw new FenceError(
       `Game Window ${windowId} has a stale Core/native Chromium fence: ${JSON.stringify(fence)}`
-    );
-  }
-  if (
-    (platform === "darwin" && !native.appKitIdentity) ||
-    (platform === "win32" && native.appKitIdentity)
-  ) {
-    throw new Error(
-      `Game Window ${windowId} has an invalid platform-native Chromium host.`
     );
   }
   const rawStatusPresentation = native.appKitIdentity

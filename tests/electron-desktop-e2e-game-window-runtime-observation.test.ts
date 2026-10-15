@@ -250,4 +250,19 @@ describe.each(["darwin", "win32"] as const)("exact-window Game Window evidence (
     held.resolve();
     f.disposed();
   });
+
+  it("rejects an invalid platform-native host before waiting for its held revision projection", async () => {
+    const f = fixture(platform);
+    f.window.appKitIdentity = platform === "darwin" ? undefined : {
+      logicalWindowId: WINDOW, launchGeneration: "foreign-AppKit", nativeGeneration: 1
+    };
+    const held = deferred();
+    f.projections.retain([scope], held.promise);
+    await expect(f.read()).rejects.toThrow("has an invalid platform-native Chromium host");
+    expect(f.bridge.settleWindowEvents).not.toHaveBeenCalled();
+    expect(f.runtime.settleWindowProjection).not.toHaveBeenCalled();
+    expect(f.readCore).toHaveBeenCalledTimes(1);
+    held.resolve();
+    f.disposed();
+  });
 });

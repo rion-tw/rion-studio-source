@@ -16,12 +16,19 @@ interface MacosAppKitRuntimePresentationFence {
 interface PendingPresentation {
   readonly completion: Deferred<ChromiumRuntimeHostProjection>;
   readonly request: ChromiumRuntimeWindowPresentationRequest;
+  readonly initial?: {
+    readonly readProjection: () => ChromiumRuntimeHostProjection;
+    readonly requireCurrent: () => void;
+    submitted: boolean;
+    acknowledged: boolean;
+  };
 }
 
 export interface MacosAppKitRuntimePresentationControllerInput {
   readonly native: Pick<
     MacosAppKitBaseWindowPort,
-    "isDestroyed" | "isFullScreen" | "isMaximized" | "setFullScreen"
+    "isDestroyed" | "isFullScreen" | "isMaximized" | "isMinimized" |
+    "isVisible" | "setFullScreen" | "maximize"
   >;
   readonly prepareFullscreen: (fullscreen: boolean) => void;
   readonly readFence: () => MacosAppKitRuntimePresentationFence;
@@ -55,6 +62,50 @@ export class MacosAppKitRuntimePresentationController {
 
   constructor(input: MacosAppKitRuntimePresentationControllerInput) {
     this.#input = input;
+  }
+
+  /** Core already owns this staged mode; no later mode-commit revision is due. */
+  setInitialPresentation(
+    request: ChromiumRuntimeWindowPresentationRequest,
+    readProjection = this.#input.readProjection,
+    requireCurrent: () => void = () => undefined
+  ): Promise<ChromiumRuntimeHostProjection> {
+    if (request.presentation !== "fullscreen" && request.presentation !== "maximized") {
+      return Promise.reject(presentationError("ELECTRON_MACOS_APPKIT_PRESENTATION_INVALID",
+        "Initial AppKit presentation requires a staged fullscreen or maximized mode."));
+    }
+    try {
+      requireCurrent();
+      this.#requireInitialFence(request);
+      if (this.#pending || this.#awaitingCoreProjection) {
+        throw presentationError("ELECTRON_MACOS_APPKIT_PRESENTATION_BUSY",
+          "Another event-bound AppKit presentation request is still active.");
+      }
+      if (nativePresentation(this.#input.native) !== "normal") {
+        throw presentationError("ELECTRON_MACOS_APPKIT_PRESENTATION_READBACK_MISMATCH",
+          "The staged AppKit host changed mode before its owned native submission.");
+      }
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const pending: PendingPresentation = {
+      completion: deferred<ChromiumRuntimeHostProjection>(),
+      request: Object.freeze({ ...request }),
+      initial: { readProjection, requireCurrent, submitted: false, acknowledged: false }
+    };
+    this.#pending = pending;
+    try {
+      if (request.presentation === "fullscreen") this.#input.prepareFullscreen(true);
+      this.#requireInitialPending(pending);
+      if (request.presentation === "fullscreen") this.#input.native.setFullScreen(true);
+      else this.#input.native.maximize();
+      pending.initial!.submitted = true;
+      if (pending.initial!.acknowledged) this.#completePlacement(pending);
+    } catch (error) {
+      // Unknown native delivery never authorizes a compensating fullscreen exit.
+      this.#rejectPending(pending, error);
+    }
+    return pending.completion.promise;
   }
 
   setPresentation(
@@ -131,18 +182,35 @@ export class MacosAppKitRuntimePresentationController {
     if (this.#awaitingCoreProjection) return true;
     const pending = this.#pending;
     if (!pending) return false;
+    if (pending.initial) {
+      try { this.#requireInitialPending(pending); }
+      catch (error) { this.#rejectPending(pending, error); return true; }
+    }
     if (nativePresentation(this.#input.native) !== pending.request.presentation) {
       return true;
     }
+    if (pending.initial && !pending.initial.submitted) {
+      pending.initial.acknowledged = true;
+      return true;
+    }
+    this.#completePlacement(pending);
+    return true;
+  }
+
+  #completePlacement(pending: PendingPresentation): void {
+    if (this.#pending !== pending) return;
     try {
-      const projection = this.#verifiedProjection(pending.request);
+      if (pending.initial) this.#requireInitialPending(pending);
+      const projection = this.#verifiedProjection(
+        pending.request, pending.initial?.readProjection
+      );
+      if (pending.initial) this.#requireInitialPending(pending);
       this.#pending = null;
-      this.#awaitingCoreProjection = pending.request;
+      this.#awaitingCoreProjection = pending.initial ? null : pending.request;
       pending.completion.resolve(projection);
     } catch (error) {
       this.#rejectPending(pending, error);
     }
-    return true;
   }
 
   suppressWindowStateEvent(): boolean {
@@ -154,6 +222,16 @@ export class MacosAppKitRuntimePresentationController {
     windowGeneration: number;
     windowId: string;
   }>): void {
+    const pending = this.#pending;
+    if (pending?.initial && input.windowId === pending.request.windowId && (
+      input.windowGeneration !== pending.request.windowGeneration ||
+      input.topologyRevision !== pending.request.topologyRevision
+    )) {
+      this.#rejectPending(pending, presentationError(
+        "ELECTRON_MACOS_APPKIT_PRESENTATION_FENCE_STALE",
+        "A newer Core projection superseded initial AppKit presentation."
+      ));
+    }
     const awaiting = this.#awaitingCoreProjection;
     if (
       !awaiting || input.windowId !== awaiting.windowId ||
@@ -196,6 +274,23 @@ export class MacosAppKitRuntimePresentationController {
       request.topologyRevision > 0;
   }
 
+  #requireInitialFence(request: ChromiumRuntimeWindowPresentationRequest): void {
+    if (!this.#matchesAdmissionFence(request, this.#input.readFence(), false) ||
+        !this.#input.native.isVisible() || this.#input.native.isMinimized()) {
+      throw presentationError("ELECTRON_MACOS_APPKIT_PRESENTATION_FENCE_STALE",
+        "Initial AppKit presentation lost its exact visible Core-owned host.");
+    }
+  }
+
+  #requireInitialPending(pending: PendingPresentation): void {
+    if (this.#pending !== pending) {
+      throw presentationError("ELECTRON_MACOS_APPKIT_PRESENTATION_FENCE_STALE",
+        "The initial AppKit presentation request no longer owns its native lane.");
+    }
+    pending.initial!.requireCurrent();
+    this.#requireInitialFence(pending.request);
+  }
+
   #supersedesAwaitingProjection(
     request: ChromiumRuntimeWindowPresentationRequest
   ): boolean {
@@ -207,9 +302,10 @@ export class MacosAppKitRuntimePresentationController {
   }
 
   #verifiedProjection(
-    request: ChromiumRuntimeWindowPresentationRequest
+    request: ChromiumRuntimeWindowPresentationRequest,
+    readProjection = this.#input.readProjection
   ): ChromiumRuntimeHostProjection {
-    const projection = this.#input.readProjection();
+    const projection = readProjection();
     if (projection.presentation !== request.presentation) {
       throw presentationError(
         "ELECTRON_MACOS_APPKIT_PRESENTATION_READBACK_MISMATCH",

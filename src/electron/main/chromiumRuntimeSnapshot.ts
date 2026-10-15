@@ -15,12 +15,13 @@ export interface ChromiumRuntimeExecutorSnapshot {
     visible: boolean;
     focused: boolean;
     presentation: EmbeddedLaunchTargetRecord["presentation"];
-    /** Desired mode staged on an exact hidden Windows host; presentation remains native readback. */
+    /** Desired mode staged on an exact hidden host; presentation remains native readback. */
     pendingInitialPresentation?: Readonly<{
       presentation: "maximized" | "fullscreen";
       nativeHostId: number;
       windowGeneration: number;
       topologyRevision: number;
+      appKitIdentity?: Readonly<AppKitRuntimeHostIdentityRecord>;
     }>;
     windowGeneration: number;
     topologyRevision: number;
@@ -64,9 +65,19 @@ export function pendingInitialPresentationMatches(
   topologyRevision = window.topologyRevision
 ): boolean {
   const pending = window.pendingInitialPresentation;
+  const identity = window.appKitIdentity;
+  const pendingIdentity = pending?.appKitIdentity;
+  const sameNativeOwner = identity === undefined ? pendingIdentity === undefined :
+    identity.logicalWindowId === window.windowId &&
+    identity.launchGeneration.trim().length > 0 &&
+    identity.launchGeneration === identity.launchGeneration.trim() &&
+    Number.isSafeInteger(identity.nativeGeneration) && identity.nativeGeneration > 0 &&
+    pendingIdentity?.logicalWindowId === identity.logicalWindowId &&
+    pendingIdentity.launchGeneration === identity.launchGeneration &&
+    pendingIdentity.nativeGeneration === identity.nativeGeneration;
   return (pending?.presentation === "maximized" || pending?.presentation === "fullscreen") &&
     window.presentation === "normal" &&
-    !window.visible && !window.focused && window.appKitIdentity === undefined &&
+    !window.visible && !window.focused && sameNativeOwner &&
     Number.isSafeInteger(windowGeneration) && windowGeneration > 0 &&
     Number.isSafeInteger(topologyRevision) && topologyRevision > 0 &&
     pending.windowGeneration === windowGeneration && window.windowGeneration === windowGeneration &&

@@ -1019,8 +1019,8 @@ fingerprint when authoritative AppKit fitting persists a newer placement. The
 same saved identity, admitted display, current Core/native generation and
 revision, and empty tab cohort remain required; removing an existing fingerprint
 or changing display identity still rejects registration.
-Windows stages a saved maximized or fullscreen mode while its new host remains
-hidden; Electron's `maximize()` would otherwise reveal that provisional host. Native
+Both platforms stage a saved maximized or fullscreen mode while the new host remains
+hidden; Electron's native mode setters can otherwise reveal that provisional host. Native
 readback continues to report the actual normal mode during hydration, while an
 explicit pending marker retains the Core target under exact host, generation
 and revision fences. An authorized reveal first shows the owned host inactive,
@@ -1038,12 +1038,20 @@ unchanged native foreground/focus evidence. Its native event alone is not a
 receipt: layout, actual requested mode and the Core/native identity fences must
 all acknowledge the same operation. Visible, focused or stale hosts cannot use
 the pending-mode exception during snapshot admission.
+AppKit additionally captures the exact logical window, launch generation and native
+generation in that pending snapshot. Its Core-authorized visible host applies the
+initial mode through the existing native placement event and content-layout readback.
+That acknowledgement completes at the already-admitted Core revision; ordinary
+programmatic presentation still waits for its own newer Core projection. Before
+initial completion, normal-mode placement/layout observations cannot overwrite the
+saved target. Close or a superseding Core fence rejects the pending operation.
 Before entering fullscreen, the Windows host captures its normal restore bounds.
 Fullscreen placement and snapshot readback retain that exact host-owned capture;
 after exit, normal native geometry refreshes it. Electron's fullscreen frame
 insets can otherwise change `getNormalBounds()` by a few pixels, causing saved
 geometry to grow on every recreation. The paired `CHROMIUM-*-GAME-WINDOW-UI-016`
-journeys require unchanged normal bounds across visible close/Show in both modes
+journeys require the requested native mode at every visible Show admission and
+unchanged normal bounds across visible close/Show in both modes
 and clean restart; platform-explicit factory tests cover staged fullscreen,
 early native events, focus neutrality, cancellation and stale identity rejection.
 The paired `CHROMIUM-*-FULLSCREEN-TOOLBAR-012` journeys preserve transition

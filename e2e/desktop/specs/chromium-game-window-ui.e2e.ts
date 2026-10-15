@@ -35,6 +35,7 @@ type Presentation = GameWindow["placement"]["presentation"];
 const presentationStages: unknown[] = [];
 const fullscreenShortcutAdmissions: unknown[] = [];
 const nativeRecreations: unknown[] = [];
+const visibleShowAdmissions: unknown[] = [];
 
 function required(name: string): string {
   const value = process.env[name];
@@ -143,7 +144,8 @@ async function showThroughVisibleUi(
       try {
         inspection = await electronDesktopE2eGameWindowRuntime(gameWindow.id);
         return inspection.currentRuntime?.visible === true &&
-          inspection.currentRuntime.focused === true;
+          inspection.currentRuntime.focused === true &&
+          inspection.currentRuntime.nativeDisplay.presentation === gameWindow.placement.presentation;
       } catch (error) {
         lastInspectionError = error instanceof Error ? error.message : String(error);
         if (transientNativeInspectionError(lastInspectionError)) return false;
@@ -174,6 +176,10 @@ async function showThroughVisibleUi(
     const detail = lastInspectionError ? ` Last transient inspection error: ${lastInspectionError}` : "";
     throw new Error(`Visible Show failed for Game Window ${gameWindow.id}.${detail}`, { cause: error });
   }
+  visibleShowAdmissions.push({ windowId: gameWindow.id,
+    requestedPlacement: gameWindow.placement, runtime: inspection!.currentRuntime });
+  await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
+    "game-window-visible-show-admissions.json"), `${JSON.stringify(visibleShowAdmissions, null, 2)}\n`);
   return inspection!;
 }
 
@@ -362,8 +368,8 @@ async function closeAndReopenSavedPresentation(input: Readonly<{
     "game-window-native-recreations.json"), `${JSON.stringify(nativeRecreations, null, 2)}\n`);
   expect(reopened.runtime.windowGeneration).toBeGreaterThan(beforeClose.currentRuntime!.windowGeneration);
   if (input.platform === "macos") {
-    // Recreating saved fullscreen synchronously reads native layout while the
-    // new controller prepares its window; the retired controller cannot satisfy Show.
+    // The new controller applies saved presentation after visible admission;
+    // the retired controller cannot satisfy its native placement/layout ACK.
     expect(reopened.runtime.appKitIdentity!.nativeGeneration)
       .toBeGreaterThan(beforeClose.currentRuntime!.appKitIdentity!.nativeGeneration);
   }

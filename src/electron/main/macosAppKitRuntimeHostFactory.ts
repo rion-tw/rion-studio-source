@@ -46,6 +46,8 @@ import {
 } from "./macosAppKitRuntimeHostPresentationGate";
 import { MacosAppKitRuntimePresentationController } from
   "./macosAppKitRuntimePresentationController";
+import { completeMacosAppKitRuntimeInitialPresentation } from
+  "./macosAppKitRuntimeInitialPresentation";
 import {
   deferred,
   fail,
@@ -427,6 +429,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
           "Electron did not return a native NSView handle Buffer."
         );
       }
+      record.nativeHandle = Buffer.from(handle);
       record.controller = this.#input.addon.attachAppKitRuntimeHost(
         handle,
         identity,
@@ -483,8 +486,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         apply: (revision, bounds, dividers, background) => record.controller!.applyWorkspaceDividerProjection!(
           record.identity, revision, bounds, dividers, background)
       });
-      this.#submitPresentation(record);
-      await record.presentationReady.promise;
       if (record.state !== "opening") {
         fail(
           "ELECTRON_MACOS_APPKIT_CREATION_INTERRUPTED",
@@ -492,7 +493,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         );
       }
       record.state = "active";
-      if (!initialTab && native.isVisible()) {
+      if (!initialTab && (native.isVisible() || native.isFocused())) {
         fail(
           "ELECTRON_MACOS_APPKIT_EMPTY_HOST_VISIBLE",
           "The provisional AppKit runtime host became visible before Core moved a tab."
@@ -519,7 +520,8 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       native,
       nativeId,
       closed: deferred<void>(),
-      presentationReady: deferred<void>(),
+      nativeHandle: null as Buffer | null,
+      pendingInitialPresentation: target.presentation === "normal" ? null : target.presentation,
       controller: null,
       inputBinding: null,
       layout: null,
@@ -705,8 +707,23 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         }
       ),
       setRuntimeWindowPresentation: (request: ChromiumRuntimeWindowPresentationRequest) =>
-        this.#withCurrent(record as HostRecord,
-          () => record.presentation.setPresentation(request)),
+        this.#withCurrent(record as HostRecord, () => {
+          if (record.pendingInitialPresentation !== null) {
+            return Promise.reject(hostError("ELECTRON_MACOS_APPKIT_PRESENTATION_BUSY",
+              "The staged AppKit host still owns its initial presentation lane."));
+          }
+          return record.presentation.setPresentation(request);
+        }),
+      readPendingInitialPresentation: () => this.#withCurrent(record as HostRecord,
+        () => record.pendingInitialPresentation),
+      completeInitialPresentation: (request: Pick<ChromiumRuntimeWindowPresentationRequest,
+        "windowId" | "windowGeneration" | "topologyRevision">) =>
+        completeMacosAppKitRuntimeInitialPresentation({
+          record: record as HostRecord, request,
+          requireCurrent: () => this.#withCurrent(record as HostRecord, () => undefined),
+          refreshLayout: () => this.#refreshLayout(record as HostRecord),
+          publishLayout: () => this.#publishLayout(record as HostRecord, true)
+        }),
       desktopE2eShowAppKitTabMenu: (tabId: string) => this.#withCurrent(
         record as HostRecord, () => requireNativeController(
           record as HostRecord, "desktop E2E tab menu"
@@ -723,15 +740,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         event
       ),
       closed: () => this.#onClosed(record as HostRecord),
-      enteredFullScreen: () => {
-        if (
-          target.presentation === "fullscreen" &&
-          record.state === "opening" &&
-          this.#isExactOwner(record as HostRecord)
-        ) {
-          record.presentationReady.resolve();
-        }
-      },
+      enteredFullScreen: () => this.#refreshLayout(record as HostRecord),
       hidden: () => this.#publishRuntimeWindowState(record as HostRecord, "hide"),
       leftFullScreen: () => {
         const current = record as HostRecord;
@@ -750,15 +759,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
           }
         }
       },
-      maximized: () => {
-        if (
-          target.presentation === "maximized" &&
-          record.state === "opening" &&
-          this.#isExactOwner(record as HostRecord)
-        ) {
-          record.presentationReady.resolve();
-        }
-      },
+      maximized: () => this.#refreshLayout(record as HostRecord),
       minimized: () => this.#publishRuntimeWindowState(
         record as HostRecord,
         "minimize"
@@ -772,21 +773,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       shown: () => this.#publishRuntimeWindowState(record as HostRecord, "show")
     });
     return record as HostRecord;
-  }
-
-  #submitPresentation(record: HostRecord): void {
-    switch (record.target.presentation) {
-      case "fullscreen":
-        record.controller?.prepareFullscreen(record.identity, true);
-        record.native.setFullScreen(true);
-        break;
-      case "maximized":
-        record.native.maximize();
-        break;
-      case "normal":
-        record.presentationReady.resolve();
-        break;
-    }
   }
 
   #initializeTab(record: HostRecord, tab: EmbeddedTabEffectRecord): void {
@@ -1074,6 +1060,8 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       }
       throw error;
     }
+    record.presentation.coreProjectionApplied({ topologyRevision: projection.topologyRevision,
+      windowGeneration: projection.windowGeneration, windowId: projection.windowId });
     this.#admitPresentation(record);
   }
 
@@ -1200,6 +1188,9 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         ) {
           return;
         }
+        if (record.pendingInitialPresentation !== null && (
+          action.type === "windowFocusChanged" || action.type === "windowPlacementChanged"
+        )) return;
         if (
           (action.type === "windowFocusChanged" ||
             action.type === "windowPlacementChanged") &&
@@ -1248,9 +1239,10 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
     }
   }
 
-  #publishLayout(record: HostRecord): void {
+  #publishLayout(record: HostRecord, acknowledgedInitial = false): void {
     if (!record.layout) return;
     if (!this.#input.onLayout) return;
+    if (record.pendingInitialPresentation !== null && !acknowledgedInitial) return;
     if (record.presentationGate.deferLayout()) return;
     this.#input.onLayout({
       identity: record.identity,
@@ -1478,7 +1470,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       record.closed.resolve();
     } else {
       record.closed.reject(error);
-      record.presentationReady.reject(error);
       if (record.controller) {
         try {
           record.controllerDetached = record.controller.destroy(record.identity);

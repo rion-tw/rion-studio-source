@@ -28,10 +28,13 @@ export function captureChromiumRuntimeSnapshot(input: SnapshotInput): ChromiumRu
         ([windowId, record]) => {
           const projection = record.host.readProjection();
           const pending = record.host.readPendingInitialPresentation?.();
+          const nativeIdentity = record.host.appKitIdentity;
+          const appKitIdentity = nativeIdentity ? Object.freeze({ ...nativeIdentity }) : undefined;
           const pendingMode = pending === "maximized" || pending === "fullscreen" ? pending : null;
           const stagedInitial = pendingMode !== null && projection.presentation === "normal" &&
-            !projection.visible && !projection.focused && !record.host.appKitIdentity &&
-            record.windowGeneration > 0 && record.topologyRevision > 0;
+            !projection.visible && !projection.focused &&
+            Number.isSafeInteger(record.windowGeneration) && record.windowGeneration > 0 &&
+            Number.isSafeInteger(record.topologyRevision) && record.topologyRevision > 0;
           return Object.freeze({
             windowId,
             activeTabId: record.activeTabId,
@@ -47,11 +50,10 @@ export function captureChromiumRuntimeSnapshot(input: SnapshotInput): ChromiumRu
             parentNativeHostId: record.host.id,
             ...(stagedInitial ? { pendingInitialPresentation: Object.freeze({
               presentation: pendingMode!, nativeHostId: record.host.id,
-              windowGeneration: record.windowGeneration, topologyRevision: record.topologyRevision
+              windowGeneration: record.windowGeneration, topologyRevision: record.topologyRevision,
+              ...(appKitIdentity ? { appKitIdentity } : {})
             }) } : {}),
-            ...(record.host.appKitIdentity
-              ? { appKitIdentity: Object.freeze({ ...record.host.appKitIdentity }) }
-              : {}),
+            ...(appKitIdentity ? { appKitIdentity } : {}),
             target: Object.freeze({
               ...record.hostTarget,
               displayId: projection.displayId,

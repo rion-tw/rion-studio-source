@@ -73,7 +73,7 @@ export interface ChromiumRuntimeHostPort {
   setRuntimeWindowPresentation?: (
     request: ChromiumRuntimeWindowPresentationRequest
   ) => Promise<ChromiumRuntimeHostProjection>;
-  /** Hidden Windows native modes wait for exact Core visible admission. */
+  /** Hidden native modes wait for exact Core visible admission. */
   readPendingInitialPresentation?: () => "maximized" | "fullscreen" | null;
   completeInitialPresentation?: (request: Pick<ChromiumRuntimeWindowPresentationRequest,
     "windowId" | "windowGeneration" | "topologyRevision">) => Promise<void>;

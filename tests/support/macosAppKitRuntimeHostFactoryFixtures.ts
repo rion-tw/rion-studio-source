@@ -44,6 +44,9 @@ export class FakeBaseWindow {
   closeCalls = 0;
   destroyCalls = 0;
   destroyError: Error | null = null;
+  presentationMakesVisible = false;
+  autoAcknowledgePresentation = false;
+  destroyEmitsClosed = false;
 
   constructor(id: number, order: string[]) {
     this.nativeId = id;
@@ -67,6 +70,7 @@ export class FakeBaseWindow {
     this.destroyCalls += 1;
     this.order.push("window-destroy-submitted");
     if (this.destroyError) throw this.destroyError;
+    if (this.destroyEmitsClosed) this.emit("closed");
   }
 
   focus(): void {
@@ -116,6 +120,12 @@ export class FakeBaseWindow {
 
   maximize(): void {
     this.order.push("window-maximize");
+    if (this.presentationMakesVisible) this.visible = true;
+    if (this.autoAcknowledgePresentation) {
+      this.maximized = true;
+      this.emit("resize");
+      this.emit("maximize");
+    }
   }
 
   on(event: string, listener: Listener): void {
@@ -131,6 +141,12 @@ export class FakeBaseWindow {
 
   setFullScreen(fullscreen: boolean): void {
     this.order.push(`window-fullscreen-${fullscreen}`);
+    if (fullscreen && this.presentationMakesVisible) this.visible = true;
+    if (this.autoAcknowledgePresentation) {
+      this.fullScreen = fullscreen;
+      this.emit("resize");
+      this.emit(fullscreen ? "enter-full-screen" : "leave-full-screen");
+    }
   }
 
   show(): void {
@@ -531,6 +547,7 @@ export class Fixture {
   lifecycleEpoch = 1;
   readonly windows: FakeBaseWindow[] = [];
   readonly options: unknown[] = [];
+  configureWindow: ((window: FakeBaseWindow) => void) | undefined;
   readonly onAction: Mock<MacosAppKitRuntimeHostFactoryInput["onAction"]> =
     vi.fn<MacosAppKitRuntimeHostFactoryInput["onAction"]>();
   readonly onCloseRequested: Mock<
@@ -567,6 +584,7 @@ export class Fixture {
         this.options.push(options);
         const window = new FakeBaseWindow(this.windows.length + 1, this.order);
         this.windows.push(window);
+        this.configureWindow?.(window);
         this.order.push("window-created-hidden");
         return window as unknown as MacosAppKitBaseWindowPort;
       }

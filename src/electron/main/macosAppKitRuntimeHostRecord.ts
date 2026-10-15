@@ -34,7 +34,8 @@ export interface MacosAppKitRuntimeHostRecord
   extends MacosAppKitRuntimeWindowStateRecord {
   readonly target: EmbeddedLaunchTargetRecord;
   readonly closed: Deferred<void>;
-  readonly presentationReady: Deferred<void>;
+  nativeHandle: Buffer | null;
+  pendingInitialPresentation: "fullscreen" | "maximized" | null;
   readonly host: ChromiumRuntimeHostPort;
   readonly listeners: Readonly<MacosAppKitRuntimeWindowListeners>;
   controller: RawNativeAppKitRuntimeHost | null;

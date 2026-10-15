@@ -22,7 +22,232 @@ async function admitHost(host: Awaited<ReturnType<Fixture["factory"]["create"]>>
   await Promise.resolve();
 }
 
+const initialPresentationFence = {
+  windowId: "window-1", windowGeneration: 1, topologyRevision: 1
+};
+
+async function stagedEmptyHost(presentation: "fullscreen" | "maximized") {
+  const fixture = new Fixture();
+  fixture.configureWindow = window => {
+    window.presentationMakesVisible = true;
+    window.autoAcknowledgePresentation = true;
+    window.destroyEmitsClosed = true;
+  };
+  const host = await fixture.factory.createEmpty(target({ presentation }), {
+    attemptGeneration: "launch-generation-1", windowGeneration: 1, topologyRevision: 1
+  });
+  const native = fixture.windows[0]!;
+  native.autoAcknowledgePresentation = false;
+  return { fixture, host, native };
+}
+
+async function admitEmptyHost(
+  host: Awaited<ReturnType<Fixture["factory"]["createEmpty"]>>,
+  topologyRevision = 1
+): Promise<void> {
+  host.applyAppKitPhaseProjection!({ ...initialPresentationFence, topologyRevision,
+    tabIds: [], hiddenTabIds: [], tabPhases: [] });
+  await Promise.resolve();
+}
+
 describe("macOS AppKit Chromium runtime host", () => {
+  it.each(["fullscreen", "maximized"] as const)(
+    "stages hidden empty %s before native mode submission can reveal it",
+    async presentation => {
+      const { fixture, host } = await stagedEmptyHost(presentation);
+
+      expect(host.isVisible()).toBe(false);
+      expect(fixture.windows[0]!.isVisible()).toBe(false);
+      expect(host.readProjection().presentation).toBe("normal");
+      expect(host.readPendingInitialPresentation!()).toBe(presentation);
+      expect(fixture.order).not.toContain("controller-prepare-fullscreen-true");
+      expect(fixture.order).not.toContain("window-fullscreen-true");
+      expect(fixture.order).not.toContain("window-maximize");
+      expect(fixture.order).not.toContain("window-show");
+      expect(fixture.order).not.toContain("window-show-inactive");
+      expect(fixture.order).not.toContain("window-focus");
+    }
+  );
+
+  it.each(["fullscreen", "maximized"] as const)(
+    "completes admitted initial %s only on exact native placement acknowledgement",
+    async presentation => {
+      const { fixture, host, native } = await stagedEmptyHost(presentation);
+      await admitEmptyHost(host);
+      host.showInactive!();
+      const completion = host.completeInitialPresentation!(initialPresentationFence);
+      await expectPending(completion);
+      expect(host.readPendingInitialPresentation!()).toBe(presentation);
+      expect(fixture.order.filter(action => action === (presentation === "fullscreen"
+        ? "window-fullscreen-true" : "window-maximize"))).toHaveLength(1);
+
+      native.emit(presentation === "fullscreen" ? "enter-full-screen" : "maximize");
+      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
+        action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+      await expectPending(completion);
+      native.fullScreen = presentation === "fullscreen";
+      native.maximized = presentation === "maximized";
+      native.emit("resize");
+      await expectPending(completion);
+      const readLayout = vi.spyOn(fixture.addon.controllers[0]!, "snapshotContentLayout");
+      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
+        action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+      await expect(completion).resolves.toBeUndefined();
+
+      expect(readLayout).toHaveBeenCalled();
+      expect(host.readPendingInitialPresentation!()).toBeNull();
+      expect(host.readProjection().presentation).toBe(presentation);
+      expect(fixture.order).not.toContain("window-focus");
+      expect(fixture.order).not.toContain("controller-window-focus");
+      fixture.onAction.mockClear();
+      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
+        action: { type: "windowFocusChanged", sourceWindowId: "window-1",
+          focused: false, minimized: false, visible: true } });
+      expect(fixture.onAction).toHaveBeenCalledOnce();
+      expect(fixture.onAction.mock.calls[0]![0].hosts[0]!.topologyRevision).toBe(1);
+    }
+  );
+
+  it.each(["fullscreen", "maximized"] as const)(
+    "stages populated hidden %s until the same Core visible admission",
+    async presentation => {
+      const fixture = new Fixture();
+      fixture.configureWindow = window => {
+        window.presentationMakesVisible = true;
+        window.autoAcknowledgePresentation = true;
+      };
+      const launchTarget = target({ presentation });
+      const host = await fixture.factory.create(launchTarget, tab(launchTarget));
+
+      expect(host.isVisible()).toBe(false);
+      expect(host.readProjection().presentation).toBe("normal");
+      expect(host.readPendingInitialPresentation!()).toBe(presentation);
+      expect(fixture.order).not.toContain("window-fullscreen-true");
+      expect(fixture.order).not.toContain("window-maximize");
+      expect(fixture.addon.controllers[0]!.verifiedProjectionTabCount).toBe(1);
+    }
+  );
+
+  it.each(["hidden", "unadmitted", "minimized", "window", "generation", "revision"] as const)(
+    "refuses initial presentation with an exact %s admission failure",
+    async failure => {
+      const { fixture, host, native } = await stagedEmptyHost("fullscreen");
+      if (failure !== "unadmitted") await admitEmptyHost(host);
+      if (failure !== "hidden") host.showInactive!();
+      if (failure === "minimized") native.minimized = true;
+      const request = { ...initialPresentationFence,
+        ...(failure === "window" ? { windowId: "different-window" } : {}),
+        ...(failure === "generation" ? { windowGeneration: 2 } : {}),
+        ...(failure === "revision" ? { topologyRevision: 2 } : {}) };
+
+      await expect(host.completeInitialPresentation!(request)).rejects.toBeDefined();
+
+      expect(host.readPendingInitialPresentation!()).toBe("fullscreen");
+      expect(native.fullScreen).toBe(false);
+      expect(fixture.order).not.toContain("controller-prepare-fullscreen-true");
+      expect(fixture.order).not.toContain("window-fullscreen-true");
+      expect(fixture.order).not.toContain("window-focus");
+    }
+  );
+
+  it.each(["fullscreen", "maximized"] as const)(
+    "retains staged initial %s when native submission fails without fallback",
+    async presentation => {
+      const { fixture, host, native } = await stagedEmptyHost(presentation);
+      await admitEmptyHost(host);
+      host.showInactive!();
+      const failure = new Error("Native initial presentation submission failed");
+      const submit = presentation === "fullscreen"
+        ? vi.spyOn(native, "setFullScreen") : vi.spyOn(native, "maximize");
+      submit.mockImplementation(() => { throw failure; });
+
+      await expect(host.completeInitialPresentation!(initialPresentationFence)).rejects.toBe(failure);
+
+      expect(submit).toHaveBeenCalledOnce();
+      expect(host.readPendingInitialPresentation!()).toBe(presentation);
+      expect(native.fullScreen).toBe(false);
+      expect(native.maximized).toBe(false);
+      expect(fixture.order).not.toContain("window-focus");
+      expect(fixture.order).not.toContain("controller-window-focus");
+    }
+  );
+
+  it("rejects staged completion retired while awaiting native acknowledgement", async () => {
+    const { host } = await stagedEmptyHost("fullscreen");
+    await admitEmptyHost(host);
+    host.showInactive!();
+    const completion = host.completeInitialPresentation!(initialPresentationFence);
+    const rejected = expect(completion).rejects.toBeDefined();
+    await expectPending(completion);
+
+    await host.close();
+
+    await rejected;
+    expect(host.isDestroyed()).toBe(true);
+  });
+
+  it.each(["fullscreen", "maximized"] as const)(
+    "keeps staged %s busy before its initial native request is armed",
+    async presentation => {
+      const { fixture, host } = await stagedEmptyHost(presentation);
+      const normalRequest = { ...initialPresentationFence, presentation: "normal" as const };
+
+      await expect(host.setRuntimeWindowPresentation!(normalRequest)).rejects.toMatchObject({
+        code: "ELECTRON_MACOS_APPKIT_PRESENTATION_BUSY"
+      });
+      expect(host.isVisible()).toBe(false);
+      await admitEmptyHost(host);
+      host.showInactive!();
+      await expect(host.setRuntimeWindowPresentation!(normalRequest)).rejects.toMatchObject({
+        code: "ELECTRON_MACOS_APPKIT_PRESENTATION_BUSY"
+      });
+
+      expect(host.readPendingInitialPresentation!()).toBe(presentation);
+      expect(host.readProjection().presentation).toBe("normal");
+      expect(fixture.order).not.toContain("controller-prepare-fullscreen-true");
+      expect(fixture.order).not.toContain("window-fullscreen-true");
+      expect(fixture.order).not.toContain("window-fullscreen-false");
+      expect(fixture.order).not.toContain("window-maximize");
+      expect(fixture.order).not.toContain("window-focus");
+    }
+  );
+
+  it("keeps ordinary explicit presentation busy until initial acknowledgement", async () => {
+    const { fixture, host, native } = await stagedEmptyHost("fullscreen");
+    await admitEmptyHost(host);
+    host.showInactive!();
+    const completion = host.completeInitialPresentation!(initialPresentationFence);
+    await expectPending(completion);
+
+    await expect(host.setRuntimeWindowPresentation!({ ...initialPresentationFence,
+      presentation: "normal" })).rejects.toMatchObject({
+      code: "ELECTRON_MACOS_APPKIT_PRESENTATION_BUSY"
+    });
+
+    expect(host.readPendingInitialPresentation!()).toBe("fullscreen");
+    native.fullScreen = true;
+    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
+      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+    await expect(completion).resolves.toBeUndefined();
+  });
+
+  it("rejects superseded Core ownership at native acknowledgement and retains staged mode", async () => {
+    const { fixture, host, native } = await stagedEmptyHost("fullscreen");
+    await admitEmptyHost(host);
+    host.showInactive!();
+    const completion = host.completeInitialPresentation!(initialPresentationFence);
+    const rejected = expect(completion).rejects.toBeDefined();
+    await expectPending(completion);
+    await admitEmptyHost(host, 2);
+    native.fullScreen = true;
+    native.emit("resize");
+    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
+      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+
+    await rejected;
+    expect(host.readPendingInitialPresentation!()).toBe("fullscreen");
+  });
+
   it("creates an invisible exact zero-tab host before a Core-owned move", async () => {
     const fixture = new Fixture();
 
@@ -514,17 +739,23 @@ describe("macOS AppKit Chromium runtime host", () => {
     expect(fixture.windows[0]!.destroyCalls).toBe(0);
   });
 
-  it("waits for exact AppKit presentation evidence without a timer", async () => {
+  it("waits for exact AppKit presentation evidence after populated visible admission", async () => {
     const fixture = new Fixture();
     const launchTarget = target({ presentation: "fullscreen" });
-    const creation = fixture.factory.create(launchTarget, tab(launchTarget));
+    const host = await fixture.factory.create(launchTarget, tab(launchTarget));
+    expect(fixture.order).not.toContain("window-fullscreen-true");
+    await admitHost(host);
+    host.showInactive!();
+    const completion = host.completeInitialPresentation!(initialPresentationFence);
 
-    await expectPending(creation);
+    await expectPending(completion);
     expect(fixture.order.indexOf("controller-prepare-fullscreen-true"))
       .toBeLessThan(fixture.order.indexOf("window-fullscreen-true"));
     expect(fixture.order).toContain("window-fullscreen-true");
-    fixture.windows[0]!.emit("enter-full-screen");
-    await expect(creation).resolves.toMatchObject({ logicalWindowId: "window-1" });
+    fixture.windows[0]!.fullScreen = true;
+    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
+      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+    await expect(completion).resolves.toBeUndefined();
     fixture.windows[0]!.emit("leave-full-screen");
     expect(fixture.order).not.toContain("controller-prepare-fullscreen-false");
   });
@@ -763,11 +994,17 @@ describe("macOS AppKit Chromium runtime host", () => {
   it("initializes the selected background before native presentation begins", async () => {
     const fixture = new Fixture();
     const launchTarget = target({ presentation: "fullscreen" });
-    const creating = fixture.factory.create(launchTarget, tab(launchTarget));
+    const host = await fixture.factory.create(launchTarget, tab(launchTarget));
+    expect(fixture.order).not.toContain("window-fullscreen-true");
+    await admitHost(host);
+    host.showInactive!();
+    const completion = host.completeInitialPresentation!(initialPresentationFence);
     expect(fixture.order.indexOf("controller-project-workspace-dividers"))
       .toBeLessThan(fixture.order.indexOf("window-fullscreen-true"));
-    fixture.windows[0]!.emit("enter-full-screen");
-    await creating;
+    fixture.windows[0]!.fullScreen = true;
+    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
+      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+    await completion;
     expect(fixture.addon.controllers[0]!.workspaceDividerRevision).toBe("1");
   });
 

@@ -18,10 +18,15 @@ function fixture() {
     destroyed: false,
     fullScreen: false,
     maximized: false,
+    visible: true,
+    minimized: false,
     isDestroyed: () => native.destroyed,
     isFullScreen: () => native.fullScreen,
     isMaximized: () => native.maximized,
-    setFullScreen: vi.fn()
+    isVisible: () => native.visible,
+    isMinimized: () => native.minimized,
+    setFullScreen: vi.fn(),
+    maximize: vi.fn()
   };
   const fence = {
     current: true,
@@ -48,6 +53,109 @@ function fixture() {
 }
 
 describe("macOS AppKit runtime presentation controller", () => {
+  it.each(["fullscreen", "maximized"] as const)(
+    "completes initial %s on native placement and layout without waiting for another Core revision",
+    async presentation => {
+      const { controller, fence, native } = fixture();
+      const readProjection = vi.fn(() => ({
+        displayId: 7, bounds: { x: 20, y: 30, width: 900, height: 640 },
+        visible: true, focused: true, presentation
+      }));
+      const operation = controller.setInitialPresentation({
+        presentation, topologyRevision: 4, windowGeneration: 3, windowId: "window-1"
+      }, readProjection);
+      expect(native.setFullScreen).toHaveBeenCalledTimes(presentation === "fullscreen" ? 1 : 0);
+      expect(native.maximize).toHaveBeenCalledTimes(presentation === "maximized" ? 1 : 0);
+      expect(controller.observeWindowPlacement()).toBe(true);
+      await expectPending(operation);
+      native.fullScreen = presentation === "fullscreen";
+      native.maximized = presentation === "maximized";
+      expect(controller.observeWindowPlacement()).toBe(true);
+      await expect(operation).resolves.toMatchObject({ presentation });
+      expect(readProjection).toHaveBeenCalledTimes(1);
+      expect(fence.topologyRevision).toBe(4);
+      expect(controller.suppressWindowStateEvent()).toBe(false);
+      expect(controller.observeWindowPlacement()).toBe(false);
+    }
+  );
+
+  it("rejects a newer Core owner before initial native acknowledgement", async () => {
+    const { controller, fence, native } = fixture();
+    const operation = controller.setInitialPresentation({
+      presentation: "fullscreen", topologyRevision: 4, windowGeneration: 3, windowId: "window-1"
+    });
+    fence.topologyRevision = 5;
+    controller.coreProjectionApplied({ ...fence });
+    await expect(operation).rejects.toMatchObject({
+      code: "ELECTRON_MACOS_APPKIT_PRESENTATION_FENCE_STALE"
+    });
+    native.fullScreen = true;
+    expect(controller.observeWindowPlacement()).toBe(false);
+  });
+
+  it("preserves initial submission errors without attempting an unowned fullscreen exit", async () => {
+    const { controller, native, prepareFullscreen } = fixture();
+    const failure = new Error("native fullscreen failed");
+    native.setFullScreen.mockImplementation(() => { throw failure; });
+    await expect(controller.setInitialPresentation({
+      presentation: "fullscreen", topologyRevision: 4, windowGeneration: 3, windowId: "window-1"
+    })).rejects.toBe(failure);
+    expect(prepareFullscreen.mock.calls).toEqual([[true]]);
+    expect(native.setFullScreen.mock.calls).toEqual([[true]]);
+    expect(controller.suppressWindowStateEvent()).toBe(false);
+  });
+
+  it("rechecks the original Core fence after native fullscreen preparation", async () => {
+    const { controller, fence, native, prepareFullscreen } = fixture();
+    prepareFullscreen.mockImplementation(() => { fence.topologyRevision = 5; });
+    await expect(controller.setInitialPresentation({
+      presentation: "fullscreen", topologyRevision: 4, windowGeneration: 3, windowId: "window-1"
+    })).rejects.toMatchObject({ code: "ELECTRON_MACOS_APPKIT_PRESENTATION_FENCE_STALE" });
+    expect(native.setFullScreen).not.toHaveBeenCalled();
+    expect(native.maximize).not.toHaveBeenCalled();
+  });
+
+  it.each(["mode-lost", "setter-failed"] as const)(
+    "does not complete on an early synchronous placement event when %s before native submission returns",
+    async scenario => {
+      const { controller, native } = fixture();
+      const failure = new Error("setter failed after synchronous acknowledgement");
+      native.setFullScreen.mockImplementation(() => {
+        native.fullScreen = true;
+        controller.observeWindowPlacement();
+        if (scenario === "setter-failed") throw failure;
+        native.fullScreen = false;
+      });
+      const operation = controller.setInitialPresentation({
+        presentation: "fullscreen", topologyRevision: 4, windowGeneration: 3, windowId: "window-1"
+      });
+      if (scenario === "setter-failed") await expect(operation).rejects.toBe(failure);
+      else await expect(operation).rejects.toMatchObject({
+        code: "ELECTRON_MACOS_APPKIT_PRESENTATION_READBACK_MISMATCH"
+      });
+      expect(native.setFullScreen).toHaveBeenCalledTimes(1);
+      expect(controller.suppressWindowStateEvent()).toBe(false);
+    }
+  );
+
+  it("rejects a Core revision change during the acknowledged native layout read", async () => {
+    const { controller, fence, native } = fixture();
+    const operation = controller.setInitialPresentation({
+      presentation: "fullscreen", topologyRevision: 4, windowGeneration: 3, windowId: "window-1"
+    }, () => {
+      fence.topologyRevision = 5;
+      return { displayId: 7, bounds: { x: 20, y: 30, width: 900, height: 640 },
+        visible: true, focused: true, presentation: "fullscreen" };
+    });
+    native.fullScreen = true;
+    controller.observeWindowPlacement();
+    await expect(operation).rejects.toMatchObject({
+      code: "ELECTRON_MACOS_APPKIT_PRESENTATION_FENCE_STALE"
+    });
+    expect(native.setFullScreen).toHaveBeenCalledTimes(1);
+    expect(controller.suppressWindowStateEvent()).toBe(false);
+  });
+
   it("waits for the exact native placement event and the following Core projection", async () => {
     const { controller, fence, native, prepareFullscreen } = fixture();
 

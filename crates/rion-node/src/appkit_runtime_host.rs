@@ -1,4 +1,6 @@
+mod controller_lifecycle;
 mod workspace_slot_loading;
+use controller_lifecycle::{ControllerLifecycle, ControllerResource};
 use std::{
     collections::HashMap,
     ffi::{CStr, CString, c_char, c_void},
@@ -38,12 +40,12 @@ use platform::{
     desktop_e2e_titlebar_geometry,
 };
 use platform::{
-    apply_workspace_divider_projection, commit_projected_tabs, controller_pointer,
-    create_controller, destroy_controller, dispatch_key_probe, dispatch_mouse_probe,
-    ensure_appkit_main_thread, ensure_projected_tab, focus_native_window, phases_match,
-    prepare_fullscreen, projection_matches, read_content_layout, read_native_view_tree,
-    remove_projected_tab, resolve_native_window, set_fullscreen_policy, set_reveal_locked,
-    set_tab_close_buttons_hidden, set_window_name, workspace_divider_projection_matches,
+    apply_workspace_divider_projection, commit_projected_tabs, create_controller,
+    destroy_controller, dispatch_key_probe, dispatch_mouse_probe, ensure_appkit_main_thread,
+    ensure_projected_tab, focus_native_window, phases_match, prepare_fullscreen,
+    projection_matches, read_content_layout, read_native_view_tree, remove_projected_tab,
+    resolve_native_window, set_fullscreen_policy, set_reveal_locked, set_tab_close_buttons_hidden,
+    set_window_name, workspace_divider_projection_matches,
 };
 use trusted_input::{NativeInputSurface, PendingInputSurfaceCapture};
 use validation::{decode_native_view_handle, parse_native_address, validate_identifier};
@@ -318,8 +320,6 @@ impl AppKitCallbackContext {
 }
 
 struct NativeHostState {
-    context: Option<Box<AppKitCallbackContext>>,
-    controller: Option<usize>,
     projection_revision: u64,
     projected_tab_ids: Vec<String>,
     projected_tab_fingerprints: Vec<TabProjectionFingerprint>,
@@ -339,6 +339,7 @@ pub struct NativeAppKitRuntimeHost {
     identity: ValidatedHostIdentity,
     native_view: usize,
     native_window: usize,
+    lifecycle: ControllerLifecycle<ControllerResource>,
     state: Mutex<NativeHostState>,
 }
 
@@ -346,18 +347,15 @@ pub struct NativeAppKitRuntimeHost {
 impl NativeAppKitRuntimeHost {
     #[napi(js_name = "focusWindow")]
     pub fn focus_window(&self, expected: AppKitRuntimeHostIdentity) -> Result<()> {
-        self.require_identity(&expected)?;
-        let state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        self.require_exact_native_window()?;
-        let native_window =
-            NonNull::new(self.native_window as *mut c_void).ok_or_else(malformed_handle_error)?;
-        focus_native_window(native_window)
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            self.require_exact_native_window()?;
+            let native_window = NonNull::new(self.native_window as *mut c_void)
+                .ok_or_else(malformed_handle_error)?;
+            focus_native_window(native_window)
+        })
     }
 
     #[napi(js_name = "probeDispatchMouse")]
@@ -370,31 +368,28 @@ impl NativeAppKitRuntimeHost {
         button: u32,
         modifier_flags: u32,
     ) -> Result<AppKitMouseDispatchProbeReceipt> {
-        self.require_identity(&expected)?;
-        let target_address = parse_native_address(&target_address)?;
-        let button = u8::try_from(button).map_err(|_| {
-            adapter_error(
-                Status::InvalidArg,
-                "The AppKit mouse-button probe value is invalid.",
-            )
-        })?;
-        if !x.is_finite() || !y.is_finite() || button > 2 {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit mouse-dispatch probe value is invalid.",
-            ));
-        }
-        let state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        self.require_exact_native_window()?;
-        let native_view =
-            NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
-        dispatch_mouse_probe(native_view, target_address, x, y, button, modifier_flags)
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            let target_address = parse_native_address(&target_address)?;
+            let button = u8::try_from(button).map_err(|_| {
+                adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit mouse-button probe value is invalid.",
+                )
+            })?;
+            if !x.is_finite() || !y.is_finite() || button > 2 {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit mouse-dispatch probe value is invalid.",
+                ));
+            }
+            lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            self.require_exact_native_window()?;
+            let native_view =
+                NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
+            dispatch_mouse_probe(native_view, target_address, x, y, button, modifier_flags)
+        })
     }
 
     #[napi(js_name = "probeDispatchKey")]
@@ -407,59 +402,56 @@ impl NativeAppKitRuntimeHost {
         modifier_flags: u32,
         dispatch_mode: String,
     ) -> Result<AppKitKeyDispatchProbeReceipt> {
-        self.require_identity(&expected)?;
-        let target_address = parse_native_address(&target_address)?;
-        let key_code = u16::try_from(key_code).map_err(|_| {
-            adapter_error(
-                Status::InvalidArg,
-                "The AppKit key-code probe value is invalid.",
-            )
-        })?;
-        if characters.is_empty()
-            || characters.len() > 16
-            || characters.chars().any(char::is_control)
-        {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit key-character probe value is invalid.",
-            ));
-        }
-        let characters = CString::new(characters).map_err(|_| {
-            adapter_error(
-                Status::InvalidArg,
-                "The AppKit key-character probe contains an invalid null byte.",
-            )
-        })?;
-        let dispatch_mode = match dispatch_mode.as_str() {
-            "direct-view" => 0,
-            "window-event" => 1,
-            "temporary-key-direct-view" => 2,
-            "temporary-key-window-event" => 3,
-            _ => {
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            let target_address = parse_native_address(&target_address)?;
+            let key_code = u16::try_from(key_code).map_err(|_| {
+                adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit key-code probe value is invalid.",
+                )
+            })?;
+            if characters.is_empty()
+                || characters.len() > 16
+                || characters.chars().any(char::is_control)
+            {
                 return Err(adapter_error(
                     Status::InvalidArg,
-                    "The AppKit key-dispatch probe mode is invalid.",
+                    "The AppKit key-character probe value is invalid.",
                 ));
             }
-        };
-        let state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        self.require_exact_native_window()?;
-        let native_view =
-            NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
-        dispatch_key_probe(
-            native_view,
-            target_address,
-            key_code,
-            &characters,
-            modifier_flags,
-            dispatch_mode,
-        )
+            let characters = CString::new(characters).map_err(|_| {
+                adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit key-character probe contains an invalid null byte.",
+                )
+            })?;
+            let dispatch_mode = match dispatch_mode.as_str() {
+                "direct-view" => 0,
+                "window-event" => 1,
+                "temporary-key-direct-view" => 2,
+                "temporary-key-window-event" => 3,
+                _ => {
+                    return Err(adapter_error(
+                        Status::InvalidArg,
+                        "The AppKit key-dispatch probe mode is invalid.",
+                    ));
+                }
+            };
+            lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            self.require_exact_native_window()?;
+            let native_view =
+                NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
+            dispatch_key_probe(
+                native_view,
+                target_address,
+                key_code,
+                &characters,
+                modifier_flags,
+                dispatch_mode,
+            )
+        })
     }
 
     #[napi(js_name = "snapshotNativeViewTree")]
@@ -467,18 +459,15 @@ impl NativeAppKitRuntimeHost {
         &self,
         expected: AppKitRuntimeHostIdentity,
     ) -> Result<Vec<AppKitNativeViewTreeNode>> {
-        self.require_identity(&expected)?;
-        let state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        self.require_exact_native_window()?;
-        let native_view =
-            NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
-        read_native_view_tree(native_view)
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            self.require_exact_native_window()?;
+            let native_view =
+                NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
+            read_native_view_tree(native_view)
+        })
     }
 
     #[napi(js_name = "applyTabProjection")]
@@ -489,108 +478,106 @@ impl NativeAppKitRuntimeHost {
         tabs: Vec<AppKitRuntimeTabProjection>,
         active_tab_id: Option<String>,
     ) -> Result<AppKitRuntimeTabProjectionReceipt> {
-        self.require_identity(&expected)?;
-        let revision = validate_projection_revision(&projection_revision)?;
-        let tabs = validate_tab_projection(tabs, active_tab_id.as_deref())?;
-        let tab_ids = tabs
-            .iter()
-            .map(|tab| tab.tab_id.clone())
-            .collect::<Vec<_>>();
-        let tab_fingerprints = tabs
-            .iter()
-            .map(|tab| tab.fingerprint.clone())
-            .collect::<Vec<_>>();
-        let phases_json = tab_phases_json(&tabs)?;
-        let order_json = CString::new(serde_json::to_vec(&tab_ids).map_err(|_| {
-            adapter_error(
-                Status::InvalidArg,
-                "The AppKit tab projection could not be serialized.",
-            )
-        })?)
-        .map_err(|_| {
-            adapter_error(
-                Status::InvalidArg,
-                "The AppKit tab projection contains an invalid null byte.",
-            )
-        })?;
-        let active_tab_id_c = active_tab_id
-            .as_deref()
-            .map(CString::new)
-            .transpose()
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            let revision = validate_projection_revision(&projection_revision)?;
+            let tabs = validate_tab_projection(tabs, active_tab_id.as_deref())?;
+            let tab_ids = tabs
+                .iter()
+                .map(|tab| tab.tab_id.clone())
+                .collect::<Vec<_>>();
+            let tab_fingerprints = tabs
+                .iter()
+                .map(|tab| tab.fingerprint.clone())
+                .collect::<Vec<_>>();
+            let phases_json = tab_phases_json(&tabs)?;
+            let order_json = CString::new(serde_json::to_vec(&tab_ids).map_err(|_| {
+                adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit tab projection could not be serialized.",
+                )
+            })?)
             .map_err(|_| {
                 adapter_error(
                     Status::InvalidArg,
-                    "The active AppKit tab contains an invalid null byte.",
+                    "The AppKit tab projection contains an invalid null byte.",
                 )
             })?;
+            let active_tab_id_c = active_tab_id
+                .as_deref()
+                .map(CString::new)
+                .transpose()
+                .map_err(|_| {
+                    adapter_error(
+                        Status::InvalidArg,
+                        "The active AppKit tab contains an invalid null byte.",
+                    )
+                })?;
 
-        let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        let controller = controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        if state.projection_poisoned {
-            return Err(adapter_error(
-                Status::GenericFailure,
-                "The AppKit tab projection is poisoned after an unverified native mutation.",
-            ));
-        }
-        self.require_exact_native_window()?;
-        if revision < state.projection_revision
-            || (revision == state.projection_revision
-                && (state.projected_tab_ids != tab_ids
-                    || state.projected_tab_fingerprints != tab_fingerprints
-                    || state.projected_active_tab_id != active_tab_id))
-        {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit tab projection revision is stale or conflicts with its prior receipt.",
-            ));
-        }
-        if revision == state.projection_revision {
-            if !projection_matches(controller, &order_json, active_tab_id_c.as_deref())?
+            let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
+            let controller = lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            if state.projection_poisoned {
+                return Err(adapter_error(
+                    Status::GenericFailure,
+                    "The AppKit tab projection is poisoned after an unverified native mutation.",
+                ));
+            }
+            self.require_exact_native_window()?;
+            if revision < state.projection_revision
+                || (revision == state.projection_revision
+                    && (state.projected_tab_ids != tab_ids
+                        || state.projected_tab_fingerprints != tab_fingerprints
+                        || state.projected_active_tab_id != active_tab_id))
+            {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit tab projection revision is stale or conflicts with its prior receipt.",
+                ));
+            }
+            if revision == state.projection_revision {
+                if !projection_matches(controller, &order_json, active_tab_id_c.as_deref())?
+                    || !phases_match(controller, &phases_json)?
+                {
+                    state.projection_poisoned = true;
+                    return Err(projection_readback_error());
+                }
+                return Ok(projection_receipt(revision, &tab_ids, active_tab_id));
+            }
+
+            state.projection_poisoned = true;
+            state.failed_projected_tab_ids.clone_from(&tab_ids);
+            for tab in &tabs {
+                ensure_projected_tab(controller, &self.identity, tab)?;
+            }
+            for stale_tab_id in state
+                .projected_tab_ids
+                .iter()
+                .filter(|tab_id| !tab_ids.contains(tab_id))
+            {
+                let stale_tab_id = CString::new(stale_tab_id.as_str()).map_err(|_| {
+                    adapter_error(
+                        Status::GenericFailure,
+                        "A prior AppKit tab projection identity is malformed.",
+                    )
+                })?;
+                remove_projected_tab(controller, &stale_tab_id, active_tab_id_c.as_deref())?;
+            }
+            if !commit_projected_tabs(controller, &order_json, active_tab_id_c.as_deref())?
                 || !phases_match(controller, &phases_json)?
             {
-                state.projection_poisoned = true;
                 return Err(projection_readback_error());
             }
-            return Ok(projection_receipt(revision, &tab_ids, active_tab_id));
-        }
-
-        state.projection_poisoned = true;
-        state.failed_projected_tab_ids.clone_from(&tab_ids);
-        for tab in &tabs {
-            ensure_projected_tab(controller, &self.identity, tab)?;
-        }
-        for stale_tab_id in state
-            .projected_tab_ids
-            .iter()
-            .filter(|tab_id| !tab_ids.contains(tab_id))
-        {
-            let stale_tab_id = CString::new(stale_tab_id.as_str()).map_err(|_| {
-                adapter_error(
-                    Status::GenericFailure,
-                    "A prior AppKit tab projection identity is malformed.",
-                )
-            })?;
-            remove_projected_tab(controller, &stale_tab_id, active_tab_id_c.as_deref())?;
-        }
-        if !commit_projected_tabs(controller, &order_json, active_tab_id_c.as_deref())?
-            || !phases_match(controller, &phases_json)?
-        {
-            return Err(projection_readback_error());
-        }
-        state.projection_revision = revision;
-        state.projected_tab_ids.clone_from(&tab_ids);
-        state
-            .projected_tab_fingerprints
-            .clone_from(&tab_fingerprints);
-        state.projected_active_tab_id.clone_from(&active_tab_id);
-        state.projection_poisoned = false;
-        state.failed_projected_tab_ids.clear();
-        Ok(projection_receipt(revision, &tab_ids, active_tab_id))
+            state.projection_revision = revision;
+            state.projected_tab_ids.clone_from(&tab_ids);
+            state
+                .projected_tab_fingerprints
+                .clone_from(&tab_fingerprints);
+            state.projected_active_tab_id.clone_from(&active_tab_id);
+            state.projection_poisoned = false;
+            state.failed_projected_tab_ids.clear();
+            Ok(projection_receipt(revision, &tab_ids, active_tab_id))
+        })
     }
 
     #[napi(js_name = "restoreLastVerifiedTabProjection")]
@@ -598,87 +585,85 @@ impl NativeAppKitRuntimeHost {
         &self,
         expected: AppKitRuntimeHostIdentity,
     ) -> Result<AppKitRuntimeTabProjectionReceipt> {
-        self.require_identity(&expected)?;
-        let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        let controller = controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        self.require_exact_native_window()?;
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
+            let controller = lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            self.require_exact_native_window()?;
 
-        let active_tab_id = state.projected_active_tab_id.clone();
-        let restored_tabs = validate_tab_projection(
-            state
-                .projected_tab_fingerprints
+            let active_tab_id = state.projected_active_tab_id.clone();
+            let restored_tabs = validate_tab_projection(
+                state
+                    .projected_tab_fingerprints
+                    .iter()
+                    .map(|tab| AppKitRuntimeTabProjection {
+                        tab_id: tab.tab_id.clone(),
+                        name: tab.name.clone(),
+                        phase: tab.phase.clone(),
+                        tab_type: tab.tab_type.clone(),
+                        workspace_template: tab.workspace_template.clone(),
+                    })
+                    .collect(),
+                active_tab_id.as_deref(),
+            )?;
+            let restored_ids = restored_tabs
                 .iter()
-                .map(|tab| AppKitRuntimeTabProjection {
-                    tab_id: tab.tab_id.clone(),
-                    name: tab.name.clone(),
-                    phase: tab.phase.clone(),
-                    tab_type: tab.tab_type.clone(),
-                    workspace_template: tab.workspace_template.clone(),
-                })
-                .collect(),
-            active_tab_id.as_deref(),
-        )?;
-        let restored_ids = restored_tabs
-            .iter()
-            .map(|tab| tab.tab_id.clone())
-            .collect::<Vec<_>>();
-        let order_json = CString::new(serde_json::to_vec(&restored_ids).map_err(|_| {
-            adapter_error(
-                Status::InvalidArg,
-                "The verified AppKit tab projection could not be serialized.",
-            )
-        })?)
-        .map_err(|_| malformed_projection_error())?;
-        let phases_json = tab_phases_json(&restored_tabs)?;
-        let active_tab_id_c = active_tab_id
-            .as_deref()
-            .map(CString::new)
-            .transpose()
+                .map(|tab| tab.tab_id.clone())
+                .collect::<Vec<_>>();
+            let order_json = CString::new(serde_json::to_vec(&restored_ids).map_err(|_| {
+                adapter_error(
+                    Status::InvalidArg,
+                    "The verified AppKit tab projection could not be serialized.",
+                )
+            })?)
             .map_err(|_| malformed_projection_error())?;
+            let phases_json = tab_phases_json(&restored_tabs)?;
+            let active_tab_id_c = active_tab_id
+                .as_deref()
+                .map(CString::new)
+                .transpose()
+                .map_err(|_| malformed_projection_error())?;
 
-        if !state.projection_poisoned {
-            if !projection_matches(controller, &order_json, active_tab_id_c.as_deref())?
+            if !state.projection_poisoned {
+                if !projection_matches(controller, &order_json, active_tab_id_c.as_deref())?
+                    || !phases_match(controller, &phases_json)?
+                {
+                    state.projection_poisoned = true;
+                    return Err(projection_readback_error());
+                }
+                return Ok(projection_receipt(
+                    state.projection_revision,
+                    &restored_ids,
+                    active_tab_id,
+                ));
+            }
+
+            for tab in &restored_tabs {
+                ensure_projected_tab(controller, &self.identity, tab)?;
+            }
+            for failed_tab_id in state
+                .failed_projected_tab_ids
+                .iter()
+                .filter(|tab_id| !restored_ids.contains(tab_id))
+            {
+                let failed_tab_id = CString::new(failed_tab_id.as_str())
+                    .map_err(|_| malformed_projection_error())?;
+                remove_projected_tab(controller, &failed_tab_id, active_tab_id_c.as_deref())?;
+            }
+            if !commit_projected_tabs(controller, &order_json, active_tab_id_c.as_deref())?
                 || !phases_match(controller, &phases_json)?
             {
-                state.projection_poisoned = true;
                 return Err(projection_readback_error());
             }
-            return Ok(projection_receipt(
+            state.projection_poisoned = false;
+            state.failed_projected_tab_ids.clear();
+            Ok(projection_receipt(
                 state.projection_revision,
                 &restored_ids,
                 active_tab_id,
-            ));
-        }
-
-        for tab in &restored_tabs {
-            ensure_projected_tab(controller, &self.identity, tab)?;
-        }
-        for failed_tab_id in state
-            .failed_projected_tab_ids
-            .iter()
-            .filter(|tab_id| !restored_ids.contains(tab_id))
-        {
-            let failed_tab_id =
-                CString::new(failed_tab_id.as_str()).map_err(|_| malformed_projection_error())?;
-            remove_projected_tab(controller, &failed_tab_id, active_tab_id_c.as_deref())?;
-        }
-        if !commit_projected_tabs(controller, &order_json, active_tab_id_c.as_deref())?
-            || !phases_match(controller, &phases_json)?
-        {
-            return Err(projection_readback_error());
-        }
-        state.projection_poisoned = false;
-        state.failed_projected_tab_ids.clear();
-        Ok(projection_receipt(
-            state.projection_revision,
-            &restored_ids,
-            active_tab_id,
-        ))
+            ))
+        })
     }
 
     #[napi(js_name = "retireWorkspaceDividerGesture")]
@@ -687,14 +672,15 @@ impl NativeAppKitRuntimeHost {
         expected: AppKitRuntimeHostIdentity,
         gesture_id: String,
     ) -> Result<bool> {
-        self.require_identity(&expected)?;
-        validate_identifier(&gesture_id, "gesture id")?;
-        self.require_exact_native_window()?;
-        let state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        platform::retire_workspace_divider_gesture(
-            controller_pointer(&state)?,
-            &CString::new(gesture_id).map_err(|_| malformed_projection_error())?,
-        )
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            validate_identifier(&gesture_id, "gesture id")?;
+            self.require_exact_native_window()?;
+            platform::retire_workspace_divider_gesture(
+                lease.pointer()?,
+                &CString::new(gesture_id).map_err(|_| malformed_projection_error())?,
+            )
+        })
     }
 
     #[napi(js_name = "applyWorkspaceDividerProjection")]
@@ -706,65 +692,63 @@ impl NativeAppKitRuntimeHost {
         dividers: Vec<AppKitRuntimeWorkspaceDividerProjection>,
         background: String,
     ) -> Result<AppKitRuntimeWorkspaceDividerProjectionReceipt> {
-        self.require_identity(&expected)?;
-        let revision = validate_projection_revision(&projection_revision)?;
-        let mut projection = validate_workspace_divider_projection(content_bounds, dividers)?;
-        if !matches!(background.as_str(), "material" | "black") {
-            return Err(malformed_projection_error());
-        }
-        projection.background = background;
-        let projection_json = workspace_divider_projection_json(&projection)?;
-        let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        let controller = controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        self.require_exact_native_window()?;
-        if state.workspace_divider_projection_poisoned {
-            return Err(adapter_error(
-                Status::GenericFailure,
-                "The AppKit workspace-divider projection is poisoned after an unverified native mutation.",
-            ));
-        }
-        if revision < state.workspace_divider_projection_revision
-            || (revision == state.workspace_divider_projection_revision
-                && state.workspace_divider_projection != projection)
-        {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit workspace-divider projection revision is stale or conflicting.",
-            ));
-        }
-        if revision == state.workspace_divider_projection_revision {
-            if !workspace_divider_projection_matches(controller, &projection_json)? {
-                state.workspace_divider_projection_poisoned = true;
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            let revision = validate_projection_revision(&projection_revision)?;
+            let mut projection = validate_workspace_divider_projection(content_bounds, dividers)?;
+            if !matches!(background.as_str(), "material" | "black") {
+                return Err(malformed_projection_error());
+            }
+            projection.background = background;
+            let projection_json = workspace_divider_projection_json(&projection)?;
+            let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
+            let controller = lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            self.require_exact_native_window()?;
+            if state.workspace_divider_projection_poisoned {
+                return Err(adapter_error(
+                    Status::GenericFailure,
+                    "The AppKit workspace-divider projection is poisoned after an unverified native mutation.",
+                ));
+            }
+            if revision < state.workspace_divider_projection_revision
+                || (revision == state.workspace_divider_projection_revision
+                    && state.workspace_divider_projection != projection)
+            {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit workspace-divider projection revision is stale or conflicting.",
+                ));
+            }
+            if revision == state.workspace_divider_projection_revision {
+                if !workspace_divider_projection_matches(controller, &projection_json)? {
+                    state.workspace_divider_projection_poisoned = true;
+                    return Err(workspace_divider_projection_readback_error());
+                }
+                return Ok(workspace_divider_projection_receipt(revision, &projection));
+            }
+
+            let previous_json = (state.workspace_divider_projection_revision > 0)
+                .then(|| workspace_divider_projection_json(&state.workspace_divider_projection))
+                .transpose()?;
+            state.workspace_divider_projection_poisoned = true;
+            let applied = apply_workspace_divider_projection(controller, &projection_json)?
+                && workspace_divider_projection_matches(controller, &projection_json)?;
+            if !applied {
+                let restored = previous_json.as_ref().is_some_and(|prior| {
+                    apply_workspace_divider_projection(controller, prior).unwrap_or(false)
+                        && workspace_divider_projection_matches(controller, prior).unwrap_or(false)
+                });
+                if restored {
+                    state.workspace_divider_projection_poisoned = false;
+                }
                 return Err(workspace_divider_projection_readback_error());
             }
-            return Ok(workspace_divider_projection_receipt(revision, &projection));
-        }
-
-        let previous_json = (state.workspace_divider_projection_revision > 0)
-            .then(|| workspace_divider_projection_json(&state.workspace_divider_projection))
-            .transpose()?;
-        state.workspace_divider_projection_poisoned = true;
-        let applied = apply_workspace_divider_projection(controller, &projection_json)?
-            && workspace_divider_projection_matches(controller, &projection_json)?;
-        if !applied {
-            let restored = previous_json.as_ref().is_some_and(|prior| {
-                apply_workspace_divider_projection(controller, prior).unwrap_or(false)
-                    && workspace_divider_projection_matches(controller, prior).unwrap_or(false)
-            });
-            if restored {
-                state.workspace_divider_projection_poisoned = false;
-            }
-            return Err(workspace_divider_projection_readback_error());
-        }
-        state.workspace_divider_projection_revision = revision;
-        state.workspace_divider_projection = projection.clone();
-        state.workspace_divider_projection_poisoned = false;
-        Ok(workspace_divider_projection_receipt(revision, &projection))
+            state.workspace_divider_projection_revision = revision;
+            state.workspace_divider_projection = projection.clone();
+            state.workspace_divider_projection_poisoned = false;
+            Ok(workspace_divider_projection_receipt(revision, &projection))
+        })
     }
 
     #[napi(js_name = "restoreLastVerifiedWorkspaceDividerProjection")]
@@ -772,34 +756,32 @@ impl NativeAppKitRuntimeHost {
         &self,
         expected: AppKitRuntimeHostIdentity,
     ) -> Result<AppKitRuntimeWorkspaceDividerProjectionReceipt> {
-        self.require_identity(&expected)?;
-        let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        let controller = controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        self.require_exact_native_window()?;
-        if state.workspace_divider_projection_revision == 0 {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "No verified AppKit workspace-divider projection is available.",
-            ));
-        }
-        let projection = state.workspace_divider_projection.clone();
-        let projection_json = workspace_divider_projection_json(&projection)?;
-        if !apply_workspace_divider_projection(controller, &projection_json)?
-            || !workspace_divider_projection_matches(controller, &projection_json)?
-        {
-            state.workspace_divider_projection_poisoned = true;
-            return Err(workspace_divider_projection_readback_error());
-        }
-        state.workspace_divider_projection_poisoned = false;
-        Ok(workspace_divider_projection_receipt(
-            state.workspace_divider_projection_revision,
-            &projection,
-        ))
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
+            let controller = lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            self.require_exact_native_window()?;
+            if state.workspace_divider_projection_revision == 0 {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "No verified AppKit workspace-divider projection is available.",
+                ));
+            }
+            let projection = state.workspace_divider_projection.clone();
+            let projection_json = workspace_divider_projection_json(&projection)?;
+            if !apply_workspace_divider_projection(controller, &projection_json)?
+                || !workspace_divider_projection_matches(controller, &projection_json)?
+            {
+                state.workspace_divider_projection_poisoned = true;
+                return Err(workspace_divider_projection_readback_error());
+            }
+            state.workspace_divider_projection_poisoned = false;
+            Ok(workspace_divider_projection_receipt(
+                state.workspace_divider_projection_revision,
+                &projection,
+            ))
+        })
     }
 
     #[napi(js_name = "prepareFullscreen")]
@@ -882,20 +864,13 @@ impl NativeAppKitRuntimeHost {
         &self,
         expected: AppKitRuntimeHostIdentity,
     ) -> Result<AppKitRuntimeContentLayout> {
-        self.require_identity(&expected)?;
-        let state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        let controller = controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        self.require_exact_native_window()?;
-        let layout = read_content_layout(controller)?;
-        Ok(AppKitRuntimeContentLayout {
-            height_inset: layout.height_inset,
-            y_offset: layout.y_offset,
-            valid: layout.valid,
+        self.with_live_controller(&expected, |controller| {
+            let layout = read_content_layout(controller)?;
+            Ok(AppKitRuntimeContentLayout {
+                height_inset: layout.height_inset,
+                y_offset: layout.y_offset,
+                valid: layout.valid,
+            })
         })
     }
 
@@ -904,21 +879,18 @@ impl NativeAppKitRuntimeHost {
     #[napi]
     pub fn destroy(&self, expected: AppKitRuntimeHostIdentity) -> Result<bool> {
         self.require_identity(&expected)?;
-        let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        let Some(controller) = state.controller else {
+        let Some(lease) = self.lifecycle.acquire()? else {
             return Ok(false);
         };
-        let controller =
-            NonNull::new(controller as *mut c_void).ok_or_else(host_destroyed_error)?;
         ensure_appkit_main_thread()?;
         self.require_exact_native_window()?;
-        if let Some(context) = state.context.as_ref() {
-            context.accepting.store(false, Ordering::Release);
-        }
-        destroy_controller(controller)?;
-        state.controller = None;
-        state.context = None;
-        Ok(true)
+        let retired = self.lifecycle.retire(|resource| {
+            resource.context.accepting.store(false, Ordering::Release);
+        })?;
+        // The last scoped lease performs physical teardown outside both locks.
+        // During synchronous reentry that is the outer native call's lease.
+        drop(lease);
+        Ok(retired)
     }
 
     #[napi(getter, js_name = "logicalWindowId")]
@@ -945,24 +917,6 @@ impl NativeAppKitRuntimeHost {
                 "The AppKit host identity or generation is stale.",
             ))
         }
-    }
-
-    fn with_live_controller<T>(
-        &self,
-        expected: &AppKitRuntimeHostIdentity,
-        operation: impl FnOnce(NonNull<c_void>) -> Result<T>,
-    ) -> Result<T> {
-        self.require_identity(expected)?;
-        let state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        let controller = controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        ensure_appkit_main_thread()?;
-        self.require_exact_native_window()?;
-        operation(controller)
     }
 
     fn require_exact_native_window(&self) -> Result<()> {
@@ -1063,32 +1017,6 @@ impl NativeAppKitRuntimeHost {
     }
 }
 
-impl Drop for NativeAppKitRuntimeHost {
-    fn drop(&mut self) {
-        let Ok(state) = self.state.get_mut() else {
-            return;
-        };
-        let Some(controller) = state.controller.take() else {
-            return;
-        };
-        let Some(controller) = NonNull::new(controller as *mut c_void) else {
-            return;
-        };
-        if let Some(context) = state.context.as_ref() {
-            context.accepting.store(false, Ordering::Release);
-        }
-        if rion_appkit::runtime_tabs_is_main_thread() {
-            let _ = destroy_controller(controller);
-            state.context = None;
-        } else if let Some(context) = state.context.take() {
-            // Finalization must never dereference AppKit off-main. Keep the
-            // callback context alive with the intentionally leaked controller;
-            // explicit Electron-main teardown is the required product path.
-            std::mem::forget(context);
-        }
-    }
-}
-
 #[napi(js_name = "attachAppKitRuntimeHost")]
 pub fn attach_appkit_runtime_host(
     native_view_handle: Buffer,
@@ -1138,9 +1066,8 @@ pub fn attach_appkit_runtime_host(
         identity,
         native_view: native_view.as_ptr() as usize,
         native_window: native_window.as_ptr() as usize,
+        lifecycle: ControllerLifecycle::new(ControllerResource::new(controller, context)),
         state: Mutex::new(NativeHostState {
-            context: Some(context),
-            controller: Some(controller.as_ptr() as usize),
             projection_revision: 0,
             projected_tab_ids: Vec::new(),
             projected_tab_fingerprints: Vec::new(),

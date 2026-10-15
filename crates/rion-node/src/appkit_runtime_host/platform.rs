@@ -21,14 +21,8 @@ use super::{
 };
 use super::{
     AppKitKeyDispatchProbeReceipt, AppKitMouseDispatchProbeReceipt, AppKitNativeViewTreeNode,
-    NativeHostState, ValidatedHostIdentity, ValidatedTabProjection, adapter_error,
-    host_destroyed_error,
+    ValidatedHostIdentity, ValidatedTabProjection, adapter_error,
 };
-
-pub(super) fn controller_pointer(state: &NativeHostState) -> Result<NonNull<c_void>> {
-    NonNull::new(state.controller.ok_or_else(host_destroyed_error)? as *mut c_void)
-        .ok_or_else(host_destroyed_error)
-}
 
 pub(super) fn ensure_appkit_main_thread() -> Result<()> {
     if rion_appkit::runtime_tabs_is_main_thread() {

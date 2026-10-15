@@ -96,6 +96,15 @@ The macOS attachment sequence is explicit:
    surface, destroys the exact AppKit controller on the main thread, observes the
    native host close event, and only then acknowledges the Core effect.
 
+Native calls retain a scoped controller and callback-context lease without
+holding the lifecycle mutex across AppKit. Synchronous resize/layout callbacks
+may acquire another lease; content-layout reads never acquire the projection
+mutex held by an outer native mutation. Retirement immediately fences callbacks
+and new leases, while existing calls retain both resources until they return.
+An operation rechecks live ownership before reporting success. The last lease
+releases the exact controller on AppKit main; native-host close acknowledgement
+remains a separate required event.
+
 An absent adapter, a non-main-thread AppKit call, a malformed native handle, a
 missing owning window, or a stale identity is a terminal non-success. The macOS
 factory must not fall back to the Windows HTML host.

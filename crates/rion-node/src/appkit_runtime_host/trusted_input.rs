@@ -198,64 +198,62 @@ impl NativeAppKitRuntimeHost {
         role_id: String,
         surface_generation: u32,
     ) -> Result<AppKitInputSurfaceCaptureReceipt> {
-        self.require_identity(&expected)?;
-        validate_identifier(&role_id, "input role")?;
-        if surface_generation == 0 {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit input-surface generation must be positive.",
-            ));
-        }
-        let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        if state.pending_input_capture.is_some() {
-            return Err(adapter_error(
-                Status::GenericFailure,
-                "An AppKit input-surface capture is already pending for this host.",
-            ));
-        }
-        if state.input_surfaces.contains_key(&role_id) {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The role already owns an AppKit Chromium input surface.",
-            ));
-        }
-        self.require_exact_native_window()?;
-        let native_view =
-            NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
-        let before = read_native_view_tree(native_view)?;
-        let before_addresses = native_view_addresses(&before)?;
-        let capture_sequence = state
-            .next_input_capture_sequence
-            .checked_add(1)
-            .ok_or_else(|| {
-                adapter_error(
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            validate_identifier(&role_id, "input role")?;
+            if surface_generation == 0 {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit input-surface generation must be positive.",
+                ));
+            }
+            let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
+            lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            if state.pending_input_capture.is_some() {
+                return Err(adapter_error(
                     Status::GenericFailure,
-                    "The AppKit input-surface capture sequence is exhausted.",
-                )
-            })?;
-        state.next_input_capture_sequence = capture_sequence;
-        state.pending_input_capture = Some(PendingInputSurfaceCapture {
-            role_id: role_id.clone(),
-            surface_generation,
-            capture_sequence,
-            before_addresses,
-        });
-        Ok(AppKitInputSurfaceCaptureReceipt {
-            role_id,
-            surface_generation,
-            capture_sequence: capture_sequence.to_string(),
-            observed_node_count: u32::try_from(before.len()).map_err(|_| {
-                adapter_error(
-                    Status::GenericFailure,
-                    "The AppKit input-surface snapshot exceeded its bounded node count.",
-                )
-            })?,
+                    "An AppKit input-surface capture is already pending for this host.",
+                ));
+            }
+            if state.input_surfaces.contains_key(&role_id) {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "The role already owns an AppKit Chromium input surface.",
+                ));
+            }
+            self.require_exact_native_window()?;
+            let native_view =
+                NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
+            let before = read_native_view_tree(native_view)?;
+            let before_addresses = native_view_addresses(&before)?;
+            let capture_sequence = state
+                .next_input_capture_sequence
+                .checked_add(1)
+                .ok_or_else(|| {
+                    adapter_error(
+                        Status::GenericFailure,
+                        "The AppKit input-surface capture sequence is exhausted.",
+                    )
+                })?;
+            state.next_input_capture_sequence = capture_sequence;
+            state.pending_input_capture = Some(PendingInputSurfaceCapture {
+                role_id: role_id.clone(),
+                surface_generation,
+                capture_sequence,
+                before_addresses,
+            });
+            Ok(AppKitInputSurfaceCaptureReceipt {
+                role_id,
+                surface_generation,
+                capture_sequence: capture_sequence.to_string(),
+                observed_node_count: u32::try_from(before.len()).map_err(|_| {
+                    adapter_error(
+                        Status::GenericFailure,
+                        "The AppKit input-surface snapshot exceeded its bounded node count.",
+                    )
+                })?,
+            })
         })
     }
 
@@ -267,62 +265,61 @@ impl NativeAppKitRuntimeHost {
         surface_generation: u32,
         capture_sequence: String,
     ) -> Result<AppKitInputSurfaceOwnershipReceipt> {
-        self.require_identity(&expected)?;
-        validate_identifier(&role_id, "input role")?;
-        let capture_sequence = parse_canonical_u64(&capture_sequence, true, "capture sequence")?;
-        let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        let pending = state.pending_input_capture.as_ref().ok_or_else(|| {
-            adapter_error(
-                Status::InvalidArg,
-                "No AppKit input-surface capture is pending.",
-            )
-        })?;
-        if pending.role_id != role_id
-            || pending.surface_generation != surface_generation
-            || pending.capture_sequence != capture_sequence
-        {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit input-surface capture identity is stale.",
-            ));
-        }
-        self.require_exact_native_window()?;
-        let native_view =
-            NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
-        let after = read_native_view_tree(native_view)?;
-        let root_address = exact_added_web_contents_root(&after, &pending.before_addresses)?;
-        if state.input_surfaces.len() >= MAX_NATIVE_INPUT_SURFACES {
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            validate_identifier(&role_id, "input role")?;
+            let capture_sequence =
+                parse_canonical_u64(&capture_sequence, true, "capture sequence")?;
+            let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
+            lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            let pending = state.pending_input_capture.as_ref().ok_or_else(|| {
+                adapter_error(
+                    Status::InvalidArg,
+                    "No AppKit input-surface capture is pending.",
+                )
+            })?;
+            if pending.role_id != role_id
+                || pending.surface_generation != surface_generation
+                || pending.capture_sequence != capture_sequence
+            {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit input-surface capture identity is stale.",
+                ));
+            }
+            self.require_exact_native_window()?;
+            let native_view =
+                NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
+            let after = read_native_view_tree(native_view)?;
+            let root_address = exact_added_web_contents_root(&after, &pending.before_addresses)?;
+            if state.input_surfaces.len() >= MAX_NATIVE_INPUT_SURFACES {
+                state.pending_input_capture = None;
+                return Err(adapter_error(
+                    Status::GenericFailure,
+                    "The AppKit host reached its bounded native input-surface capacity.",
+                ));
+            }
+            state.input_surfaces.insert(
+                role_id.clone(),
+                NativeInputSurface {
+                    surface_generation,
+                    web_contents_root_address: root_address,
+                    #[cfg(feature = "desktop-e2e")]
+                    input_epoch: 0,
+                    #[cfg(feature = "desktop-e2e")]
+                    dispatch_sequence: 0,
+                    #[cfg(feature = "desktop-e2e")]
+                    request_deadlines: HashMap::new(),
+                },
+            );
             state.pending_input_capture = None;
-            return Err(adapter_error(
-                Status::GenericFailure,
-                "The AppKit host reached its bounded native input-surface capacity.",
-            ));
-        }
-        state.input_surfaces.insert(
-            role_id.clone(),
-            NativeInputSurface {
+            Ok(AppKitInputSurfaceOwnershipReceipt {
+                role_id,
                 surface_generation,
-                web_contents_root_address: root_address,
-                #[cfg(feature = "desktop-e2e")]
-                input_epoch: 0,
-                #[cfg(feature = "desktop-e2e")]
-                dispatch_sequence: 0,
-                #[cfg(feature = "desktop-e2e")]
-                request_deadlines: HashMap::new(),
-            },
-        );
-        state.pending_input_capture = None;
-        Ok(AppKitInputSurfaceOwnershipReceipt {
-            role_id,
-            surface_generation,
-            native_generation: self.identity.native_generation,
-            capture_sequence: capture_sequence.to_string(),
+                native_generation: self.identity.native_generation,
+                capture_sequence: capture_sequence.to_string(),
+            })
         })
     }
 
@@ -334,25 +331,28 @@ impl NativeAppKitRuntimeHost {
         surface_generation: u32,
         capture_sequence: String,
     ) -> Result<bool> {
-        self.require_identity(&expected)?;
-        validate_identifier(&role_id, "input role")?;
-        let capture_sequence = parse_canonical_u64(&capture_sequence, true, "capture sequence")?;
-        let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        controller_pointer(&state)?;
-        let Some(pending) = state.pending_input_capture.as_ref() else {
-            return Ok(false);
-        };
-        if pending.role_id != role_id
-            || pending.surface_generation != surface_generation
-            || pending.capture_sequence != capture_sequence
-        {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit input-surface capture identity is stale.",
-            ));
-        }
-        state.pending_input_capture = None;
-        Ok(true)
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            validate_identifier(&role_id, "input role")?;
+            let capture_sequence =
+                parse_canonical_u64(&capture_sequence, true, "capture sequence")?;
+            let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
+            lease.pointer()?;
+            let Some(pending) = state.pending_input_capture.as_ref() else {
+                return Ok(false);
+            };
+            if pending.role_id != role_id
+                || pending.surface_generation != surface_generation
+                || pending.capture_sequence != capture_sequence
+            {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit input-surface capture identity is stale.",
+                ));
+            }
+            state.pending_input_capture = None;
+            Ok(true)
+        })
     }
 
     #[napi(js_name = "retireInputSurface")]
@@ -362,21 +362,23 @@ impl NativeAppKitRuntimeHost {
         role_id: String,
         surface_generation: u32,
     ) -> Result<bool> {
-        self.require_identity(&expected)?;
-        validate_identifier(&role_id, "input role")?;
-        let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        controller_pointer(&state)?;
-        let Some(surface) = state.input_surfaces.get(&role_id) else {
-            return Ok(false);
-        };
-        if surface.surface_generation != surface_generation {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit input-surface generation is stale.",
-            ));
-        }
-        state.input_surfaces.remove(&role_id);
-        Ok(true)
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            validate_identifier(&role_id, "input role")?;
+            let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
+            lease.pointer()?;
+            let Some(surface) = state.input_surfaces.get(&role_id) else {
+                return Ok(false);
+            };
+            if surface.surface_generation != surface_generation {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit input-surface generation is stale.",
+                ));
+            }
+            state.input_surfaces.remove(&role_id);
+            Ok(true)
+        })
     }
 
     #[napi(js_name = "probeCdpInputSurface")]
@@ -386,94 +388,92 @@ impl NativeAppKitRuntimeHost {
         role_id: String,
         surface_generation: u32,
     ) -> Result<AppKitCdpInputSurfaceProbeReceipt> {
-        self.require_identity(&expected)?;
-        validate_identifier(&role_id, "input role")?;
-        let state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        self.require_exact_native_window()?;
-        let surface = state.input_surfaces.get(&role_id).ok_or_else(|| {
-            adapter_error(
-                Status::InvalidArg,
-                "The role has no captured AppKit Chromium input surface.",
-            )
-        })?;
-        if surface.surface_generation != surface_generation {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit Chromium input-surface generation is stale.",
-            ));
-        }
-        let native_view =
-            NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
-        let probe = probe_cdp_input_surface(native_view, surface.web_contents_root_address)?;
-        if probe.target_attached == 0
-            || probe.target_window_address == 0
-            || !probe.target_x.is_finite()
-            || !probe.target_y.is_finite()
-            || !probe.target_width.is_finite()
-            || probe.target_width <= 0.0
-            || !probe.target_height.is_finite()
-            || probe.target_height <= 0.0
-            || probe.physical_modifier_mask & !0xff != 0
-            || probe.target_receives_physical_input > 1
-        {
-            return Err(adapter_error(
-                Status::GenericFailure,
-                "The AppKit CDP input-surface probe returned invalid native evidence.",
-            ));
-        }
-        Ok(AppKitCdpInputSurfaceProbeReceipt {
-            role_id,
-            surface_generation,
-            native_generation: self.identity.native_generation,
-            target_attached: true,
-            target_window_is_key: probe.target_window_is_key != 0,
-            target_receives_physical_input: probe.target_receives_physical_input != 0,
-            key_window_address: probe.key_window_address.to_string(),
-            key_window_first_responder_address: probe
-                .key_window_first_responder_address
-                .to_string(),
-            target_window_address: probe.target_window_address.to_string(),
-            target_window_first_responder_address: probe
-                .target_window_first_responder_address
-                .to_string(),
-            physical_modifier_codes: physical_modifier_codes(probe.physical_modifier_mask),
-            physical_input_sequence: probe.physical_input_sequence.to_string(),
-            physical_key_down_sequence: probe.physical_key_down_sequence.to_string(),
-            physical_key_up_sequence: probe.physical_key_up_sequence.to_string(),
-            physical_keyboard_evidence: PhysicalKeyboardEvidence {
-                sequence: probe.physical_keyboard_sequence.to_string(),
-                events: probe
-                    .physical_key_events
-                    .iter()
-                    .take(probe.physical_key_event_count.min(128) as usize)
-                    .map(|event| PhysicalKeyEvidence {
-                        sequence: event.sequence.to_string(),
-                        code: String::from_utf8_lossy(
-                            &event.code
-                                [..event.code.iter().position(|byte| *byte == 0).unwrap_or(32)],
-                        )
-                        .into_owned(),
-                        event_type: if event.released != 0 {
-                            "keyup"
-                        } else {
-                            "keydown"
-                        }
-                        .into(),
-                        repeat: event.repeat != 0,
-                        consumed: event.consumed != 0,
-                    })
-                    .collect(),
-            },
-            target_x: probe.target_x,
-            target_y: probe.target_y,
-            target_width: probe.target_width,
-            target_height: probe.target_height,
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            validate_identifier(&role_id, "input role")?;
+            let state = self.state.lock().map_err(|_| state_poisoned_error())?;
+            lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            self.require_exact_native_window()?;
+            let surface = state.input_surfaces.get(&role_id).ok_or_else(|| {
+                adapter_error(
+                    Status::InvalidArg,
+                    "The role has no captured AppKit Chromium input surface.",
+                )
+            })?;
+            if surface.surface_generation != surface_generation {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit Chromium input-surface generation is stale.",
+                ));
+            }
+            let native_view =
+                NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
+            let probe = probe_cdp_input_surface(native_view, surface.web_contents_root_address)?;
+            if probe.target_attached == 0
+                || probe.target_window_address == 0
+                || !probe.target_x.is_finite()
+                || !probe.target_y.is_finite()
+                || !probe.target_width.is_finite()
+                || probe.target_width <= 0.0
+                || !probe.target_height.is_finite()
+                || probe.target_height <= 0.0
+                || probe.physical_modifier_mask & !0xff != 0
+                || probe.target_receives_physical_input > 1
+            {
+                return Err(adapter_error(
+                    Status::GenericFailure,
+                    "The AppKit CDP input-surface probe returned invalid native evidence.",
+                ));
+            }
+            Ok(AppKitCdpInputSurfaceProbeReceipt {
+                role_id,
+                surface_generation,
+                native_generation: self.identity.native_generation,
+                target_attached: true,
+                target_window_is_key: probe.target_window_is_key != 0,
+                target_receives_physical_input: probe.target_receives_physical_input != 0,
+                key_window_address: probe.key_window_address.to_string(),
+                key_window_first_responder_address: probe
+                    .key_window_first_responder_address
+                    .to_string(),
+                target_window_address: probe.target_window_address.to_string(),
+                target_window_first_responder_address: probe
+                    .target_window_first_responder_address
+                    .to_string(),
+                physical_modifier_codes: physical_modifier_codes(probe.physical_modifier_mask),
+                physical_input_sequence: probe.physical_input_sequence.to_string(),
+                physical_key_down_sequence: probe.physical_key_down_sequence.to_string(),
+                physical_key_up_sequence: probe.physical_key_up_sequence.to_string(),
+                physical_keyboard_evidence: PhysicalKeyboardEvidence {
+                    sequence: probe.physical_keyboard_sequence.to_string(),
+                    events: probe
+                        .physical_key_events
+                        .iter()
+                        .take(probe.physical_key_event_count.min(128) as usize)
+                        .map(|event| PhysicalKeyEvidence {
+                            sequence: event.sequence.to_string(),
+                            code: String::from_utf8_lossy(
+                                &event.code
+                                    [..event.code.iter().position(|byte| *byte == 0).unwrap_or(32)],
+                            )
+                            .into_owned(),
+                            event_type: if event.released != 0 {
+                                "keyup"
+                            } else {
+                                "keydown"
+                            }
+                            .into(),
+                            repeat: event.repeat != 0,
+                            consumed: event.consumed != 0,
+                        })
+                        .collect(),
+                },
+                target_x: probe.target_x,
+                target_y: probe.target_y,
+                target_width: probe.target_width,
+                target_height: probe.target_height,
+            })
         })
     }
 }
@@ -485,101 +485,100 @@ impl NativeAppKitRuntimeHost {
         expected: AppKitRuntimeHostIdentity,
         request: AppKitNativeBackgroundKeyRequest,
     ) -> Result<AppKitNativeBackgroundKeySubmissionReceipt> {
-        self.require_identity(&expected)?;
-        let request = validate_native_background_key_request(request)?;
-        let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        self.require_exact_native_window()?;
-        let surface = state
-            .input_surfaces
-            .get_mut(&request.role_id)
-            .ok_or_else(|| {
-                adapter_error(
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            let request = validate_native_background_key_request(request)?;
+            let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
+            lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            self.require_exact_native_window()?;
+            let surface = state
+                .input_surfaces
+                .get_mut(&request.role_id)
+                .ok_or_else(|| {
+                    adapter_error(
+                        Status::InvalidArg,
+                        "The role has no captured AppKit Chromium input surface.",
+                    )
+                })?;
+            if surface.surface_generation != request.surface_generation {
+                return Err(adapter_error(
                     Status::InvalidArg,
-                    "The role has no captured AppKit Chromium input surface.",
-                )
-            })?;
-        if surface.surface_generation != request.surface_generation {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit Chromium input-surface generation is stale.",
-            ));
-        }
-        if request.input_epoch < surface.input_epoch {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit Chromium input epoch is stale.",
-            ));
-        }
-        let started_at_ms = unix_epoch_ms()?;
-        admit_request_ledger(
-            &mut surface.request_deadlines,
-            &request.request_id,
-            request.deadline_ms,
-            started_at_ms,
-        )?;
-        let dispatch_sequence = surface.dispatch_sequence.checked_add(1).ok_or_else(|| {
-            adapter_error(
-                Status::GenericFailure,
-                "The AppKit Chromium input dispatch sequence is exhausted.",
-            )
-        })?;
-        let native_view =
-            NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
-        let code = CString::new(request.code.as_str()).map_err(|_| {
-            adapter_error(
-                Status::InvalidArg,
-                "The AppKit Chromium key code contains an invalid null byte.",
-            )
-        })?;
-        let native_receipt = submit_native_background_key(
-            native_view,
-            surface.web_contents_root_address,
-            &code,
-            request.event_type == "rawKeyDown",
-            request.modifier_flags,
-            request.repeat,
-        )?;
-        let submitted_at_ms = unix_epoch_ms()?;
-        surface.input_epoch = request.input_epoch;
-        surface.dispatch_sequence = dispatch_sequence;
-        Ok(AppKitNativeBackgroundKeySubmissionReceipt {
-            status: "submitted".to_owned(),
-            request_id: request.request_id,
-            role_id: request.role_id,
-            surface_generation: request.surface_generation,
-            input_epoch: request.input_epoch.to_string(),
-            native_generation: self.identity.native_generation,
-            dispatch_sequence: dispatch_sequence.to_string(),
-            submitted_at_ms: submitted_at_ms.to_string(),
-            within_deadline: submitted_at_ms < request.deadline_ms,
-            event_type: request.event_type,
-            code: request.code,
-            dispatched_event_count: u32::from(native_receipt.dispatched_event_count),
-            virtual_key_code: u32::from(native_receipt.virtual_key_code),
-            repeat: request.repeat,
-            modifier_flags: u32::try_from(native_receipt.modifier_flags).map_err(|_| {
+                    "The AppKit Chromium input-surface generation is stale.",
+                ));
+            }
+            if request.input_epoch < surface.input_epoch {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit Chromium input epoch is stale.",
+                ));
+            }
+            let started_at_ms = unix_epoch_ms()?;
+            admit_request_ledger(
+                &mut surface.request_deadlines,
+                &request.request_id,
+                request.deadline_ms,
+                started_at_ms,
+            )?;
+            let dispatch_sequence = surface.dispatch_sequence.checked_add(1).ok_or_else(|| {
                 adapter_error(
                     Status::GenericFailure,
-                    "The AppKit Chromium modifier receipt exceeded its validated width.",
+                    "The AppKit Chromium input dispatch sequence is exhausted.",
                 )
-            })?,
-            target_attached: native_receipt.target_attached != 0,
-            focus_neutral: native_receipt.focus_neutral != 0,
-            key_window_preserved: native_receipt.key_window_preserved != 0,
-            key_window_first_responder_preserved: native_receipt
-                .key_window_first_responder_preserved
-                != 0,
-            target_first_responder_preserved: native_receipt.target_first_responder_preserved != 0,
-            target_x: native_receipt.target_x,
-            target_y: native_receipt.target_y,
-            target_width: native_receipt.target_width,
-            target_height: native_receipt.target_height,
+            })?;
+            let native_view =
+                NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
+            let code = CString::new(request.code.as_str()).map_err(|_| {
+                adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit Chromium key code contains an invalid null byte.",
+                )
+            })?;
+            let native_receipt = submit_native_background_key(
+                native_view,
+                surface.web_contents_root_address,
+                &code,
+                request.event_type == "rawKeyDown",
+                request.modifier_flags,
+                request.repeat,
+            )?;
+            let submitted_at_ms = unix_epoch_ms()?;
+            surface.input_epoch = request.input_epoch;
+            surface.dispatch_sequence = dispatch_sequence;
+            Ok(AppKitNativeBackgroundKeySubmissionReceipt {
+                status: "submitted".to_owned(),
+                request_id: request.request_id,
+                role_id: request.role_id,
+                surface_generation: request.surface_generation,
+                input_epoch: request.input_epoch.to_string(),
+                native_generation: self.identity.native_generation,
+                dispatch_sequence: dispatch_sequence.to_string(),
+                submitted_at_ms: submitted_at_ms.to_string(),
+                within_deadline: submitted_at_ms < request.deadline_ms,
+                event_type: request.event_type,
+                code: request.code,
+                dispatched_event_count: u32::from(native_receipt.dispatched_event_count),
+                virtual_key_code: u32::from(native_receipt.virtual_key_code),
+                repeat: request.repeat,
+                modifier_flags: u32::try_from(native_receipt.modifier_flags).map_err(|_| {
+                    adapter_error(
+                        Status::GenericFailure,
+                        "The AppKit Chromium modifier receipt exceeded its validated width.",
+                    )
+                })?,
+                target_attached: native_receipt.target_attached != 0,
+                focus_neutral: native_receipt.focus_neutral != 0,
+                key_window_preserved: native_receipt.key_window_preserved != 0,
+                key_window_first_responder_preserved: native_receipt
+                    .key_window_first_responder_preserved
+                    != 0,
+                target_first_responder_preserved: native_receipt.target_first_responder_preserved
+                    != 0,
+                target_x: native_receipt.target_x,
+                target_y: native_receipt.target_y,
+                target_width: native_receipt.target_width,
+                target_height: native_receipt.target_height,
+            })
         })
     }
 
@@ -588,101 +587,100 @@ impl NativeAppKitRuntimeHost {
         expected: AppKitRuntimeHostIdentity,
         request: AppKitNativeBackgroundMouseRequest,
     ) -> Result<AppKitNativeBackgroundMouseSubmissionReceipt> {
-        self.require_identity(&expected)?;
-        let request = validate_native_background_mouse_request(request)?;
-        let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
-        controller_pointer(&state)?;
-        state
-            .context
-            .as_ref()
-            .ok_or_else(host_destroyed_error)?
-            .ensure_healthy()?;
-        self.require_exact_native_window()?;
-        let surface = state
-            .input_surfaces
-            .get_mut(&request.role_id)
-            .ok_or_else(|| {
-                adapter_error(
+        self.with_controller_resource(&expected, |lease| {
+            self.require_identity(&expected)?;
+            let request = validate_native_background_mouse_request(request)?;
+            let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
+            lease.pointer()?;
+            lease.context.ensure_healthy()?;
+            self.require_exact_native_window()?;
+            let surface = state
+                .input_surfaces
+                .get_mut(&request.role_id)
+                .ok_or_else(|| {
+                    adapter_error(
+                        Status::InvalidArg,
+                        "The role has no captured AppKit Chromium input surface.",
+                    )
+                })?;
+            if surface.surface_generation != request.surface_generation {
+                return Err(adapter_error(
                     Status::InvalidArg,
-                    "The role has no captured AppKit Chromium input surface.",
-                )
-            })?;
-        if surface.surface_generation != request.surface_generation {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit Chromium input-surface generation is stale.",
-            ));
-        }
-        if request.input_epoch < surface.input_epoch {
-            return Err(adapter_error(
-                Status::InvalidArg,
-                "The AppKit Chromium input epoch is stale.",
-            ));
-        }
-        let started_at_ms = unix_epoch_ms()?;
-        admit_request_ledger(
-            &mut surface.request_deadlines,
-            &request.request_id,
-            request.deadline_ms,
-            started_at_ms,
-        )?;
-        let dispatch_sequence = surface.dispatch_sequence.checked_add(1).ok_or_else(|| {
-            adapter_error(
-                Status::GenericFailure,
-                "The AppKit Chromium input dispatch sequence is exhausted.",
-            )
-        })?;
-        let native_view =
-            NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
-        let native_receipt = submit_native_background_mouse(
-            native_view,
-            surface.web_contents_root_address,
-            request.client_x,
-            request.client_y,
-            request.zoom_factor,
-            request.button,
-            request.modifier_flags,
-        )?;
-        let submitted_at_ms = unix_epoch_ms()?;
-        surface.input_epoch = request.input_epoch;
-        surface.dispatch_sequence = dispatch_sequence;
-        Ok(AppKitNativeBackgroundMouseSubmissionReceipt {
-            status: "submitted".to_owned(),
-            request_id: request.request_id,
-            role_id: request.role_id,
-            surface_generation: request.surface_generation,
-            input_epoch: request.input_epoch.to_string(),
-            native_generation: self.identity.native_generation,
-            dispatch_sequence: dispatch_sequence.to_string(),
-            submitted_at_ms: submitted_at_ms.to_string(),
-            within_deadline: submitted_at_ms < request.deadline_ms,
-            dispatched_event_count: u32::from(native_receipt.dispatched_event_count),
-            button: u32::from(native_receipt.button),
-            modifier_flags: u32::try_from(native_receipt.modifier_flags).map_err(|_| {
+                    "The AppKit Chromium input-surface generation is stale.",
+                ));
+            }
+            if request.input_epoch < surface.input_epoch {
+                return Err(adapter_error(
+                    Status::InvalidArg,
+                    "The AppKit Chromium input epoch is stale.",
+                ));
+            }
+            let started_at_ms = unix_epoch_ms()?;
+            admit_request_ledger(
+                &mut surface.request_deadlines,
+                &request.request_id,
+                request.deadline_ms,
+                started_at_ms,
+            )?;
+            let dispatch_sequence = surface.dispatch_sequence.checked_add(1).ok_or_else(|| {
                 adapter_error(
                     Status::GenericFailure,
-                    "The AppKit Chromium modifier receipt exceeded its validated width.",
+                    "The AppKit Chromium input dispatch sequence is exhausted.",
                 )
-            })?,
-            client_x: native_receipt.client_x,
-            client_y: native_receipt.client_y,
-            zoom_factor: native_receipt.zoom_factor,
-            app_kit_point_x: native_receipt.app_kit_point_x,
-            app_kit_point_y: native_receipt.app_kit_point_y,
-            window_point_x: native_receipt.window_point_x,
-            window_point_y: native_receipt.window_point_y,
-            target_flipped: native_receipt.target_flipped != 0,
-            target_attached: native_receipt.target_attached != 0,
-            focus_neutral: native_receipt.focus_neutral != 0,
-            key_window_preserved: native_receipt.key_window_preserved != 0,
-            key_window_first_responder_preserved: native_receipt
-                .key_window_first_responder_preserved
-                != 0,
-            target_first_responder_preserved: native_receipt.target_first_responder_preserved != 0,
-            target_x: native_receipt.target_x,
-            target_y: native_receipt.target_y,
-            target_width: native_receipt.target_width,
-            target_height: native_receipt.target_height,
+            })?;
+            let native_view =
+                NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
+            let native_receipt = submit_native_background_mouse(
+                native_view,
+                surface.web_contents_root_address,
+                request.client_x,
+                request.client_y,
+                request.zoom_factor,
+                request.button,
+                request.modifier_flags,
+            )?;
+            let submitted_at_ms = unix_epoch_ms()?;
+            surface.input_epoch = request.input_epoch;
+            surface.dispatch_sequence = dispatch_sequence;
+            Ok(AppKitNativeBackgroundMouseSubmissionReceipt {
+                status: "submitted".to_owned(),
+                request_id: request.request_id,
+                role_id: request.role_id,
+                surface_generation: request.surface_generation,
+                input_epoch: request.input_epoch.to_string(),
+                native_generation: self.identity.native_generation,
+                dispatch_sequence: dispatch_sequence.to_string(),
+                submitted_at_ms: submitted_at_ms.to_string(),
+                within_deadline: submitted_at_ms < request.deadline_ms,
+                dispatched_event_count: u32::from(native_receipt.dispatched_event_count),
+                button: u32::from(native_receipt.button),
+                modifier_flags: u32::try_from(native_receipt.modifier_flags).map_err(|_| {
+                    adapter_error(
+                        Status::GenericFailure,
+                        "The AppKit Chromium modifier receipt exceeded its validated width.",
+                    )
+                })?,
+                client_x: native_receipt.client_x,
+                client_y: native_receipt.client_y,
+                zoom_factor: native_receipt.zoom_factor,
+                app_kit_point_x: native_receipt.app_kit_point_x,
+                app_kit_point_y: native_receipt.app_kit_point_y,
+                window_point_x: native_receipt.window_point_x,
+                window_point_y: native_receipt.window_point_y,
+                target_flipped: native_receipt.target_flipped != 0,
+                target_attached: native_receipt.target_attached != 0,
+                focus_neutral: native_receipt.focus_neutral != 0,
+                key_window_preserved: native_receipt.key_window_preserved != 0,
+                key_window_first_responder_preserved: native_receipt
+                    .key_window_first_responder_preserved
+                    != 0,
+                target_first_responder_preserved: native_receipt.target_first_responder_preserved
+                    != 0,
+                target_x: native_receipt.target_x,
+                target_y: native_receipt.target_y,
+                target_width: native_receipt.target_width,
+                target_height: native_receipt.target_height,
+            })
         })
     }
 }

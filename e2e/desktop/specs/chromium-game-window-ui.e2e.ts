@@ -34,6 +34,7 @@ const WINDOW_NAME = "Chromium E2E Game Window";
 type Presentation = GameWindow["placement"]["presentation"];
 const presentationStages: unknown[] = [];
 const fullscreenShortcutAdmissions: unknown[] = [];
+const nativeRecreations: unknown[] = [];
 
 function required(name: string): string {
   const value = process.env[name];
@@ -340,6 +341,8 @@ async function closeAndReopenSavedPresentation(input: Readonly<{
   platform: "macos" | "windows";
   presentation: Presentation;
 }>): Promise<void> {
+  const beforeClose = await electronDesktopE2eGameWindowRuntime(input.gameWindow.id);
+  expectExactNativeIdentity(beforeClose, input.platform);
   if (input.presentation === "fullscreen") {
     await revealVisibleFullscreenControls(input.gameWindow.id, input.platform);
   }
@@ -352,7 +355,18 @@ async function closeAndReopenSavedPresentation(input: Readonly<{
   expect(saved.placement.normalBounds).toEqual(input.gameWindow.placement.normalBounds);
   await recordPresentationStage(`${input.presentation}-closed`, saved, null, input.initialTargetDisplay);
   await showThroughVisibleUi(saved);
-  await waitForSavedPresentation({ ...input, stage: `${input.presentation}-reopened` });
+  const reopened = await waitForSavedPresentation({ ...input, stage: `${input.presentation}-reopened` });
+  nativeRecreations.push({ presentation: input.presentation,
+    beforeClose: beforeClose.currentRuntime, afterReopen: reopened.runtime });
+  await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
+    "game-window-native-recreations.json"), `${JSON.stringify(nativeRecreations, null, 2)}\n`);
+  expect(reopened.runtime.windowGeneration).toBeGreaterThan(beforeClose.currentRuntime!.windowGeneration);
+  if (input.platform === "macos") {
+    // Recreating saved fullscreen synchronously reads native layout while the
+    // new controller prepares its window; the retired controller cannot satisfy Show.
+    expect(reopened.runtime.appKitIdentity!.nativeGeneration)
+      .toBeGreaterThan(beforeClose.currentRuntime!.appKitIdentity!.nativeGeneration);
+  }
 }
 
 describe("Chromium permanent Game Window UI", () => {

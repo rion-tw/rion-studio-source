@@ -492,6 +492,11 @@ remains observable. No real-sleep PASS may be inferred from these tests.
   native controls may create deterministic preconditions, inject a controlled
   fault, or read authoritative state; they may not substitute for the action
   being tested.
+- In Role session isolation, explicit reset, and app recovery, hover the exact
+  entity card and select its existing labeled action trigger by presence. Wait
+  for positive displayed and clickable receipts on that same control before
+  clicking it once. An initial hidden observation does not make an existing
+  hover-revealed control absent; a failed readiness wait remains a failure.
 - Wait for authoritative renderer/native events or persisted evidence. Do not
   use elapsed time as success. External OS boundaries may be declared `BLOCKED`,
   which deliberately fails gated runs.

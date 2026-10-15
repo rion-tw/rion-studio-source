@@ -11,6 +11,7 @@ import {
 } from "../support/electron-driver";
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import { rendererCall } from "../support/renderer-bridge";
+import { waitForVisibleEntityActionTrigger } from "../support/visible-entity-action-trigger";
 import {
   acceptLegalAndSkipFirstRun,
   clickDialogButton,
@@ -65,18 +66,10 @@ async function clickVisibleRoleAction(roleId: string, actionLabel: string): Prom
   await card.waitForDisplayed({ timeout: 10_000 });
   await card.scrollIntoView({ block: "center", inline: "center" });
   await card.moveTo();
-  let trigger;
-  for (const label of ["Role actions", "Click for actions or drag to reorder"] as const) {
-    const candidate = await card.$(`button[aria-label='${label}']`);
-    if (await candidate.isExisting() && await candidate.isDisplayed()) {
-      trigger = candidate;
-      break;
-    }
-  }
-  if (!trigger) throw new Error(`Role ${roleId} has no visible action trigger`);
+  const trigger = await waitForVisibleEntityActionTrigger(card,
+    ["Role actions", "Click for actions or drag to reorder"],
+    `Role ${roleId} has no visible action trigger`);
   await trigger.moveTo();
-  await trigger.waitForDisplayed({ timeout: 10_000 });
-  await trigger.waitForClickable({ timeout: 10_000 });
   await trigger.click();
   const menu = await $("[role='menu']");
   await menu.waitForDisplayed({ timeout: 10_000 });

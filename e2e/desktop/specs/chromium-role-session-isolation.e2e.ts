@@ -26,6 +26,7 @@ import { clickVisibleElectronRolePageButton } from
   "../support/electron-role-surface";
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import { rendererCall } from "../support/renderer-bridge";
+import { waitForVisibleEntityActionTrigger } from "../support/visible-entity-action-trigger";
 import { runtimeEffectCursor, waitForRestoreSavedGameWindowCompletion } from
   "../support/terminal-cleanup-evidence";
 import {
@@ -146,16 +147,8 @@ async function clickEntityMenuAction(
   await entity.waitForDisplayed({ timeout: 10_000 });
   await entity.scrollIntoView({ block: "center", inline: "center" });
   await entity.moveTo();
-  let trigger;
-  for (const label of triggerLabels) {
-    const candidate = await entity.$(`button[aria-label='${label}']`);
-    if (await candidate.isExisting() && await candidate.isDisplayed()) {
-      trigger = candidate;
-      break;
-    }
-  }
-  if (!trigger) throw new Error(`Entity ${entityId} has no visible action trigger`);
-  await trigger.waitForClickable({ timeout: 10_000 });
+  const trigger = await waitForVisibleEntityActionTrigger(entity, triggerLabels,
+    `Entity ${entityId} has no visible action trigger`);
   await trigger.click();
   const menu = await $("[role='menu']");
   await menu.waitForDisplayed({ timeout: 10_000 });

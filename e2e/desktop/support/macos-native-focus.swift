@@ -8,13 +8,19 @@ func fail(_ message: String) -> Never {
   FileHandle.standardError.write(Data((message + "\n").utf8))
   exit(1)
 }
-guard CommandLine.arguments.count == 6,
+guard [6, 8].contains(CommandLine.arguments.count),
       let targetPid = Int32(CommandLine.arguments[1]), targetPid > 0,
       AXIsProcessTrusted() else { fail("exact native focus input or Accessibility grant unavailable") }
 let expectedWindowIdentifier = CommandLine.arguments[2]
 let runtimeTabName = CommandLine.arguments[3]
 let mode = CommandLine.arguments[4]
 let command = CommandLine.arguments[5]
+let receiptNonce = CommandLine.arguments.count == 8 ? CommandLine.arguments[7] : nil
+if let receiptNonce {
+  guard CommandLine.arguments[6] == "receipt", mode == "roleKey",
+        command.range(of: "^(Ctrl\\+)?F([1-9]|1[0-2])$", options: .regularExpression) != nil,
+        UUID(uuidString: receiptNonce) != nil else { fail("invalid native function-key receipt mode") }
+}
 guard ["focus", "observe", "roleKey", "shortcut"].contains(mode) else { fail("unknown focus mode") }
 let appKitPrefix = "com.rionstudio.runtime.appkit-window.v1:"
 let application = AXUIElementCreateApplication(targetPid)
@@ -273,5 +279,16 @@ if mode == "shortcut" || mode == "roleKey" {
   // PresentationOnly: keep WebDriver outside the Space animation; the caller
   // still requires the exact Core/AppKit terminal presentation event.
   if command == "toggleFullscreen" { usleep(2_000_000) }
+  if let receiptNonce {
+    withExtendedLifetime((source, down, up)) {
+      print("submitted:\(receiptNonce)")
+      fflush(stdout)
+      guard let receipt = readLine(), receipt == "received:\(receiptNonce)" else {
+        fail("native function-key receipt was cancelled, absent, or mismatched")
+      }
+      print("completed:\(receiptNonce)")
+      fflush(stdout)
+    }
+  }
 }
-print("focused")
+if receiptNonce == nil { print("focused") }

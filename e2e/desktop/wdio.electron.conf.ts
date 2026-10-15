@@ -10,6 +10,7 @@ import { requestElectronDesktopE2eClose, electronDesktopE2eProbe } from "./suppo
 import { electronLauncherWindowHandle } from "./support/window-target";
 import { focusWindowsLauncherForVisibleLaunch } from "./support/windows-launcher-foreground";
 import { prepareMacosNativeFocus } from "./support/compiled-macos-native-focus";
+import { prepareMacosLauncherActivation } from "./support/compiled-macos-launcher-activation";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -97,7 +98,10 @@ export const config = {
   beforeSession: async (): Promise<void> => {
     // Compile before any journey can capture an exact input/focus precondition.
     // Compiler startup does not consume a native action's delivery deadline.
-    if (process.platform === "darwin") await prepareMacosNativeFocus();
+    if (process.platform === "darwin") {
+      await prepareMacosNativeFocus();
+      await prepareMacosLauncherActivation();
+    }
     if (packaged) return;
     // WDIO replays commands registered on this protocol stub onto the concrete
     // browser before the real session is returned to Runner.endSession().

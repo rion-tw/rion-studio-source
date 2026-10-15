@@ -64,6 +64,10 @@ The macOS focus/shortcut helper likewise compiles once per phase before the WDIO
 session can capture input eligibility. Compilation has its own 120-second bound;
 each acknowledged executable invocation retains its original 15/30-second bound.
 Compiler failure remains terminal, and an unknown input outcome is never replayed.
+The launcher AX activation helper also compiles before session eligibility with
+the same separate 120-second compilation bound. Its exact-owner activation keeps
+the original 10-second native bound and strict receipt checks; compile and run
+failures retain bounded process metadata without retrying an unknown action.
 
 The paired `chromium-workspace-gap-dividers-seed` / `restart` phases create a
 `main_left_stack_right` Workspace with two Roles and one Website, open it with a
@@ -386,6 +390,11 @@ the Windows phase clicks the Settings switch and invokes the native View-menu
 fullscreen item with its visible Alt+V, F mnemonic. Function-key Macro journeys
 exercise F1–F12 and Ctrl+F1–F12 through physical input, requiring one complete
 Macro output per chord, neutral cleanup and unchanged native presentation.
+On macOS, retain the native sender, CGEventSource and posted function-key events until those
+exact receiver assertions acknowledge the invocation. A nonce binds submitted,
+received and completed messages; actual normal child close is also required.
+The existing 15-second native-process boundary can only fail an unknown receipt;
+submission or elapsed time never proves delivery, and no input is retried.
 Both move the real WebDriver pointer to the physical reveal edge and consume an
 E2E-only, token-authenticated observation history. That history must bind a
 nonempty live Role/tab set to exact Core/native generation and topology fences,

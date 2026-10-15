@@ -17,6 +17,15 @@ import {
 
 type Listener = (...arguments_: unknown[]) => unknown;
 
+export function capturedWindowPlacement(
+  sourceWindowId: string,
+  native: Pick<FakeBaseWindow, "fullScreen" | "maximized" | "minimized">
+) {
+  return { type: "windowPlacementChanged" as const, sourceWindowId,
+    placementDiagnostics: { fullScreen: native.fullScreen,
+      zoomed: native.maximized, minimized: native.minimized } };
+}
+
 export class FakeBaseWindow {
   readonly setWindowButtonVisibility: Mock<(visible: boolean) => void> = vi.fn();
   readonly nativeId: number;

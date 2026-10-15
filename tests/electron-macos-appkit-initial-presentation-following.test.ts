@@ -5,7 +5,7 @@ import { ChromiumRuntimeOwnershipTransitionCoordinator } from
   "../src/electron/main/chromiumRuntimeOwnershipTransitionCoordinator";
 import { effect } from "./support/electronChromiumRuntimeEffectFixtures";
 import { harness } from "./support/electronChromiumRuntimeEffectExecutorHarness";
-import { expectPending, Fixture, target } from
+import { capturedWindowPlacement, expectPending, Fixture, target } from
   "./support/macosAppKitRuntimeHostFactoryFixtures";
 
 afterEach(() => vi.restoreAllMocks());
@@ -69,10 +69,9 @@ describe.each(["fullscreen", "maximized"] as const)(
       expect(fixture.onAction).not.toHaveBeenCalled();
       await expectPending(execution.completion);
 
-      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: {
-        type: "windowPlacementChanged", sourceWindowId: fence.windowId
-      } });
+      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: capturedWindowPlacement(fence.windowId, fixture.windows[0]!) });
       await expectPending(execution.completion);
+      const queuedNormalPlacement = capturedWindowPlacement(fence.windowId, native);
       native.fullScreen = presentation === "fullscreen";
       native.maximized = presentation === "maximized";
       native.emit(presentation === "fullscreen" ? "enter-full-screen" : "maximize");
@@ -81,9 +80,15 @@ describe.each(["fullscreen", "maximized"] as const)(
       expect(fixture.onAction).not.toHaveBeenCalled();
       await expectPending(execution.completion);
 
-      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: {
-        type: "windowPlacementChanged", sourceWindowId: fence.windowId
-      } });
+      // N-API can deliver this older captured normal event after the native
+      // readback changes mode. It cannot acknowledge the submitted transition.
+      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
+        action: queuedNormalPlacement });
+      await expectPending(execution.completion);
+      expect(fixture.onLayout).not.toHaveBeenCalled();
+      expect(fixture.onAction).not.toHaveBeenCalled();
+
+      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: capturedWindowPlacement(fence.windowId, fixture.windows[0]!) });
 
       await expect(execution.completion).resolves.toMatchObject({ status: "applied" });
       expect(submit).toHaveBeenCalledOnce();

@@ -163,13 +163,16 @@ async function showThroughVisibleUi(
       timeoutMsg: `Game Window ${gameWindow.id} did not present Visible status`
     });
   } catch (error) {
-    const [saved, visibleRow] = await Promise.allSettled([
-      rendererCall("listGameWindows"), row.getText()
+    const [saved, visibleRow, terminalRuntime] = await Promise.allSettled([
+      rendererCall("listGameWindows"), row.getText(),
+      electronDesktopE2eGameWindowRuntime(gameWindow.id)
     ]);
     await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"),
       "game-window-show-failure.json"), `${JSON.stringify({
       windowId: gameWindow.id, requestedSavedPlacement: gameWindow.placement,
-      latestRuntimeInspection: inspection, lastInspectionError,
+      lastSuccessfulOwnershipInspection: inspection,
+      latestRuntimeInspection: terminalRuntime.status === "fulfilled"
+        ? terminalRuntime.value : String(terminalRuntime.reason), lastInspectionError,
       waitFailure: error instanceof Error ? error.message : String(error),
       latestSavedWindow: saved.status === "fulfilled"
         ? saved.value.find(({ id }) => id === gameWindow.id) : String(saved.reason),

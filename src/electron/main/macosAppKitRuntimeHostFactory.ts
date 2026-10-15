@@ -74,6 +74,7 @@ import {
   publishMacosAppKitRuntimeWindowFocus,
   publishMacosAppKitRuntimeWindowState,
   readMacosAppKitRuntimeWindowState,
+  requireCapturedWindowPlacementPresentation,
   removeMacosAppKitRuntimeWindowListeners,
   snapshotMacosAppKitRuntimeHostObservation,
   type MacosAppKitCapturedWindowState
@@ -1191,7 +1192,9 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         }
         if (
           action.type === "windowPlacementChanged" &&
-          record.presentation.observeWindowPlacement()
+          record.presentation.observeWindowPlacement(
+            requireCapturedWindowPlacementPresentation(action, record.identity.logicalWindowId)
+          )
         ) {
           return;
         }

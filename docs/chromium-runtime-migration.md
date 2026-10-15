@@ -1041,6 +1041,9 @@ the pending-mode exception during snapshot admission.
 AppKit additionally captures the exact logical window, launch generation and native
 generation in that pending snapshot. Its Core-authorized visible host applies the
 initial mode through the existing native placement event and content-layout readback.
+The event's synchronously captured fullscreen/zoomed/minimized flags must match
+the requested mode and fresh native readback. An older normal callback delivered
+after mode submission cannot acknowledge that transition or trigger its layout read.
 That acknowledgement completes at the already-admitted Core revision; ordinary
 programmatic presentation still waits for its own newer Core projection. Before
 initial completion, normal-mode placement/layout observations cannot overwrite the
@@ -1053,7 +1056,10 @@ revision, with the complete physical inventory, primary display and other work
 areas unchanged. Each coherent read revalidates the original native host and
 AppKit identity, the same Core generation and matching Core/native window revisions;
 accepted display and window revisions cannot regress across awaits. Comparison
-uses the newly accepted work area while saved normal bounds
+uses the newly accepted work area. A placement persisted before that Space event
+may retain the original admitted work area; only those two exact areas compare
+as equivalent under the same revalidated owner. Unknown saved areas still fail.
+Saved normal bounds
 and the submitted Core target remain intact. Windows, normal/maximized hosts and
 physical display changes retain their existing rejection behavior.
 AppKit chrome construction preserves the measured outer position and unobscured

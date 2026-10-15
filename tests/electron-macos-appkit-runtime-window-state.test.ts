@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ChromiumRuntimeWindowStateObservation } from
   "../src/electron/main/chromiumRuntimeHostPorts";
 
-import { Fixture, tab, target } from
+import { capturedWindowPlacement, Fixture, tab, target } from
   "./support/macosAppKitRuntimeHostFactoryFixtures";
 
 describe("macOS AppKit runtime-window state stream", () => {
@@ -31,7 +31,7 @@ describe("macOS AppKit runtime-window state stream", () => {
       bounds: { x: 1920, y: 0, width: 1920, height: 1080 },
       scaleFactor: 1, isPrimary: false, isInternal: false };
     fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
-      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+      action: capturedWindowPlacement("window-1", fixture.windows[0]!) });
     const current = fixture.onAction.mock.lastCall![0].hosts[0]!;
     expect(current.targetDisplay).toEqual({ id: 8, fingerprint: {
       label: "External Display", bounds: fixture.display.bounds,

@@ -178,7 +178,9 @@ export class MacosAppKitRuntimePresentationController {
   }
 
   /** Claims programmatic placement callbacks for the requesting Core effect. */
-  observeWindowPlacement(): boolean {
+  observeWindowPlacement(
+    capturedPresentation: ChromiumRuntimeWindowPresentationRequest["presentation"] | null
+  ): boolean {
     if (this.#awaitingCoreProjection) return true;
     const pending = this.#pending;
     if (!pending) return false;
@@ -186,7 +188,8 @@ export class MacosAppKitRuntimePresentationController {
       try { this.#requireInitialPending(pending); }
       catch (error) { this.#rejectPending(pending, error); return true; }
     }
-    if (nativePresentation(this.#input.native) !== pending.request.presentation) {
+    if (capturedPresentation !== pending.request.presentation ||
+        nativePresentation(this.#input.native) !== pending.request.presentation) {
       return true;
     }
     if (pending.initial && !pending.initial.submitted) {

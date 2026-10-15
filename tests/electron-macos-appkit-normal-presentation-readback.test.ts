@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  expectPending, Fixture, target
+  capturedWindowPlacement, expectPending, Fixture, target
 } from "./support/macosAppKitRuntimeHostFactoryFixtures";
 
 const fence = { windowId: "window-1", windowGeneration: 1, topologyRevision: 4 };
@@ -21,9 +21,7 @@ async function fullscreenHost() {
   const initial = host.completeInitialPresentation!(fence);
   const native = fixture.windows[0]!;
   native.fullScreen = true;
-  fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: {
-    type: "windowPlacementChanged", sourceWindowId: fence.windowId
-  } });
+  fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: capturedWindowPlacement(fence.windowId, fixture.windows[0]!) });
   await initial;
   fixture.onAction.mockClear();
   fixture.onLayout.mockClear();
@@ -41,9 +39,7 @@ describe("macOS normal presentation native readback", () => {
     controller.layout = { heightInset: 40, yOffset: 0, valid: true };
     const readLayout = vi.spyOn(controller, "snapshotContentLayout");
 
-    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: {
-      type: "windowPlacementChanged", sourceWindowId: fence.windowId
-    } });
+    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: capturedWindowPlacement(fence.windowId, fixture.windows[0]!) });
 
     await expect(operation).resolves.toMatchObject({
       presentation: "normal", bounds: { x: 32, y: 31, width: 960, height: 637 }
@@ -56,9 +52,7 @@ describe("macOS normal presentation native readback", () => {
     native.normalBounds = { x: 40, y: 60, width: 1000, height: 740 };
     native.contentBounds = { ...native.normalBounds };
 
-    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: {
-      type: "windowPlacementChanged", sourceWindowId: fence.windowId
-    } });
+    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: capturedWindowPlacement(fence.windowId, fixture.windows[0]!) });
 
     expect(fixture.onAction).toHaveBeenCalledOnce();
     expect(fixture.onAction.mock.calls[0]![0].hosts[0]).toMatchObject({
@@ -75,9 +69,7 @@ describe("macOS normal presentation native readback", () => {
     native.fullScreen = false;
     controller.layout = { heightInset: 40, yOffset: 0, valid: false };
 
-    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: {
-      type: "windowPlacementChanged", sourceWindowId: fence.windowId
-    } });
+    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: capturedWindowPlacement(fence.windowId, fixture.windows[0]!) });
 
     await expect(operation).rejects.toMatchObject({ code: "ELECTRON_MACOS_APPKIT_LAYOUT_INVALID" });
     expect(submit).toHaveBeenCalledExactlyOnceWith(false);
@@ -125,9 +117,7 @@ describe("macOS staged initial native fit", () => {
 
       const completion = host.completeInitialPresentation!(fence);
       await expectPending(completion);
-      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: {
-        type: "windowPlacementChanged", sourceWindowId: fence.windowId
-      } });
+      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: capturedWindowPlacement(fence.windowId, fixture.windows[0]!) });
       await expectPending(completion);
       expect(fixture.onAction).not.toHaveBeenCalled();
 
@@ -140,9 +130,7 @@ describe("macOS staged initial native fit", () => {
       native.emit(presentation === "fullscreen" ? "enter-full-screen" : "maximize");
       await expectPending(completion);
       expect(fixture.onAction).not.toHaveBeenCalled();
-      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: {
-        type: "windowPlacementChanged", sourceWindowId: fence.windowId
-      } });
+      fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!, action: capturedWindowPlacement(fence.windowId, fixture.windows[0]!) });
       await expect(completion).resolves.toBeUndefined();
 
       expect.soft(normalBoundsAtSubmission).toEqual(fitted);

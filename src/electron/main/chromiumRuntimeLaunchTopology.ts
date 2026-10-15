@@ -99,15 +99,19 @@ export function captureEmptyAppKitFullscreenOwner(
     identity: Object.freeze({ ...identity }) });
 }
 
-/** A comparison target only; the Core request and saved normal geometry stay owned. */
-export function emptyWindowRegistrationReceiptTarget(input: Readonly<{
+interface EmptyWindowRegistrationReceiptInput {
   expected: DisplayTopologySnapshotRecord;
   received: DisplayTopologySnapshotRecord;
   target: EmbeddedLaunchTargetRecord;
   originalOwner: EmptyFullscreenOwner | null;
   core: CoreAppSnapshotRecord;
   native: ChromiumRuntimeExecutorSnapshot;
-}>): EmbeddedLaunchTargetRecord | null {
+}
+
+/** A comparison target only; the Core request and saved normal geometry stay owned. */
+export function emptyWindowRegistrationReceiptTarget(
+  input: Readonly<EmptyWindowRegistrationReceiptInput>
+): EmbeddedLaunchTargetRecord | null {
   const { expected, received, target, originalOwner } = input;
   if (!originalOwner) return sameTopologyRevision(expected, received) ? target : null;
   if (received.revision < originalOwner.displayTopologyRevision ||
@@ -123,4 +127,18 @@ export function emptyWindowRegistrationReceiptTarget(input: Readonly<{
   if (sameTopologyRevision(expected, received)) return target;
   if (!fullscreenTargetWorkAreaChanged(expected, received, target)) return null;
   return { ...target, workArea: { ...displayById(received, target.displayId)!.workArea } };
+}
+
+/** Focus persistence can precede the matching fullscreen Space's work-area event. */
+export function emptyWindowRegistrationSavedWorkArea(
+  input: Readonly<EmptyWindowRegistrationReceiptInput>,
+  savedWorkArea: EmbeddedLaunchTargetRecord["workArea"]
+): EmbeddedLaunchTargetRecord["workArea"] | null {
+  const receiptTarget = emptyWindowRegistrationReceiptTarget(input);
+  if (!receiptTarget) return null;
+  const currentArea = sameBounds(savedWorkArea, receiptTarget.workArea);
+  const admittedArea = input.originalOwner !== null &&
+    fullscreenTargetWorkAreaChanged(input.expected, input.received, input.target) &&
+    sameBounds(savedWorkArea, input.target.workArea);
+  return currentArea || admittedArea ? Object.freeze({ ...receiptTarget.workArea }) : null;
 }

@@ -2,7 +2,7 @@ import { inspectLaunchWindowFence, type LaunchWindowRevision } from "./chromiumR
 import { pendingInitialPresentationMatches } from "./chromiumRuntimeSnapshot";
 import {
   captureEmptyAppKitFullscreenOwner, emptyWindowRegistrationReceiptTarget,
-  fullscreenTargetWorkAreaChanged, sameTopologyRevision
+  emptyWindowRegistrationSavedWorkArea, fullscreenTargetWorkAreaChanged, sameTopologyRevision
 } from "./chromiumRuntimeLaunchTopology";
 import { recordRuntimeTransition } from "./runtimeOperationJournal";
 import { canonicalWebSurfaceIdentities } from "./chromiumRuntimeLaunchWebIdentity";
@@ -197,7 +197,8 @@ function sameEmptySavedWindowIdentity(
   initial: StateGameWindowRecord,
   current: StateGameWindowRecord,
   target: EmbeddedLaunchTargetRecord,
-  topology: DisplayTopologySnapshotRecord
+  topology: DisplayTopologySnapshotRecord,
+  comparisonWorkArea: EmbeddedLaunchTargetRecord["workArea"] | null
 ): boolean {
   const initialUpdatedAt = Date.parse(initial.updatedAt);
   const currentUpdatedAt = Date.parse(current.updatedAt);
@@ -205,6 +206,7 @@ function sameEmptySavedWindowIdentity(
   // Registration may precede the native placement event that upgrades legacy metadata.
   if (JSON.stringify(initial) === JSON.stringify(current) &&
       resolveSavedWindowDisplay(current, topology)?.id === target.displayId) return true;
+  if (!comparisonWorkArea) return false;
   const fingerprint = current.targetDisplay.fingerprint;
   // A placement commit preserves valid consumed records that have no display
   // fingerprint. Resolve their existing evidence; never discard one that the
@@ -223,7 +225,7 @@ function sameEmptySavedWindowIdentity(
     persistedName: current.name,
     displayId: display.id,
     scaleFactor: display.scaleFactor,
-    workArea: { ...current.placement.savedWorkArea },
+    workArea: { ...comparisonWorkArea },
     bounds: { ...current.placement.normalBounds },
     presentation: current.placement.presentation
   };
@@ -797,9 +799,10 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
       const runtime = runtimeMatches[0];
       const live = liveMatches[0];
       const native = nativeMatches[0];
-      const receiptTarget = emptyWindowRegistrationReceiptTarget({ expected: expectedTopology,
+      const receiptInput = { expected: expectedTopology,
         received: after.app.displayTopology, target, originalOwner,
-        core: after.core, native: after.native });
+        core: after.core, native: after.native };
+      const receiptTarget = emptyWindowRegistrationReceiptTarget(receiptInput);
       const currentTarget = live
         ? this.#currentLiveTarget(
             live,
@@ -809,12 +812,13 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         : undefined;
       const storedIdentityMatches = saved === null
         ? storedMatches.length === 0
-        : storedMatches.length === 1 && storedMatches[0] !== undefined &&
+        : receiptTarget !== null && storedMatches.length === 1 && storedMatches[0] !== undefined &&
           sameEmptySavedWindowIdentity(
             saved,
             storedMatches[0],
-            receiptTarget ?? target,
-            after.app.displayTopology
+            receiptTarget,
+            after.app.displayTopology,
+            emptyWindowRegistrationSavedWorkArea(receiptInput, storedMatches[0].placement.savedWorkArea)
           );
       if (
         !receiptTarget ||

@@ -75,6 +75,125 @@ function retireCommands(commands: readonly [CoreCommand, ...unknown[]][]) {
 }
 
 describe("macOS empty fullscreen registration display transition", () => {
+  it.each(["admitted", "current"] as const)(
+    "retains refreshed saved metadata with the exact %s fullscreen work area",
+    async savedArea => {
+      const { coordinator, coreInvoke, state, saved } = registration({
+        platform: "macos", change: current => {
+          const persisted = current.coreSnapshot.state.gameWindows[0]!;
+          current.coreSnapshot.state.gameWindows[0] = {
+            ...persisted, updatedAt: "2026-08-30T12:00:01.000Z",
+            placement: { ...persisted.placement, savedWorkArea: {
+              ...(savedArea === "admitted" ? normalWorkArea : fullscreenWorkArea)
+            } }
+          };
+        }
+      });
+      const expected = { ...saved, updatedAt: "2026-08-30T12:00:01.000Z",
+        placement: { ...saved.placement, savedWorkArea: {
+          ...(savedArea === "admitted" ? normalWorkArea : fullscreenWorkArea)
+        } } };
+
+      await expect(coordinator.openEmptySavedGameWindow(saved)).resolves.toBeUndefined();
+
+      expect(retireCommands(coreInvoke.mock.calls)).toEqual([]);
+      expect(state.coreSnapshot.state.gameWindows).toEqual([expected]);
+      expect(state.nativeSnapshot.windows[0]).toMatchObject({
+        windowGeneration: 8, topologyRevision: 8, parentNativeHostId: 71,
+        presentation: "fullscreen", bounds: saved.placement.normalBounds,
+        appKitIdentity: { launchGeneration: "fullscreen-reopen", nativeGeneration: 2 }
+      });
+    }
+  );
+
+  it("retains refreshed admitted saved work area when its fullscreen event arrives during the target wait", async () => {
+    const { coordinator, coreInvoke, state, saved, lateChange } = registration({
+      platform: "macos", changeWorkArea: false,
+      change: current => {
+        const persisted = current.coreSnapshot.state.gameWindows[0]!;
+        current.coreSnapshot.state.gameWindows[0] = {
+          ...persisted, updatedAt: "2026-08-30T12:00:01.000Z"
+        };
+      },
+      later: { lane: "projection", change: current => {
+        current.topology = structuredClone(current.topology);
+        current.topology.revision = 4;
+        current.topology.displays[0]!.workArea = { ...fullscreenWorkArea };
+      } }
+    });
+
+    await expect(coordinator.openEmptySavedGameWindow(saved)).resolves.toBeUndefined();
+
+    expect(lateChange).toHaveBeenCalledOnce();
+    expect(retireCommands(coreInvoke.mock.calls)).toEqual([]);
+    expect(state.coreSnapshot.state.gameWindows).toEqual([
+      { ...saved, updatedAt: "2026-08-30T12:00:01.000Z" }
+    ]);
+    expect(state.topology.displays[0]!.workArea).toEqual(fullscreenWorkArea);
+  });
+
+  const refreshedReceiptChanges: ReadonlyArray<Readonly<{
+    name: string;
+    change: (state: LaunchHarness) => void;
+  }>> = [
+    { name: "unknown saved work area", change: state => {
+      state.coreSnapshot.state.gameWindows[0]!.placement.savedWorkArea = {
+        ...normalWorkArea, height: normalWorkArea.height - 1
+      };
+    } },
+    { name: "removed saved fingerprint", change: state => {
+      state.coreSnapshot.state.gameWindows[0]!.targetDisplay = { id: 41 };
+    } },
+    { name: "changed saved fingerprint", change: state => {
+      state.coreSnapshot.state.gameWindows[0]!.targetDisplay.fingerprint!.label = "Different display";
+    } },
+    { name: "replacement native owner", change: state => {
+      state.nativeSnapshot = { ...state.nativeSnapshot, windows: state.nativeSnapshot.windows.map(window =>
+        ({ ...window, parentNativeHostId: 72, appKitIdentity: { ...window.appKitIdentity!,
+          launchGeneration: "replacement-owner", nativeGeneration: 3 } })) };
+    } },
+    { name: "replacement Core generation", change: state => {
+      state.coreSnapshot.logicalWindows[0]!.windowGeneration = 9;
+      state.nativeSnapshot = { ...state.nativeSnapshot, windows: state.nativeSnapshot.windows.map(window =>
+        ({ ...window, windowGeneration: 9 })) };
+    } },
+    { name: "other display work area", change: state => {
+      state.topology = structuredClone(state.topology);
+      state.topology.revision += 1;
+      state.topology.displays[1]!.workArea.height -= 1;
+    } },
+    { name: "physical target display", change: state => {
+      state.topology = structuredClone(state.topology);
+      state.topology.revision += 1;
+      state.topology.displays[0]!.resolution.width += 1;
+    } }
+  ];
+
+  it.each(refreshedReceiptChanges)(
+    "rejects $name while accepting refreshed fullscreen saved metadata",
+    async ({ change }) => {
+      const { coordinator, coreInvoke, state, saved, lateChange } = registration({
+        platform: "macos", change: current => {
+          const persisted = current.coreSnapshot.state.gameWindows[0]!;
+          current.coreSnapshot.state.gameWindows[0] = structuredClone({
+            ...persisted, updatedAt: "2026-08-30T12:00:01.000Z"
+          });
+        },
+        later: { lane: "projection", change }
+      });
+
+      await expect(coordinator.openEmptySavedGameWindow(saved)).rejects.toMatchObject({
+        code: "ELECTRON_CHROMIUM_EMPTY_WINDOW_RECEIPT_STALE"
+      });
+
+      expect(lateChange).toHaveBeenCalledOnce();
+      expect(retireCommands(coreInvoke.mock.calls)).toHaveLength(1);
+      expect(state.nativeSnapshot.windows).toEqual([]);
+      expect(state.coreSnapshot.state.gameWindows[0]!.placement.normalBounds).toEqual(saved.placement.normalBounds);
+      expect(state.coreSnapshot.state.gameWindows[0]!.updatedAt).toBe("2026-08-30T12:00:01.000Z");
+    }
+  );
+
   it("retains the exact visible host when fullscreen changes only its display work area", async () => {
     const { coordinator, coreInvoke, state, saved } = registration({ platform: "macos" });
 

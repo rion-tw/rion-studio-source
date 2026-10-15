@@ -9,6 +9,7 @@ const { createInterface } = require("node:readline");
 const { writeFile } = require("node:fs/promises");
 const { mkdirSync } = require("node:fs");
 const { resolve, join } = require("node:path");
+const { sampleFunctionKeyCase } = require("./chromiumShortcutFunctionKeyReceipt.cjs");
 const [reportPath, userData] = process.argv.slice(2);
 if (process.platform !== "win32" || !reportPath || !userData) {
   throw new Error("Use bundled Electron on Windows: probeChromiumShortcuts.cjs REPORT USER_DATA");
@@ -109,6 +110,10 @@ async function probe() {
   let events = [];
   let stage = "setup";
   const record = (kind, details = {}) => events.push({ kind, stage, ...details });
+  const writeReport = failure => writeFile(reportPath, JSON.stringify({ platform: process.platform,
+    electron: process.versions.electron, chromium: process.versions.chrome,
+    scope: "isolated native windows and WebContentsViews; not production Role replacement parity",
+    outcomes, lifecycleOutcomes, functionKeyOutcomes, ...(failure ? { failure } : {}) }, null, 2) + "\n");
   try {
     for (const surface of surfaces) {
       await surface.contents.loadURL(fixture);
@@ -251,24 +256,35 @@ async function probe() {
       surface.contents.focus();
       for (let number = 1; number <= 12; number++) for (const control of [false, true]) {
         events = [];
-        await surface.contents.executeJavaScript("window.shortcutEvents = []");
         const key = 0x6f + number;
-        await driver.send(activeHost, [
-          ...(control ? [{ code: 0x11, up: false }] : []),
-          { code: key, up: false }, { code: key, up: true },
-          ...(control ? [{ code: 0x11, up: true }] : []),
-          { code: 0x33, up: false }, { code: 0x33, up: true }
-        ]);
-        await observe();
-        functionKeyOutcomes.push({ surface: surface.name, code: `F${number}`, control,
-          fullscreen: activeHost.isFullScreen(), events: [...events],
-          pageEvents: await surface.contents.executeJavaScript("window.shortcutEvents") });
+        const caseId = `${surface.name}:F${number}:${control ? "control" : "plain"}`;
+        try {
+          const { receipt, submission } = await sampleFunctionKeyCase(surface.contents, caseId,
+            () => driver.send(activeHost, [
+              ...(control ? [{ code: 0x11, up: false }] : []),
+              { code: key, up: false }, { code: key, up: true },
+              ...(control ? [{ code: 0x11, up: true }] : []),
+              { code: 0x33, up: false }, { code: 0x33, up: true }
+            ]));
+          functionKeyOutcomes.push({ surface: surface.name, code: `F${number}`, control,
+            fullscreen: activeHost.isFullScreen(), events: [...events],
+            receipt, submission, pageEvents: receipt.events });
+        } catch (error) {
+          functionKeyOutcomes.push({ surface: surface.name, code: `F${number}`, control,
+            fullscreen: activeHost.isFullScreen(), events: [...events],
+            receipt: error.receipt ?? null, submission: error.submission,
+            observationReadError: error.cleanupError ?? null, pageEvents: error.receipt?.events ?? [] });
+          try {
+            await writeReport({ caseId, code: error.code ?? "CHROMIUM_SHORTCUT_PROBE_FAILED",
+              message: error.message });
+          } catch (reportError) {
+            error.reportError = reportError;
+          }
+          throw error;
+        }
       }
     }
-    await writeFile(reportPath, JSON.stringify({ platform: process.platform,
-      electron: process.versions.electron, chromium: process.versions.chrome,
-      scope: "isolated native windows and WebContentsViews; not production Role replacement parity",
-      outcomes, lifecycleOutcomes, functionKeyOutcomes }, null, 2) + "\n");
+    await writeReport();
   } finally {
     // Always release test-owned keys before retiring the exact foreground HWND.
     await driver.send(activeHost, [{ code: F11, up: true }, { code: SHIFT, up: true }]).catch(() => {});

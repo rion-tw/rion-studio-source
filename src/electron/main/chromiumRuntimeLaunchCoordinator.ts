@@ -748,7 +748,8 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     });
     try {
       const postRegistrationTopology = await this.#input.readDisplayTopology();
-      if (!sameTopologyRevision(expectedTopology, postRegistrationTopology) &&
+      const registrationTopologyChanged = !sameTopologyRevision(expectedTopology, postRegistrationTopology);
+      if (registrationTopologyChanged &&
           !fullscreenTargetWorkAreaChanged(expectedTopology, postRegistrationTopology, target)) {
         throw launchError(
           "ELECTRON_CHROMIUM_EMPTY_WINDOW_DISPLAY_CHANGED",
@@ -756,7 +757,9 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         );
       }
       let after = await this.#readCoherentSnapshot();
-      const originalOwner = captureEmptyAppKitFullscreenOwner(after.core, after.native, target);
+      const originalOwner = registrationTopologyChanged
+        ? captureEmptyAppKitFullscreenOwner(after.core, after.native, target, postRegistrationTopology.revision)
+        : null;
       if (!emptyWindowRegistrationReceiptTarget({ expected: expectedTopology,
         received: postRegistrationTopology, target, originalOwner,
         core: after.core, native: after.native })) {

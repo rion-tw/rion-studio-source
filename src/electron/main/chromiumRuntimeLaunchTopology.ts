@@ -64,18 +64,22 @@ interface EmptyFullscreenOwner {
   readonly nativeHostId: number;
   readonly windowGeneration: number;
   readonly topologyRevision: number;
+  readonly displayTopologyRevision: number;
   readonly identity: Readonly<AppKitRuntimeHostIdentityRecord>;
 }
 
 export function captureEmptyAppKitFullscreenOwner(
   core: CoreAppSnapshotRecord,
   native: ChromiumRuntimeExecutorSnapshot,
-  target: EmbeddedLaunchTargetRecord
+  target: EmbeddedLaunchTargetRecord,
+  displayTopologyRevision: number
 ): EmptyFullscreenOwner | null {
   const windows = native.windows.filter(window => window.windowId === target.windowId);
   const window = windows[0];
   const identity = window?.appKitIdentity;
   if (target.presentation !== "fullscreen" || windows.length !== 1 || !window || !identity ||
+      !Number.isSafeInteger(displayTopologyRevision) || displayTopologyRevision < 1 ||
+      window.displayId !== target.displayId ||
       identity.logicalWindowId !== target.windowId || identity.launchGeneration.trim().length === 0 ||
       identity.launchGeneration !== identity.launchGeneration.trim() ||
       !Number.isSafeInteger(identity.nativeGeneration) || identity.nativeGeneration < 1 ||
@@ -89,6 +93,7 @@ export function captureEmptyAppKitFullscreenOwner(
       inspectLaunchWindowFence(core, native, target.windowId).reason !== null) return null;
   return Object.freeze({ nativeHostId: window.parentNativeHostId!,
     windowGeneration: window.windowGeneration, topologyRevision: window.topologyRevision,
+    displayTopologyRevision,
     identity: Object.freeze({ ...identity }) });
 }
 
@@ -102,9 +107,10 @@ export function emptyWindowRegistrationReceiptTarget(input: Readonly<{
   native: ChromiumRuntimeExecutorSnapshot;
 }>): EmbeddedLaunchTargetRecord | null {
   const { expected, received, target, originalOwner } = input;
-  if (sameTopologyRevision(expected, received)) return target;
-  if (!originalOwner || !fullscreenTargetWorkAreaChanged(expected, received, target)) return null;
-  const current = captureEmptyAppKitFullscreenOwner(input.core, input.native, target);
+  if (!originalOwner) return sameTopologyRevision(expected, received) ? target : null;
+  if (received.revision < originalOwner.displayTopologyRevision ||
+      !fullscreenTargetWorkAreaChanged(expected, received, target)) return null;
+  const current = captureEmptyAppKitFullscreenOwner(input.core, input.native, target, received.revision);
   if (!current || current.nativeHostId !== originalOwner.nativeHostId ||
       current.windowGeneration !== originalOwner.windowGeneration ||
       current.topologyRevision < originalOwner.topologyRevision ||

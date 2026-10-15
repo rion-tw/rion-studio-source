@@ -7,11 +7,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-static NSDictionary *Rect(NSRect value) {
+static NSDictionary *PlainControlRect(NSRect value) {
   return @{ @"x" : @(value.origin.x), @"y" : @(value.origin.y),
             @"width" : @(value.size.width), @"height" : @(value.size.height) };
 }
-static NSDictionary *Size(NSSize value) {
+static NSDictionary *PlainControlSize(NSSize value) {
   return @{ @"width" : @(value.width), @"height" : @(value.height) };
 }
 static NSDictionary *Buttons(void) {
@@ -30,8 +30,8 @@ static void Publish(NSDictionary *value) {
     fprintf(stderr, "control JSON serialization failed: %s\n", error.localizedDescription.UTF8String);
     std::exit(1);
   }
-  [NSFileHandle.standardOutput writeData:data];
-  [NSFileHandle.standardOutput writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];
+  [[NSFileHandle fileHandleWithStandardOutput] writeData:data];
+  [[NSFileHandle fileHandleWithStandardOutput] writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];
 }
 
 @interface PlainResizeControl : NSObject <NSApplicationDelegate, NSWindowDelegate>
@@ -70,14 +70,14 @@ static void Publish(NSDictionary *value) {
             @"main" : @(window.mainWindow), @"applicationActive" : @(NSApp.active),
             @"launchFinished" : @(self.launchFinished), @"launchTurnObserved" : @(self.launchTurnObserved),
             @"ownedVisibleWindowCount" : @(visibleCount),
-            @"frame" : Rect(window.frame), @"minimumSize" : Size(window.minSize),
-            @"quartzFrame" : Rect(NSMakeRect(window.frame.origin.x,
+            @"frame" : PlainControlRect(window.frame), @"minimumSize" : PlainControlSize(window.minSize),
+            @"quartzFrame" : PlainControlRect(NSMakeRect(window.frame.origin.x,
                 NSMaxY(primary.frame) - NSMaxY(window.frame), window.frame.size.width, window.frame.size.height)),
-            @"contentMinimumSize" : Size(window.contentMinSize),
-            @"contentBounds" : Rect(window.contentView.bounds),
-            @"contentLayoutRect" : Rect(window.contentLayoutRect),
+            @"contentMinimumSize" : PlainControlSize(window.contentMinSize),
+            @"contentBounds" : PlainControlRect(window.contentView.bounds),
+            @"contentLayoutRect" : PlainControlRect(window.contentLayoutRect),
             @"styleMask" : @(window.styleMask), @"inLiveResize" : @(window.inLiveResize),
-            @"screenFrame" : Rect(screen.frame), @"visibleFrame" : Rect(screen.visibleFrame),
+            @"screenFrame" : PlainControlRect(screen.frame), @"visibleFrame" : PlainControlRect(screen.visibleFrame),
             @"backingScaleFactor" : @(screen.backingScaleFactor),
             @"pointer" : @{ @"x" : @(pointer.x), @"y" : @(pointer.y) },
             @"buttons" : Buttons() };
@@ -87,7 +87,7 @@ static void Publish(NSDictionary *value) {
   entry[@"sequence"] = @(++self.sequence);
   entry[@"reason"] = reason;
   entry[@"capturedAtUnixSeconds"] = @(NSDate.date.timeIntervalSince1970);
-  if (proposed) entry[@"proposedSize"] = Size(proposed.sizeValue);
+  if (proposed) entry[@"proposedSize"] = PlainControlSize(proposed.sizeValue);
   NSEvent *event = NSApp.currentEvent;
   if (event) {
     const BOOL pointerEvent = event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeLeftMouseUp ||

@@ -90,11 +90,16 @@ jobs:
         run: |
           root=".desktop-e2e-artifacts/native-resize-constraints-witness"
           mkdir -p "$root"
+          node --input-type=module - "$root/quantization-fixture.swift" <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const helper = readFileSync("e2e/desktop/support/workspace-window-resize.swift");
+          const fixture = readFileSync("tests/fixtures/workspace-window-resize-deltas.swift");
+          writeFileSync(process.argv[2], Buffer.concat([helper, Buffer.from("\n"), fixture]));
+          NODE
           /usr/bin/xcrun swiftc -D RION_RESIZE_DELTA_TEST \
-            e2e/desktop/support/workspace-window-resize.swift \
-            tests/fixtures/workspace-window-resize-deltas.swift \
+            "$root/quantization-fixture.swift" \
             -o "$root/resize-deltas" >"$root/quantization-compile.stdout" 2>"$root/quantization-compile.stderr"
-          "$root/resize-deltas" >"$root/quantization-proof.json" 2>"$root/quantization.stderr"
+          "$root/resize-deltas" >"$root/rawquantization-proof.json" 2>"$root/quantization.stderr"
       - name: Check the feature-enabled AppKit callback boundary
         if: ${{ inputs.macos_phase == 'tabs-visible' }}
         run: cargo clippy --locked -p rion-node --features desktop-e2e --all-targets --no-deps -- -D warnings

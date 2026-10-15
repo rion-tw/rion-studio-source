@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -13,9 +13,16 @@ describe.skipIf(process.platform !== "darwin")("Workspace resize Swift endpoint 
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), "rion-resize-deltas-"));
     executable = join(directory, "resize-deltas");
+    const source = join(directory, "resize-deltas.swift");
+    const sources = await Promise.all([
+      readFile(resolve("e2e/desktop/support/workspace-window-resize.swift")),
+      readFile(resolve("tests/fixtures/workspace-window-resize-deltas.swift"))
+    ]);
+    // Swift still parses inactive top-level statements. One script preserves
+    // both sources verbatim while the flag excludes the helper's input entry.
+    await writeFile(source, Buffer.concat([sources[0]!, Buffer.from("\n"), sources[1]!]));
     await promisify(execFile)("/usr/bin/xcrun", ["swiftc", "-D", "RION_RESIZE_DELTA_TEST",
-      resolve("e2e/desktop/support/workspace-window-resize.swift"),
-      resolve("tests/fixtures/workspace-window-resize-deltas.swift"), "-o", executable],
+      source, "-o", executable],
     { timeout: 120_000 });
   }, 125_000);
   afterAll(async () => {

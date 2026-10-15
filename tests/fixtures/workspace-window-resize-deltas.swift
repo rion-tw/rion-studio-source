@@ -2,7 +2,6 @@ import Foundation
 
 // Compile with the actual helper under RION_RESIZE_DELTA_TEST. No AX, event
 // source, native window, input submission, or pacing is part of this fixture.
-@main
 struct ResizeDeltaFixture {
   struct Case {
     let name: String
@@ -101,3 +100,5 @@ struct ResizeDeltaFixture {
     print(String(decoding: data, as: UTF8.self))
   }
 }
+
+try ResizeDeltaFixture.main()

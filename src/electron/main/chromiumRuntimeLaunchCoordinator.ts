@@ -1,5 +1,9 @@
 import { inspectLaunchWindowFence, type LaunchWindowRevision } from "./chromiumRuntimeLaunchWindowFence";
 import { pendingInitialPresentationMatches } from "./chromiumRuntimeSnapshot";
+import {
+  captureEmptyAppKitFullscreenOwner, emptyWindowRegistrationReceiptTarget,
+  fullscreenTargetWorkAreaChanged, sameTopologyRevision
+} from "./chromiumRuntimeLaunchTopology";
 import { recordRuntimeTransition } from "./runtimeOperationJournal";
 import { canonicalWebSurfaceIdentities } from "./chromiumRuntimeLaunchWebIdentity";
 import { recordLaunchAdmission, runRecordedLaunch } from "./runtimeLaunchJournal";
@@ -255,68 +259,6 @@ function runtimeWindowAbsent(
     !native.tabs.some((tab) => tab.windowId === windowId) &&
     !native.roles.some((role) => role.windowId === windowId) &&
     !native.webSurfaces.some((surface) => surface.windowId === windowId);
-}
-
-function canonicalTopology(topology: DisplayTopologySnapshotRecord): string {
-  if (!Number.isSafeInteger(topology.revision) || topology.revision < 1) {
-    throw launchError(
-      "ELECTRON_CHROMIUM_LAUNCH_TOPOLOGY_INVALID",
-      "The Electron display-topology revision is invalid."
-    );
-  }
-  const displayIds = new Set<number>();
-  const displays = [...topology.displays].map((display) => {
-    if (
-      !Number.isSafeInteger(display.id) ||
-      displayIds.has(display.id) ||
-      !Number.isFinite(display.scaleFactor) ||
-      display.scaleFactor <= 0 ||
-      display.scaleFactor > 8 ||
-      !validBounds(display.bounds) ||
-      !validBounds(display.workArea)
-    ) {
-      throw launchError(
-        "ELECTRON_CHROMIUM_LAUNCH_TOPOLOGY_INVALID",
-        "Electron reported an invalid display while resolving a Chromium launch."
-      );
-    }
-    displayIds.add(display.id);
-    return {
-      id: display.id,
-      label: display.label,
-      bounds: { ...display.bounds },
-      workArea: { ...display.workArea },
-      resolution: { ...display.resolution },
-      scaleFactor: display.scaleFactor,
-      isPrimary: display.isPrimary,
-      isInternal: display.isInternal
-    };
-  }).sort((left, right) => left.id - right.id);
-  const primary = displays.filter((display) => display.isPrimary);
-  // Core's snapshot sequence is a unique read identity and advances for every
-  // projection. State and runtime revisions are the authoritative coherence
-  // fences shared by these two sequential reads.
-  if (
-    primary.length !== 1 ||
-    topology.primaryDisplayId !== String(primary[0]!.id)
-  ) {
-    throw launchError(
-      "ELECTRON_CHROMIUM_LAUNCH_TOPOLOGY_INVALID",
-      "Electron reported an ambiguous primary display."
-    );
-  }
-  return JSON.stringify({
-    primaryDisplayId: topology.primaryDisplayId,
-    displays
-  });
-}
-
-function sameTopologyRevision(
-  expected: DisplayTopologySnapshotRecord,
-  received: DisplayTopologySnapshotRecord
-): boolean {
-  return expected.revision === received.revision &&
-    canonicalTopology(expected) === canonicalTopology(received);
 }
 
 function normalizedDestination(
@@ -806,13 +748,21 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     });
     try {
       const postRegistrationTopology = await this.#input.readDisplayTopology();
-      if (!sameTopologyRevision(expectedTopology, postRegistrationTopology)) {
+      if (!sameTopologyRevision(expectedTopology, postRegistrationTopology) &&
+          !fullscreenTargetWorkAreaChanged(expectedTopology, postRegistrationTopology, target)) {
         throw launchError(
           "ELECTRON_CHROMIUM_EMPTY_WINDOW_DISPLAY_CHANGED",
           "The display topology changed after Core registered the empty Game Window."
         );
       }
       let after = await this.#readCoherentSnapshot();
+      const originalOwner = captureEmptyAppKitFullscreenOwner(after.core, after.native, target);
+      if (!emptyWindowRegistrationReceiptTarget({ expected: expectedTopology,
+        received: postRegistrationTopology, target, originalOwner,
+        core: after.core, native: after.native })) {
+        throw launchError("ELECTRON_CHROMIUM_EMPTY_WINDOW_DISPLAY_CHANGED",
+          "The display topology changed after Core registered the empty Game Window.");
+      }
       try {
         // Native fitting can change geometry before Core commits its revision,
         // even while this first Core/native pair still matches. Include this
@@ -844,6 +794,9 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
       const runtime = runtimeMatches[0];
       const live = liveMatches[0];
       const native = nativeMatches[0];
+      const receiptTarget = emptyWindowRegistrationReceiptTarget({ expected: expectedTopology,
+        received: after.app.displayTopology, target, originalOwner,
+        core: after.core, native: after.native });
       const currentTarget = live
         ? this.#currentLiveTarget(
             live,
@@ -857,15 +810,15 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
           sameEmptySavedWindowIdentity(
             saved,
             storedMatches[0],
-            target,
+            receiptTarget ?? target,
             after.app.displayTopology
           );
       if (
-        !sameTopologyRevision(expectedTopology, after.app.displayTopology) ||
+        !receiptTarget ||
         logicalMatches.length !== 1 || runtimeMatches.length !== 1 ||
         liveMatches.length !== 1 || nativeMatches.length !== 1 ||
         !logical || !runtime || !live || !native || !currentTarget ||
-        !storedIdentityMatches || !sameTargetEnvelope(currentTarget, target) ||
+        !storedIdentityMatches || !sameTargetEnvelope(currentTarget, receiptTarget) ||
         !registeredGeometryAccepted(target, currentTarget, logical.revision) ||
         !live.visible || live.tabCount !== 0 ||
         logical.tabs.length !== 0 || logical.activeTabId !== undefined ||
@@ -888,7 +841,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
           errorCode: "ELECTRON_CHROMIUM_EMPTY_WINDOW_RECEIPT_STALE",
           fences: { ...inspectLaunchWindowFence(after.core, after.native, target.windowId).fences,
             storedIdentity: Number(storedIdentityMatches),
-            targetEnvelope: Number(!!currentTarget && sameTargetEnvelope(currentTarget, target)),
+            targetEnvelope: Number(!!currentTarget && !!receiptTarget && sameTargetEnvelope(currentTarget, receiptTarget)),
             registeredGeometry: Number(!!currentTarget && !!logical && registeredGeometryAccepted(target, currentTarget, logical.revision)),
             nativeBounds: Number(!!native && !!currentTarget && sameNormalBounds(native.bounds, currentTarget.bounds)),
             visible: Number(live?.visible === true) } });

@@ -43,9 +43,11 @@ jobs:
         with:
           cache-bin: "false"
           shared-key: electron-platform-ci-${{ runner.os }}-${{ runner.arch }}
+      - name: Warm Swift compiler without running native input
+        run: /usr/bin/xcrun swiftc -typecheck e2e/desktop/support/macos-native-focus.swift
       - name: Run exact visible Game Window journey with passive native submission evidence
         timeout-minutes: 25
-        run: node scripts/runDesktopE2e.mjs --profile=chromium-macos-appkit-smoke --phase=chromium-game-window-ui-seed
+        run: node scripts/runDesktopE2e.mjs --profile=chromium-macos-appkit-smoke --phase=chromium-game-window-ui-restart
         env:
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
       - name: Preserve diagnostic evidence

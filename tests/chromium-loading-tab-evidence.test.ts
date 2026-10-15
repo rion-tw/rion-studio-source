@@ -78,9 +78,9 @@ it("uses the first drag's completed revision for the next Mac border while retai
   expect(inputs.map(input => input.edge)).toEqual(["right", "bottom"]);
   expect(inputs.map(input => input.inspection.topologyRevision)).toEqual([242, 243]);
   expect(inputs.map(input => input.inspection.surfaces[0]!.bounds)).toEqual([
-    { x: 56, y: 71, width: 960, height: 637 }, { x: 56, y: 71, width: 912, height: 637 }
+    { x: 56, y: 71, width: 960, height: 637 }, { x: 56, y: 71, width: 864, height: 637 }
   ]);
-  expect(result).toEqual({ x: 56, y: 71, width: 912, height: 605 });
+  expect(result).toEqual({ x: 56, y: 71, width: 864, height: 541 });
   expect(mocks.waitUntil).toHaveBeenCalledTimes(2);
 });
 
@@ -160,6 +160,6 @@ it("starts no second drag until the first native drag has reached its terminal o
   await firstStarted;
   expect(mocks.resize).toHaveBeenCalledOnce();
   finish();
-  await expect(task).resolves.toEqual({ x: 56, y: 71, width: 912, height: 605 });
+  await expect(task).resolves.toEqual({ x: 56, y: 71, width: 864, height: 541 });
   expect(mocks.resize).toHaveBeenCalledTimes(2);
 });

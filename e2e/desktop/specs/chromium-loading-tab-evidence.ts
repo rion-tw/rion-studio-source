@@ -37,13 +37,15 @@ export async function resizeReadyTabWhileSiblingLoads(input: {
     // End-live-resize commits a new Core revision for the next native gesture.
     const current = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
     requireOriginalResizeOwner(inspection, current);
+    const gestureBefore = { ...current.surfaces.find(surface => surface.tabId === input.tabId)!.bounds };
     await resizeWorkspaceWindow({ inspection: current, edge: drag.edge, moves: [drag],
       whileHeld: async () => {
         await browser.waitUntil(async () => {
           const current = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
+          requireOriginalResizeOwner(inspection, current);
           resized = current.surfaces.find(surface => surface.tabId === input.tabId)!.bounds;
-          return (drag.x === 0 || resized.width < before.width) &&
-            (drag.y === 0 || resized.height < before.height);
+          return (drag.x === 0 || resized.width < gestureBefore.width) &&
+            (drag.y === 0 || resized.height < gestureBefore.height);
         }, { timeout: 20_000, timeoutMsg: "Native resize did not update A while B was loading" });
       }
     });

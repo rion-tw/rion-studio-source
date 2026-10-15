@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repository = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const outputLimit = 512 * 1024;
@@ -10,6 +10,51 @@ const finite = value => typeof value === "number" && Number.isFinite(value);
 const allButtonsUp = buttons => buttons?.hidLeft === false && buttons?.combinedLeft === false && buttons?.appKitLeft === false;
 const rect = value => value && ["width", "height", "x", "y"].every(key => finite(value[key])) && value.width > 0 && value.height > 0;
 const frame = value => rect(value) && finite(value.windowX) && finite(value.windowY);
+const sameRect = (left, right) => rect(left) && rect(right) &&
+  ["x", "y", "width", "height"].every(key => left[key] === right[key]);
+const contains = (outer, inner) => rect(outer) && rect(inner) && inner.x >= outer.x && inner.y >= outer.y &&
+  inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
+
+// This validates native evidence before any control input. The control is
+// screen-fit; its selected frame is not an exact Rion A/B geometry claim.
+export function assertScreenFitControlGeometry(item) {
+  const selection = item?.geometrySelection;
+  const evidence = selection?.screenEvidence;
+  const screens = evidence?.screens;
+  const validScreen = value => Number.isSafeInteger(value?.id) && value.id > 0 &&
+    rect(value.frame) && rect(value.visibleFrame) && contains(value.frame, value.visibleFrame) &&
+    finite(value.scale) && value.scale > 0;
+  if (!Array.isArray(screens) || screens.length === 0 || !screens.every(validScreen) ||
+      new Set(screens.map(value => value.id)).size !== screens.length ||
+      typeof evidence.mainScreenWasNil !== "boolean" ||
+      (evidence.mainScreenWasNil ? evidence.mainScreenId !== null :
+        !screens.some(value => value.id === evidence.mainScreenId))) {
+    throw new Error("Screen-fit control has no authoritative screen inventory");
+  }
+  const chosen = evidence.mainScreenWasNil ? screens[0] : screens.find(value => value.id === evidence.mainScreenId);
+  const visible = chosen.visibleFrame;
+  const width = Math.min(960, visible.width), height = Math.min(677, visible.height);
+  const selected = { x: visible.x + Math.min(56, Math.max(0, visible.width - width)),
+    y: visible.y + visible.height - height, width, height };
+  const requested = { x: visible.x + 56, y: visible.y + visible.height - 677, width: 960, height: 677 };
+  const input = item.requestedGeometry;
+  const currentScreen = item.screenEvidence?.screens?.find(value => value.id === chosen.id);
+  if (selection.selectionSource !== (evidence.mainScreenWasNil ? "screens.firstObject" : "mainScreen") ||
+      selection.screenId !== chosen.id || item.screenId !== chosen.id || !validScreen(currentScreen) ||
+      !sameRect(currentScreen.frame, chosen.frame) || !sameRect(currentScreen.visibleFrame, visible) ||
+      currentScreen.scale !== chosen.scale || item.backingScaleFactor !== chosen.scale ||
+      !sameRect(item.screenFrame, chosen.frame) || !sameRect(item.visibleFrame, visible) ||
+      input?.upperBoundSize?.width !== 960 || input.upperBoundSize.height !== 677 ||
+      input.minimumSize?.width !== 640 || input.minimumSize.height !== 512 ||
+      input.shrinkDelta?.width !== 48 || input.shrinkDelta.height !== 32 ||
+      item.minimumSize?.width !== 640 || item.minimumSize.height !== 512 ||
+      width < 640 + 48 || height < 512 + 32 || !contains(visible, selected) ||
+      !sameRect(selection.requestedFrame, requested) || !sameRect(selection.selectedFrame, selected) ||
+      !sameRect(item.frame, selected) || !sameRect(item.quartzFrame, { ...selected,
+        y: screens[0].frame.y + screens[0].frame.height - selected.y - selected.height })) {
+    throw new Error("Screen-fit control geometry, native readback or original resize margin was not admitted");
+  }
+}
 const failure = (error, depth = 0) => {
   const value = { message: String(error?.message ?? error).slice(0, 2048), code: error?.code ?? null,
     signal: error?.signal ?? null, killed: error?.killed ?? false };
@@ -84,6 +129,7 @@ async function main() {
   if (actualParent !== actualAllowed && !actualParent.startsWith(actualAllowed + sep)) throw new Error("Diagnostic output traversed an external symlink");
   await mkdir(root); // Existing output is not overwritten or reused.
   const report = { diagnosticControlOnly: true, behaviorIsNotReleaseQuality: true,
+    controlKind: "screen-fit Cocoa sender control", exactRionGeometryComparison: false,
     inputSource: "e2e/desktop/support/workspace-window-resize.swift", infrastructureComplete: false,
     compiles: [], axes: [], failures: [] };
   let control;
@@ -114,7 +160,9 @@ async function main() {
       const value = JSON.parse(line);
       if (value.nonce !== nonce) throw new Error("Control nonce changed");
       if (value.stage === "ready" && !ready) {
+        report.readinessReceipt = value;
         const item = value.snapshot;
+        assertScreenFitControlGeometry(item);
         if (item.processId !== pid || !Number.isSafeInteger(pid) || pid <= 0 ||
             item.windowId !== windowId || item.axIdentifier !== `com.rionstudio.runtime.appkit-window.v1:${windowId}` ||
             !Number.isSafeInteger(item.windowNumber) || item.windowNumber <= 0 ||
@@ -123,7 +171,6 @@ async function main() {
             item.ownedVisibleWindowCount !== 1 || item.styleMask !== 15 ||
             !rect(item.frame) || !rect(item.quartzFrame) || !rect(item.screenFrame) || !rect(item.visibleFrame) ||
             !finite(item.backingScaleFactor) || item.backingScaleFactor <= 0 ||
-            item.frame?.width !== 960 || item.frame?.height !== 677 ||
             item.minimumSize?.width !== 640 || item.minimumSize?.height !== 512 || !allButtonsUp(item.buttons)) {
           throw new Error("The control readiness receipt lost its exact visible native owner or initial geometry");
         }
@@ -138,6 +185,9 @@ async function main() {
         }
         pendingCheckpoints.get(value.name).resolve(value);
         pendingCheckpoints.delete(value.name);
+      } else if (value.stage === "infrastructure-error") {
+        report.nativeRejection = value;
+        throw new Error(`Native control rejected startup/command: ${value.reason}`);
       } else if (value.stage === "closed" && ready && !closedReceipt) closedReceipt = value;
       else throw new Error(`Unexpected native control stage: ${value.stage}`);
     });
@@ -157,6 +207,14 @@ async function main() {
       const baseline = previousEnd ?? { windowX: ready.snapshot.frame.x,
         windowY: ready.snapshot.quartzFrame.y,
         width: ready.snapshot.frame.width, height: ready.snapshot.frame.height };
+      axis.baseline = baseline;
+      if (!finite(baseline.windowX) || !finite(baseline.windowY) ||
+          !finite(baseline.width) || !finite(baseline.height) ||
+          baseline.width < 640 || baseline.height < 512 ||
+          (edge === "right" ? baseline.width < 640 + 48 : baseline.height < 512 + 32)) {
+        axis.input = "NO_INPUT";
+        throw new Error(`${edge} fresh baseline cannot provide the original shrink delta above native minimum`);
+      }
       let point = edge === "right" ? { x: baseline.windowX + baseline.width - 1,
         y: baseline.windowY + baseline.height / 2 } : {
         x: baseline.windowX + baseline.width / 2, y: baseline.windowY + baseline.height - 1 };
@@ -190,8 +248,12 @@ async function main() {
         const start = await action("start");
         point = { x: start.x + (edge === "right" ? -48 : 0),
           y: start.y + (edge === "bottom" ? -32 : 0) };
-        axis.expected = { x: edge === "right" ? Math.max(640, start.width - 48) : start.width,
-          y: edge === "bottom" ? Math.max(512, start.height - 32) : start.height };
+        if (start.width !== baseline.width || start.height !== baseline.height ||
+            start.windowX !== baseline.windowX || start.windowY !== baseline.windowY) {
+          throw new Error(`${edge} native start changed from its fresh admitted baseline`);
+        }
+        axis.expected = { x: edge === "right" ? start.width - 48 : start.width,
+          y: edge === "bottom" ? start.height - 32 : start.height };
         const moved = await action("move", axis.expected);
         if (moved && Math.abs(moved.width - axis.expected.x) <= 1 && Math.abs(moved.height - axis.expected.y) <= 1) axis.status = "OBSERVED_PASS";
         else if (!axis.mismatch) throw new Error("Successful helper contradicted its exact frame acknowledgement");
@@ -243,4 +305,6 @@ async function main() {
     behavior: report.behavior, report: resolve(root, "report.json") }));
 }
 
-main().catch(error => { console.error(error); process.exitCode = 1; });
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch(error => { console.error(error); process.exitCode = 1; });
+}

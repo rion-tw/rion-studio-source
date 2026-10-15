@@ -3,6 +3,7 @@
 #import <dispatch/dispatch.h>
 #include <cstdlib>
 #include <cstdio>
+#include <cmath>
 #include <unistd.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -13,6 +14,30 @@ static NSDictionary *PlainControlRect(NSRect value) {
 }
 static NSDictionary *PlainControlSize(NSSize value) {
   return @{ @"width" : @(value.width), @"height" : @(value.height) };
+}
+static id PlainControlScreenId(NSScreen * _Nullable screen) {
+  return screen.deviceDescription[@"NSScreenNumber"] ?: NSNull.null;
+}
+static NSDictionary *PlainControlScreenEvidence(void) {
+  NSScreen *main = NSScreen.mainScreen;
+  NSMutableArray<NSDictionary *> *screens = [NSMutableArray array];
+  for (NSScreen *screen in NSScreen.screens) {
+    [screens addObject:@{ @"id" : PlainControlScreenId(screen),
+        @"frame" : PlainControlRect(screen.frame), @"visibleFrame" : PlainControlRect(screen.visibleFrame),
+        @"scale" : @(screen.backingScaleFactor) }];
+  }
+  return @{ @"mainScreenWasNil" : @(main == nil), @"mainScreenId" : PlainControlScreenId(main),
+            @"screens" : screens };
+}
+static NSDictionary *PlainControlRequestedGeometry(void) {
+  return @{ @"upperBoundSize" : PlainControlSize(NSMakeSize(960, 677)),
+            @"minimumSize" : PlainControlSize(NSMakeSize(640, 512)),
+            @"shrinkDelta" : PlainControlSize(NSMakeSize(48, 32)) };
+}
+static BOOL PlainControlValidRect(NSRect value) {
+  return std::isfinite(value.origin.x) && std::isfinite(value.origin.y) &&
+      std::isfinite(value.size.width) && std::isfinite(value.size.height) &&
+      value.size.width > 0 && value.size.height > 0;
 }
 static NSDictionary *Buttons(void) {
   return @{ @"hidLeft" : @(CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonLeft)),
@@ -39,6 +64,8 @@ static void Publish(NSDictionary *value) {
 @property(nonatomic, copy) NSString *windowId;
 @property(nonatomic, copy) NSString *nonce;
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *records;
+@property(nonatomic, strong) NSDictionary *geometrySelection;
+@property(nonatomic) NSRect selectedFrame;
 @property(nonatomic) NSUInteger sequence;
 @property(nonatomic) NSUInteger dropped;
 @property(nonatomic) BOOL readySent;
@@ -46,12 +73,25 @@ static void Publish(NSDictionary *value) {
 @property(nonatomic) BOOL launchFinished;
 @property(nonatomic) BOOL launchTurnObserved;
 - (void)receiveCommand:(NSDictionary *)command;
+- (void)reject:(NSString *)reason;
 @end
 
 @implementation PlainResizeControl
 - (instancetype)init {
-  if ((self = [super init])) _records = [NSMutableArray array];
+  if ((self = [super init])) {
+    _records = [NSMutableArray array];
+    _geometrySelection = @{};
+  }
   return self;
+}
+- (void)reject:(NSString *)reason {
+  Publish(@{ @"stage" : @"infrastructure-error", @"nonce" : self.nonce, @"reason" : reason,
+             @"screenEvidence" : PlainControlScreenEvidence(),
+             @"requestedGeometry" : PlainControlRequestedGeometry(),
+             @"geometrySelection" : self.geometrySelection,
+             @"actualFrame" : self.window ? PlainControlRect(self.window.frame) : NSNull.null,
+             @"buttons" : Buttons() });
+  std::exit(1);
 }
 - (NSDictionary *)snapshot {
   NSWindow *window = self.window;
@@ -71,11 +111,15 @@ static void Publish(NSDictionary *value) {
             @"launchFinished" : @(self.launchFinished), @"launchTurnObserved" : @(self.launchTurnObserved),
             @"ownedVisibleWindowCount" : @(visibleCount),
             @"frame" : PlainControlRect(window.frame), @"minimumSize" : PlainControlSize(window.minSize),
+            @"screenId" : PlainControlScreenId(screen), @"screenEvidence" : PlainControlScreenEvidence(),
+            @"requestedGeometry" : PlainControlRequestedGeometry(), @"geometrySelection" : self.geometrySelection,
             @"quartzFrame" : PlainControlRect(NSMakeRect(window.frame.origin.x,
                 NSMaxY(primary.frame) - NSMaxY(window.frame), window.frame.size.width, window.frame.size.height)),
             @"contentMinimumSize" : PlainControlSize(window.contentMinSize),
             @"contentBounds" : PlainControlRect(window.contentView.bounds),
             @"contentLayoutRect" : PlainControlRect(window.contentLayoutRect),
+            @"derivedContentInsets" : PlainControlSize(NSMakeSize(window.frame.size.width - window.contentLayoutRect.size.width,
+                window.frame.size.height - window.contentLayoutRect.size.height)),
             @"styleMask" : @(window.styleMask), @"inLiveResize" : @(window.inLiveResize),
             @"screenFrame" : PlainControlRect(screen.frame), @"visibleFrame" : PlainControlRect(screen.visibleFrame),
             @"backingScaleFactor" : @(screen.backingScaleFactor),
@@ -115,6 +159,15 @@ static void Publish(NSDictionary *value) {
   NSWindow *window = self.window;
   if (self.readySent || !self.launchFinished || !self.launchTurnObserved ||
       !window.visible || !window.keyWindow || !window.mainWindow || !NSApp.active) return;
+  const NSRect selected = self.selectedFrame;
+  if (!PlainControlValidRect(window.frame) || !NSEqualRects(window.frame, selected) ||
+      !window.screen || !NSContainsRect(window.screen.visibleFrame, window.frame) ||
+      ![PlainControlScreenId(window.screen) isEqual:self.geometrySelection[@"screenId"]] ||
+      !NSEqualSizes(window.minSize, NSMakeSize(640, 512)) ||
+      window.frame.size.width < window.minSize.width + 48 ||
+      window.frame.size.height < window.minSize.height + 32 || !Neutral(Buttons())) {
+    [self reject:@"screen-fit native readback or resize margin was not admitted"];
+  }
   self.readySent = YES;
   [self record:@"ready" proposedSize:nil];
   Publish(@{ @"stage" : @"ready", @"nonce" : self.nonce, @"snapshot" : [self snapshot] });
@@ -122,19 +175,27 @@ static void Publish(NSDictionary *value) {
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
   (void)notification;
   if (!Neutral(Buttons())) {
-    Publish(@{ @"stage" : @"infrastructure-error", @"nonce" : self.nonce,
-               @"reason" : @"left button was held before control setup", @"buttons" : Buttons() });
-    std::exit(1);
+    [self reject:@"left button was held before control setup"];
   }
-  NSScreen *screen = NSScreen.mainScreen;
-  if (!screen || screen.visibleFrame.size.width < 960 || screen.visibleFrame.size.height < 677) {
-    Publish(@{ @"stage" : @"infrastructure-error", @"nonce" : self.nonce,
-               @"reason" : @"visible screen cannot contain the requested 960x677 control" });
-    std::exit(1);
+  NSDictionary *screenEvidence = PlainControlScreenEvidence();
+  NSScreen *main = NSScreen.mainScreen;
+  NSScreen *screen = main ?: NSScreen.screens.firstObject;
+  if (!screen || !PlainControlValidRect(screen.frame) || !PlainControlValidRect(screen.visibleFrame)) {
+    [self reject:@"no screen with valid native frame and visibleFrame was available"];
   }
   NSRect visible = screen.visibleFrame;
-  CGFloat inset = MIN((CGFloat)56, MAX((CGFloat)0, visible.size.width - 960));
-  NSRect frame = NSMakeRect(NSMinX(visible) + inset, NSMaxY(visible) - 677, 960, 677);
+  NSSize selectedSize = NSMakeSize(MIN((CGFloat)960, visible.size.width), MIN((CGFloat)677, visible.size.height));
+  CGFloat inset = MIN((CGFloat)56, MAX((CGFloat)0, visible.size.width - selectedSize.width));
+  NSRect frame = NSMakeRect(NSMinX(visible) + inset, NSMaxY(visible) - selectedSize.height,
+      selectedSize.width, selectedSize.height);
+  self.selectedFrame = frame;
+  self.geometrySelection = @{ @"selectionSource" : main ? @"mainScreen" : @"screens.firstObject",
+      @"screenId" : PlainControlScreenId(screen), @"screenEvidence" : screenEvidence,
+      @"requestedFrame" : PlainControlRect(NSMakeRect(NSMinX(visible) + 56, NSMaxY(visible) - 677, 960, 677)),
+      @"selectedFrame" : PlainControlRect(frame) };
+  if (selectedSize.width < 640 + 48 || selectedSize.height < 512 + 32 || !NSContainsRect(visible, frame)) {
+    [self reject:@"screen-fit geometry cannot provide both original resize deltas above the native minimum"];
+  }
   self.window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 960, 640)
       styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                 NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
@@ -151,9 +212,7 @@ static void Publish(NSDictionary *value) {
   [self.window makeKeyAndOrderFront:nil];
   if (@available(macOS 14.0, *)) [NSApp activate];
   else {
-    Publish(@{ @"stage" : @"infrastructure-error", @"nonce" : self.nonce,
-               @"reason" : @"the diagnostic control requires macOS 14 or newer" });
-    std::exit(1);
+    [self reject:@"the diagnostic control requires macOS 14 or newer"];
   }
   self.launchFinished = YES;
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -179,9 +238,7 @@ static void Publish(NSDictionary *value) {
 }
 - (void)receiveCommand:(NSDictionary *)command {
   if (self.closeRequested || ![command[@"nonce"] isEqual:self.nonce]) {
-    Publish(@{ @"stage" : @"infrastructure-error", @"nonce" : self.nonce,
-               @"reason" : @"unexpected control command" });
-    std::exit(1);
+    [self reject:@"unexpected control command"];
   }
   if ([command[@"command"] isEqual:@"checkpoint"] && self.readySent &&
       [@[@"right", @"bottom"] containsObject:command[@"name"]]) {
@@ -191,9 +248,7 @@ static void Publish(NSDictionary *value) {
     return;
   }
   if (![command[@"command"] isEqual:@"close"]) {
-    Publish(@{ @"stage" : @"infrastructure-error", @"nonce" : self.nonce,
-               @"reason" : @"unknown control command" });
-    std::exit(1);
+    [self reject:@"unknown control command"];
   }
   self.closeRequested = YES;
   NSDictionary *before = [self snapshot];
@@ -215,9 +270,7 @@ int main(int argc, const char * _Nonnull * _Nonnull argv) {
     control.windowId = [NSString stringWithUTF8String:argv[1]];
     control.nonce = [NSString stringWithUTF8String:argv[2]];
     if (!Neutral(Buttons())) {
-      Publish(@{ @"stage" : @"infrastructure-error", @"nonce" : control.nonce,
-                 @"reason" : @"left button was held at control startup", @"buttons" : Buttons() });
-      return 1;
+      [control reject:@"left button was held at control startup"];
     }
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];

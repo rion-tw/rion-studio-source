@@ -336,6 +336,13 @@ NS_ASSUME_NONNULL_BEGIN
   BOOL _fullscreenTransitionActive;
   BOOL _fullscreenHostReady;
   BOOL _placementZoomed;
+  NSUInteger _windowedGeometryMutationDepth;
+  BOOL _windowedGeometryFailed;
+  BOOL _hasFullscreenRestoreGeometry;
+  RionRuntimeWindowedGeometry _fullscreenRestoreGeometry;
+  NSNumber *_fullscreenRestoreScreenNumber;
+  NSRect _fullscreenRestoreScreenFrame;
+  CGFloat _fullscreenRestoreScreenScale;
   RionRuntimeContentLayout _lastNotifiedContentLayout;
   RionRuntimeContentLayout _fullscreenAutoHideContentLayout;
   CGFloat _fullscreenAutoHideContentHeight;
@@ -355,6 +362,21 @@ NS_ASSUME_NONNULL_BEGIN
   if (!self) return nil;
 
   _window = window;
+  // Electron's useContentSize promise precedes Rion's native chrome. Preserve
+  // that actual unobscured region while installing the toolbar/accessory;
+  // their native insets must not silently shrink a recreated saved window.
+  const BOOL initiallyWindowed =
+      (window.styleMask & NSWindowStyleMaskFullScreen) == 0;
+  _windowedGeometryMutationDepth = initiallyWindowed ? 1 : 0;
+  const RionRuntimeWindowedGeometry initialGeometry =
+      initiallyWindowed ? [self captureWindowedGeometry]
+                        : RionRuntimeWindowedGeometry{};
+  if (initiallyWindowed && !initialGeometry.valid) {
+    // No native chrome has been adopted yet. Do not run destroy's restoration
+    // against an otherwise untouched window when this first measurement fails.
+    _window = nil;
+    return nil;
+  }
   // The underlay belongs to the host, including the interval before any slot mounts.
   _workspaceBackground = [[RionWorkspaceBackgroundView alloc] initWithFrame:window.contentView.bounds];
   _workspaceBackground.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -578,6 +600,12 @@ NS_ASSUME_NONNULL_BEGIN
   [self configureAccessoryForTitlebar];
   [self attachAccessoryController];
   [self layoutTitlebarContent];
+  if (initiallyWindowed &&
+      ![self restoreWindowedGeometry:initialGeometry allowNativeFit:YES]) {
+    _windowedGeometryMutationDepth = 0;
+    return nil;
+  }
+  _windowedGeometryMutationDepth = 0;
   [self captureWindowedTrafficLightFrames];
   [self installWindowObservers];
   __weak RionRuntimeTabsController *weakShortcutSelf = self;

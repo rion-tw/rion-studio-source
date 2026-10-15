@@ -1340,6 +1340,13 @@ bool rion_runtime_tabs_macro_fallback_event_self_test(void) {
 - (void)closeTab:(NSString *)tabIdentifier;
 - (void)applyLiquidGlassTitlebarAppearance;
 - (void)attachAccessoryController;
+- (RionRuntimeWindowedGeometry)captureWindowedGeometry;
+- (BOOL)restoreWindowedGeometry:(RionRuntimeWindowedGeometry)geometry
+                allowNativeFit:(BOOL)allowNativeFit;
+- (void)performWindowedChromeMutation:(dispatch_block_t)mutation;
+- (void)performFullscreenExitChromeMutation:(dispatch_block_t)mutation;
+- (void)captureFullscreenRestoreGeometry;
+- (BOOL)fullscreenRestoreScreenIsCurrent;
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event;
 
 NS_ASSUME_NONNULL_END

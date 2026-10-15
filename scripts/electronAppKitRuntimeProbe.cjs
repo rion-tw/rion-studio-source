@@ -171,6 +171,28 @@ function fullscreenToolbarExited(state) {
     state.alwaysHideTabCloseButton && state.tabCloseButtonEnabledCount === 0;
 }
 
+function captureNormalRestoreGeometry(window, nativeHost, identity) {
+  const layout = nativeHost.snapshotContentLayout(identity);
+  const frame = window.getNormalBounds();
+  const content = window.getContentBounds();
+  if (!layout.valid || !Number.isFinite(layout.heightInset)) {
+    throw new Error("The AppKit restore-geometry observation has no valid content layout.");
+  }
+  // Match the retained host's normalBounds: outer-window position and the
+  // unobscured Chromium content size, excluding the native titlebar/toolbar.
+  const normalBounds = {
+    x: frame.x,
+    y: frame.y,
+    width: content.width,
+    height: content.height - Math.round(layout.heightInset)
+  };
+  if (!Object.values(normalBounds).every(Number.isSafeInteger) ||
+      normalBounds.width <= 0 || normalBounds.height <= 0) {
+    throw new Error("The AppKit restore-geometry observation has invalid normal bounds.");
+  }
+  return { normalBounds, frame, content, layout };
+}
+
 void (async () => {
   let controlWindow;
   let nativeHost;
@@ -535,7 +557,14 @@ void (async () => {
       await withDiagnosticDeadline(refocused, "the target refocus event");
       roleView.webContents.focus();
 
+      const normalGeometryBeforeFullscreen = captureNormalRestoreGeometry(window, nativeHost, identity);
       nativeHost.prepareFullscreen(identity, true);
+      // Preparation is allowed to change transient chrome geometry. Preserve
+      // these raw observations without using them as the restored-mode target.
+      const preparedLayout = nativeHost.snapshotContentLayout(identity);
+      const normalGeometryAfterPreparation = {
+        frame: window.getNormalBounds(), content: window.getContentBounds(), layout: preparedLayout
+      };
       const enteredFullscreen = new Promise((resolve) =>
         window.once("enter-full-screen", resolve)
       );
@@ -569,6 +598,18 @@ void (async () => {
         titlebarFitsNativeWindow,
         "post-fullscreen native titlebar geometry"
       );
+      const normalGeometryAfterFullscreen = captureNormalRestoreGeometry(window, nativeHost, identity);
+      const fullscreenRestoreGeometry = {
+        before: normalGeometryBeforeFullscreen,
+        prepared: normalGeometryAfterPreparation,
+        exited: normalGeometryAfterFullscreen
+      };
+      if (!["x", "y", "width", "height"].every(key =>
+        normalGeometryBeforeFullscreen.normalBounds[key] === normalGeometryAfterFullscreen.normalBounds[key])) {
+        throw new Error(
+          `The AppKit fullscreen cycle changed normal restore geometry: ${JSON.stringify(fullscreenRestoreGeometry)}.`
+        );
+      }
       nativeEvidence = {
         accessibilityHierarchy,
         accessibilityCloseEvent,
@@ -581,6 +622,7 @@ void (async () => {
         closeButtonsHidden,
         fullscreenEntered,
         fullscreenExited,
+        fullscreenRestoreGeometry,
         popupAccessibilityActions,
         popupAccessibilityHierarchy,
         popupChrome,

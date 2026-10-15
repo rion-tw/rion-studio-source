@@ -50,6 +50,11 @@ jobs:
         run: node scripts/runDesktopE2e.mjs --profile=chromium-macos-appkit-smoke --phase=chromium-game-window-ui-restart
         env:
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+      - name: Verify native AppKit fullscreen restore geometry after the visible journey
+        shell: bash
+        run: pnpm run probe:electron:appkit | tee .desktop-e2e-artifacts/appkit-native-restore-geometry.log
+        env:
+          RION_STUDIO_DESKTOP_E2E_BUILD: "1"
       - name: Preserve diagnostic evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

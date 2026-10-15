@@ -758,7 +758,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
       }
       let after = await this.#readCoherentSnapshot();
       const originalOwner = captureEmptyAppKitFullscreenOwner(
-        after.core, after.native, target, after.app.displayTopology.revision);
+        after.core, after.native, target, after.app.displayTopology);
       if (after.app.displayTopology.revision < postRegistrationTopology.revision ||
           !emptyWindowRegistrationReceiptTarget({ expected: expectedTopology,
         received: after.app.displayTopology, target, originalOwner,

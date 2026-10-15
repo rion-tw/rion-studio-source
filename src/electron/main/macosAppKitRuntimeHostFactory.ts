@@ -577,7 +577,13 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         windowGeneration: record.windowGeneration,
         windowId: record.identity.logicalWindowId
       }),
-      readProjection
+      readProjection: () => {
+        // A claimed normal-placement ACK must carry the actual native fit.
+        // The consumed callback cannot wait for the ordinary observation path
+        // to replace the retained fullscreen restore bounds afterwards.
+        this.#refreshNormalBounds(record as HostRecord);
+        return readProjection();
+      }
     });
     record.host = Object.freeze({
       tabDrag: createRuntimeTabDragHost({ native,

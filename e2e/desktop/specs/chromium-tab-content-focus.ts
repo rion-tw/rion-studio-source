@@ -5,7 +5,7 @@ import type { Role } from "../../../src/shared/types";
 import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eApplicationShortcutRuntime, electronDesktopE2eProbe } from "../support/electron-driver";
 import { clickVisibleElectronCanvasWithPointer, clickVisibleElectronPageElementWithPointer } from "../support/electron-role-surface";
 import { fixtureCursor, fixtureEvents, fixtureState, waitFixtureEvent } from "../support/fixture";
-import { focusVisibleMacosAppKitRuntime, pressVisibleMacosApplicationShortcut, pressVisibleMacosRoleKey, pressVisibleWindowsApplicationShortcut } from "../support/native-application-actions";
+import { focusVisibleMacosAppKitRuntime, pressVisibleMacosApplicationShortcut, withVisibleMacosRoleKeyReceipt, pressVisibleWindowsApplicationShortcut } from "../support/native-application-actions";
 
 import { focusWindowsRuntimeNativeWindow } from "../support/windows-runtime-foreground";
 
@@ -79,23 +79,34 @@ export async function exerciseTabContentFocus(input: {
     expect(selection.nativeWindow.activeTabId).toBe(step.tabId);
     expect(selection.coreWindow.activeTabId).toBe(step.tabId);
     const keyCursor = await fixtureCursor();
-    if (input.platform === "macos") await pressVisibleMacosRoleKey({ code: "KeyY", processId,
-      runtimeWindowId: input.windowId, runtimeTabName: step.role.name });
-    else await pressVisibleWindowsApplicationShortcut({ command: "digit3Tap", processId,
-      nativeWindowHandle, targetMode: "focused-runtime" });
-    const key = await waitFixtureEvent({ afterSequence: keyCursor, kind: "keydown", roleId: fixtureId });
-    expect(key).toMatchObject({ code: input.platform === "macos" ? "KeyY" : "Digit3", isTrusted: true, activeElementId: step.element,
-      modifiers: { alt: false, control: false, meta: false, shift: false } });
-    await waitFixtureEvent({ afterSequence: keyCursor, kind: "keyup", roleId: fixtureId });
-    const state = await fixtureState();
-    for (const role of input.roles) {
-      const id = new URL(role.launchUrl).pathname.split("/").at(-1)!;
-      // Windows focus cleanup releases the old page through the established
-      // compatible endpoint. Its DOM key state must clear; new input above must
-      // still be trusted. AppKit additionally proves its native release path.
-      const pressed = input.platform === "windows" ? state[id]?.pressedCodes : state[id]?.trustedPressedCodes;
-      expect((pressed ?? []).filter(code =>
-        /^(Control|Shift)/.test(code))).toEqual([]);
+    const receiveKey = async (signal?: AbortSignal) => {
+      const key = await waitFixtureEvent({ afterSequence: keyCursor, kind: "keydown", roleId: fixtureId,
+        ...(signal ? { signal } : {}) });
+      expect(key).toMatchObject({ code: input.platform === "macos" ? "KeyY" : "Digit3", isTrusted: true, activeElementId: step.element,
+        modifiers: { alt: false, control: false, meta: false, shift: false } });
+      const keyup = await waitFixtureEvent({ afterSequence: keyCursor, kind: "keyup", roleId: fixtureId,
+        ...(signal ? { signal } : {}) });
+      if (input.platform === "macos") expect(keyup).toMatchObject({ code: "KeyY", isTrusted: true,
+        activeElementId: step.element, modifiers: { alt: false, control: false, meta: false, shift: false } });
+      const state = signal ? await fixtureState(signal) : await fixtureState();
+      for (const role of input.roles) {
+        const id = new URL(role.launchUrl).pathname.split("/").at(-1)!;
+        // Windows focus cleanup releases the old page through the established
+        // compatible endpoint. Its DOM key state must clear; new input above must
+        // still be trusted. AppKit additionally proves its native release path.
+        const pressed = input.platform === "windows" ? state[id]?.pressedCodes : state[id]?.trustedPressedCodes;
+        expect((pressed ?? []).filter(code =>
+          /^(Control|Shift)/.test(code))).toEqual([]);
+      }
+      return key;
+    };
+    let key: Awaited<ReturnType<typeof receiveKey>>;
+    if (input.platform === "macos") key = await withVisibleMacosRoleKeyReceipt({ code: "KeyY", processId,
+      runtimeWindowId: input.windowId, runtimeTabName: step.role.name }, receiveKey);
+    else {
+      await pressVisibleWindowsApplicationShortcut({ command: "digit3Tap", processId,
+        nativeWindowHandle, targetMode: "focused-runtime" });
+      key = await receiveKey();
     }
     evidence.push({ command: step.command, escape, key, activeTabId: selection.nativeWindow.activeTabId,
       presentation: inspection.presentation });

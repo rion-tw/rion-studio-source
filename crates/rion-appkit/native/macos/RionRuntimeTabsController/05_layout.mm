@@ -1,5 +1,107 @@
 NS_ASSUME_NONNULL_BEGIN
 
+#if defined(RION_DESKTOP_E2E)
+// Disposable diagnostic branch: one controller-local ring, no events or I/O.
+- (void)recordResizeDiagnostic:(NSString *)reason event:(nullable NSEvent *)event {
+  if (!_resizeDiagnosticRecords || _destroyed || !_window ||
+      !NSThread.isMainThread) return;
+  @try {
+    NSWindow *window = _window;
+    NSRect frame = window.frame;
+    NSView *content = window.contentView;
+    const BOOL pointer = event && (event.type == NSEventTypeLeftMouseDown ||
+        event.type == NSEventTypeLeftMouseDragged || event.type == NSEventTypeLeftMouseUp);
+    NSPoint screen = event.window
+        ? [event.window convertPointToScreen:event.locationInWindow]
+        : NSEvent.mouseLocation;
+    NSPoint windowPoint = [window convertPointFromScreen:screen];
+    NSPoint contentPoint = [content convertPoint:windowPoint fromView:nil];
+    NSView *hit = pointer ? [content hitTest:contentPoint] : nil;
+    CGEventRef cgEvent = pointer ? event.CGEvent : nullptr;
+    NSDictionary *record = @{
+      @"sequence" : @(++_resizeDiagnosticSequence),
+      @"capturedAtUnixSeconds" : @(NSDate.date.timeIntervalSince1970),
+      @"reason" : reason,
+      @"windowID" : _windowID ?: @"",
+      @"controllerPointer" : [NSString stringWithFormat:@"%p", self],
+      @"windowPointer" : [NSString stringWithFormat:@"%p", window],
+      @"windowNumber" : @(window.windowNumber),
+      @"windowIdentifier" : window.accessibilityIdentifier ?: @"",
+      @"frame" : @{ @"x" : @(frame.origin.x), @"y" : @(frame.origin.y),
+                     @"width" : @(frame.size.width), @"height" : @(frame.size.height) },
+      @"contentBounds" : @{ @"x" : @(content.bounds.origin.x), @"y" : @(content.bounds.origin.y),
+          @"width" : @(content.bounds.size.width), @"height" : @(content.bounds.size.height) },
+      @"contentLayoutRect" : @{ @"x" : @(window.contentLayoutRect.origin.x),
+          @"y" : @(window.contentLayoutRect.origin.y), @"width" : @(window.contentLayoutRect.size.width),
+          @"height" : @(window.contentLayoutRect.size.height) },
+      @"minimumSize" : @{ @"width" : @(window.minSize.width), @"height" : @(window.minSize.height) },
+      @"contentMinimumSize" : @{ @"width" : @(window.contentMinSize.width), @"height" : @(window.contentMinSize.height) },
+      @"maximumSize" : @{ @"width" : @(window.maxSize.width), @"height" : @(window.maxSize.height) },
+      @"contentMaximumSize" : @{ @"width" : @(window.contentMaxSize.width), @"height" : @(window.contentMaxSize.height) },
+      @"resizeIncrements" : @{ @"width" : @(window.resizeIncrements.width), @"height" : @(window.resizeIncrements.height) },
+      @"contentResizeIncrements" : @{ @"width" : @(window.contentResizeIncrements.width), @"height" : @(window.contentResizeIncrements.height) },
+      @"aspectRatio" : @{ @"width" : @(window.aspectRatio.width), @"height" : @(window.aspectRatio.height) },
+      @"contentAspectRatio" : @{ @"width" : @(window.contentAspectRatio.width), @"height" : @(window.contentAspectRatio.height) },
+      @"styleMask" : @(window.styleMask), @"inLiveResize" : @(window.inLiveResize),
+      @"keyWindow" : @(window.isKeyWindow), @"mainWindow" : @(window.isMainWindow),
+      @"visible" : @(window.isVisible), @"fullscreenTransitionActive" : @(_fullscreenTransitionActive),
+      @"windowedGeometryMutationDepth" : @(_windowedGeometryMutationDepth),
+      @"windowedGeometryFailed" : @(_windowedGeometryFailed),
+      @"event" : @{ @"type" : @(event ? event.type : 0), @"timestamp" : @(event ? event.timestamp : 0),
+          @"windowNumber" : @(event ? event.windowNumber : 0), @"windowMatches" : @(event.window == window),
+          @"locationX" : @(event ? event.locationInWindow.x : 0), @"locationY" : @(event ? event.locationInWindow.y : 0),
+          @"screenX" : @(screen.x), @"screenY" : @(screen.y),
+          @"ownerWindowX" : @(windowPoint.x), @"ownerWindowY" : @(windowPoint.y),
+          @"contentX" : @(contentPoint.x), @"contentY" : @(contentPoint.y),
+          @"modifierFlags" : @(event ? event.modifierFlags : 0),
+          @"pressedMouseButtons" : @(NSEvent.pressedMouseButtons),
+          @"buttonNumber" : @(pointer ? event.buttonNumber : -1),
+          @"deltaX" : @(pointer ? event.deltaX : 0), @"deltaY" : @(pointer ? event.deltaY : 0),
+          @"sourceProcessId" : @(cgEvent ? CGEventGetIntegerValueField(cgEvent, kCGEventSourceUnixProcessID) : -1),
+          @"sourceStateId" : @(cgEvent ? CGEventGetIntegerValueField(cgEvent, kCGEventSourceStateID) : -1),
+          @"combinedLeftButtonDown" : @(CGEventSourceButtonState(kCGEventSourceStateCombinedSessionState, kCGMouseButtonLeft)),
+          @"hidLeftButtonDown" : @(CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonLeft)),
+          @"hitViewClass" : hit ? NSStringFromClass(hit.class) : @"",
+          @"hitPhysicalTarget" : @(RionRuntimePhysicalInputTarget(hit) != nil) }
+    };
+    if (![NSJSONSerialization isValidJSONObject:record]) {
+      ++_resizeDiagnosticDropped;
+      return;
+    }
+    [_resizeDiagnosticRecords addObject:record];
+    if (_resizeDiagnosticRecords.count > 128) {
+      [_resizeDiagnosticRecords removeObjectAtIndex:0];
+      ++_resizeDiagnosticDropped;
+    }
+  } @catch (NSException *exception) {
+    (void)exception;
+    ++_resizeDiagnosticDropped;
+  }
+}
+
+- (void)observeResizeDiagnosticPointer:(NSEvent *)event {
+  if (!_resizeDiagnosticRecords || _destroyed || !_window || !event ||
+      (event.type != NSEventTypeLeftMouseDown &&
+       event.type != NSEventTypeLeftMouseDragged && event.type != NSEventTypeLeftMouseUp)) return;
+  @try {
+    const NSPoint screen = event.window
+        ? [event.window convertPointToScreen:event.locationInWindow] : NSEvent.mouseLocation;
+    if (event.window != _window &&
+        !(_window.isKeyWindow && _window.isMainWindow && NSPointInRect(screen, _window.frame))) return;
+    [self recordResizeDiagnostic:@"mouse" event:event];
+  } @catch (NSException *exception) {
+    (void)exception;
+    ++_resizeDiagnosticDropped;
+  }
+}
+
+- (NSDictionary *)resizeDiagnosticJournal {
+  return @{ @"journalVersion" : @1, @"capacity" : @128,
+            @"dropped" : @(_resizeDiagnosticDropped), @"sequence" : @(_resizeDiagnosticSequence),
+            @"records" : [_resizeDiagnosticRecords copy] ?: @[] };
+}
+#endif
+
 - (BOOL)updateTitlebarButtonPositionsForFrameView:
     (nullable NSView *)frameView {
   if (!frameView) return NO;
@@ -276,7 +378,7 @@ NS_ASSUME_NONNULL_BEGIN
           ? @"nativeText"
           : @"nativeChrome";
   NSRect frame = _window.frame;
-  _actionHandler(@{
+  NSDictionary *action = @{
     @"type" : @"windowPlacementChanged",
     @"sourceWindowId" : _windowID,
     @"placementDiagnostics" : @{
@@ -296,7 +398,15 @@ NS_ASSUME_NONNULL_BEGIN
       @"physicalInputSequence" : [@(RionRuntimePhysicalInputSequence(
           physicalTarget)) stringValue]
     }
-  });
+  };
+#if defined(RION_DESKTOP_E2E)
+  if (_resizeDiagnosticRecords) {
+    NSMutableDictionary *diagnosticAction = [action mutableCopy];
+    diagnosticAction[@"diagnosticResizeJournal"] = [self resizeDiagnosticJournal];
+    action = diagnosticAction;
+  }
+#endif
+  _actionHandler(action);
 }
 
 - (void)emitWindowFocusObservation {
@@ -311,13 +421,21 @@ NS_ASSUME_NONNULL_BEGIN
     _initialWindowedPlacementPending = NO;
     [self emitWindowPlacementObservation];
   }
-  _actionHandler(@{
+  NSDictionary *action = @{
     @"type" : @"windowFocusChanged",
     @"sourceWindowId" : _windowID,
     @"focused" : @(_window.isKeyWindow),
     @"minimized" : @(_window.isMiniaturized),
     @"visible" : @(_window.isVisible)
-  });
+  };
+#if defined(RION_DESKTOP_E2E)
+  if (_resizeDiagnosticRecords) {
+    NSMutableDictionary *diagnosticAction = [action mutableCopy];
+    diagnosticAction[@"diagnosticResizeJournal"] = [self resizeDiagnosticJournal];
+    action = diagnosticAction;
+  }
+#endif
+  _actionHandler(action);
 }
 
 - (void)installWindowObservers {
@@ -352,6 +470,14 @@ NS_ASSUME_NONNULL_BEGIN
                                  usingBlock:^(NSNotification *notification) {
       RionRuntimeTabsController *strongSelf = weakSelf;
       if (!strongSelf) return;
+#if defined(RION_DESKTOP_E2E)
+      const BOOL resizeNotification =
+          [notification.name isEqualToString:NSWindowDidResizeNotification] ||
+          [notification.name isEqualToString:NSWindowDidEndLiveResizeNotification];
+      if (resizeNotification) [strongSelf
+          recordResizeDiagnostic:[notification.name stringByAppendingString:@":before"]
+          event:NSApp.currentEvent];
+#endif
       if ([notification.name isEqualToString:NSWindowDidResizeNotification] ||
           [notification.name
               isEqualToString:NSWindowDidChangeBackingPropertiesNotification] ||
@@ -374,6 +500,11 @@ NS_ASSUME_NONNULL_BEGIN
                      isEqualToString:NSWindowDidEndLiveResizeNotification]) {
         if (!strongSelf->_fullscreenTransitionActive) {
           strongSelf->_placementZoomed = strongSelf->_window.isZoomed;
+#if defined(RION_DESKTOP_E2E)
+          if (resizeNotification) [strongSelf
+              recordResizeDiagnostic:[notification.name stringByAppendingString:@":after"]
+              event:NSApp.currentEvent];
+#endif
           [strongSelf emitWindowPlacementObservation];
         }
       } else if ([notification.name
@@ -466,9 +597,27 @@ NS_ASSUME_NONNULL_BEGIN
       } else {
         [strongSelf applyFullScreenPolicy];
       }
+#if defined(RION_DESKTOP_E2E)
+      if (resizeNotification &&
+          ![notification.name isEqualToString:NSWindowDidEndLiveResizeNotification]) [strongSelf
+          recordResizeDiagnostic:[notification.name stringByAppendingString:@":after"]
+          event:NSApp.currentEvent];
+#endif
     }];
     [_windowObservers addObject:observer];
   }
+
+#if defined(RION_DESKTOP_E2E)
+  if (_resizeDiagnosticRecords) {
+    id resizeStart = [center addObserverForName:NSWindowWillStartLiveResizeNotification
+        object:_window queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *notification) {
+      RionRuntimeTabsController *controller = weakSelf;
+      [controller recordResizeDiagnostic:[notification.name stringByAppendingString:@":before"] event:NSApp.currentEvent];
+      [controller recordResizeDiagnostic:[notification.name stringByAppendingString:@":after"] event:NSApp.currentEvent];
+    }];
+    [_windowObservers addObject:resizeStart];
+  }
+#endif
 
   _fullscreenSpaceObserver = [NSWorkspace.sharedWorkspace.notificationCenter
       addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification

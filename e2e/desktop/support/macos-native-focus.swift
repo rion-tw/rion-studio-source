@@ -18,7 +18,7 @@ let command = CommandLine.arguments[5]
 let receiptNonce = CommandLine.arguments.count == 8 ? CommandLine.arguments[7] : nil
 if let receiptNonce {
   guard CommandLine.arguments[6] == "receipt", mode == "roleKey",
-        command.range(of: "^((Ctrl\\+)?F([1-9]|1[0-2])|Digit[23])$", options: .regularExpression) != nil,
+        command.range(of: "^((Ctrl\\+)?F([1-9]|1[0-2])|KeyY|Digit[23])$", options: .regularExpression) != nil,
         UUID(uuidString: receiptNonce) != nil else { fail("invalid native Role key receipt mode") }
 }
 guard ["focus", "observe", "roleKey", "shortcut"].contains(mode) else { fail("unknown focus mode") }

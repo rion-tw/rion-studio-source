@@ -74,14 +74,14 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("macOS native sender lifetime receipt", () => {
-  it("retains the sender through exact target assertions and requires its final receipt and pipe close", async () => {
+  it.each(["F6", "KeyY"])("retains the %s sender through exact target assertions and requires its final receipt and pipe close", async code => {
     let receiveTarget!: (value: { exact: true }) => void;
     const receive = vi.fn(() => new Promise<{ exact: true }>(resolveTarget => { receiveTarget = resolveTarget; }));
-    const work = await begin(receive);
+    const work = await begin(receive, code);
     let settled = false;
     void work.outcome.then(() => { settled = true; });
     expect(receive).not.toHaveBeenCalled();
-    expect(work.argv.slice(0, -2)).toEqual(args);
+    expect(work.argv.slice(0, -2)).toEqual([...args.slice(0, -1), code]);
     expect(work.argv.at(-2)).toBe("receipt");
     expect(work.nonce).toMatch(/^[a-f0-9-]{36}$/u);
     work.child.stdout.write(`submitted:${work.nonce.slice(0, 10)}`);
@@ -142,9 +142,9 @@ describe("macOS native sender lifetime receipt", () => {
     expect(work.input()).toBe("");
   });
 
-  it("preserves a rejected target assertion, cancels the exact sender, and waits for cleanup", async () => {
+  it.each(["F6", "KeyY"])("preserves a rejected %s target assertion, cancels the exact sender, and waits for cleanup", async code => {
     const original = new Error("exact Macro terminal receipt was rejected");
-    const work = await begin(async () => { throw original; });
+    const work = await begin(async () => { throw original; }, code);
     let settled = false;
     void work.outcome.then(() => { settled = true; });
     work.child.stdout.write(`submitted:${work.nonce}\n`);

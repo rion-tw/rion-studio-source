@@ -1,4 +1,6 @@
-import type { BaseWindow } from "electron";
+import { app, type BaseWindow } from "electron";
+import { writeFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { MacosAppKitChromiumRuntimeHostFactory } from
   "../main/macosAppKitRuntimeHostFactory";
 import { MacosAppKitRuntimePresentationController } from
@@ -15,6 +17,29 @@ import {
 export function installAppKitInitialPresentationProbe(): void {
   if (process.platform !== "darwin") return;
   const windows = new Map<number, BaseWindow>();
+  const directory = process.env.RION_STUDIO_E2E_ARTIFACT_DIR;
+  const resizeEnabled = process.env.RION_STUDIO_E2E_PHASE === "chromium-tabs-visible-seed" &&
+    !!directory && isAbsolute(directory);
+  const resizeSnapshots = new Map<string, unknown>();
+  const resizeOwnerCapacity = 32;
+  let droppedResizeOwners = 0;
+  let resizeCaptureErrors = 0;
+  let lastResizeCaptureError: string | null = null;
+  const object = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === "object" && !Array.isArray(value);
+  const flushResize = (stage: string): void => {
+    if (!resizeEnabled) return;
+    try {
+      writeFileSync(join(directory!, "electron-appkit-native-resize-observations.json"),
+        `${JSON.stringify({ journalVersion: 1, ownerCapacity: resizeOwnerCapacity,
+          nativeCapacity: 128, droppedOwners: droppedResizeOwners,
+          captureErrors: resizeCaptureErrors, lastCaptureError: lastResizeCaptureError,
+          flushedAt: new Date().toISOString(), flushStage: stage,
+          coverage: "Snapshots from existing placement/focus callbacks; no added native event or ACK.",
+          snapshots: [...resizeSnapshots.values()] }, null, 2)}\n`, "utf8");
+    } catch { /* Diagnostic output cannot alter native ownership or terminality. */ }
+  };
+  if (resizeEnabled) app.once("will-quit", () => flushResize("will-quit"));
   const journal = (type: string, identity: string, details: unknown,
     status: "started" | "completed" | "rejected" = "completed", error?: unknown) => {
     appendCoreFlowObservation({ boundary: "command", type, identity, status,
@@ -99,11 +124,65 @@ export function installAppKitInitialPresentationProbe(): void {
       attachAppKitRuntimeHost: (handle, identity, callback) => {
         const native = [...windows.values()].find((window) =>
           !window.isDestroyed() && window.getNativeWindowHandle().equals(handle));
+        const attachedIdentity = Object.freeze({ ...identity });
+        const attachedHandle = Buffer.from(handle);
+        let firstWindowPointer: string | undefined;
+        const captureResize = (event: unknown): unknown => {
+          if (!resizeEnabled || !object(event) || !object(event.action)) return event;
+          const raw = event.action.diagnosticResizeJournal;
+          if (!object(raw)) return event;
+          const summary = { capacity: raw.capacity, dropped: raw.dropped,
+            sequence: raw.sequence, recordCount: Array.isArray(raw.records) ? raw.records.length : null };
+          try {
+            if (raw.journalVersion !== 1 || raw.capacity !== 128 || !Array.isArray(raw.records) ||
+                raw.records.length > 128 || !Number.isSafeInteger(raw.sequence) || Number(raw.sequence) < 0 ||
+                !Number.isSafeInteger(raw.dropped) || Number(raw.dropped) < 0) {
+              throw new Error("The bounded native resize journal is malformed");
+            }
+            const records = raw.records;
+            const last: unknown = records.at(-1);
+            const windowPointer = object(last) && typeof last.windowPointer === "string"
+              ? last.windowPointer : null;
+            const validRecords = records.every((record, index) => object(record) &&
+              record.windowID === attachedIdentity.logicalWindowId &&
+              record.windowPointer === windowPointer &&
+              Number.isSafeInteger(record.sequence) && Number(record.sequence) > 0 &&
+              (index === 0 || Number(record.sequence) > Number(records[index - 1]?.sequence)));
+            if (!validRecords) throw new Error("The native resize journal mixed its retained window owner");
+            if (windowPointer && firstWindowPointer === undefined) firstWindowPointer = windowPointer;
+            const key = JSON.stringify([attachedIdentity.logicalWindowId,
+              attachedIdentity.launchGeneration, attachedIdentity.nativeGeneration]);
+            if (!resizeSnapshots.has(key) && resizeSnapshots.size >= resizeOwnerCapacity) {
+              resizeSnapshots.delete(resizeSnapshots.keys().next().value!);
+              droppedResizeOwners++;
+            }
+            resizeSnapshots.set(key, { capturedAt: new Date().toISOString(), identity: attachedIdentity,
+              callbackIdentity: event.identity, callbackType: event.action.type,
+              sourceWindowMatches: event.action.sourceWindowId === attachedIdentity.logicalWindowId,
+              callbackIdentityMatches: object(event.identity) &&
+                event.identity.logicalWindowId === attachedIdentity.logicalWindowId &&
+                event.identity.launchGeneration === attachedIdentity.launchGeneration &&
+                event.identity.nativeGeneration === attachedIdentity.nativeGeneration,
+              parentNativeHostId: native?.id ?? null, originalNativeHandle: attachedHandle.toString("hex"),
+              currentNativeHandleMatches: !!native && !native.isDestroyed() &&
+                windows.get(native.id) === native && native.getNativeWindowHandle().equals(attachedHandle),
+              originalWindowPointer: firstWindowPointer ?? null,
+              currentWindowPointerMatches: windowPointer !== null && windowPointer === firstWindowPointer,
+              native: read(native), journal: raw });
+          } catch (error) {
+            resizeCaptureErrors++;
+            lastResizeCaptureError = describeCoreFlowError(error).slice(0, 2_000);
+          }
+          // Avoid repeatedly exporting 128 native rows in the general Core journal.
+          // The original eventJson still reaches the product callback unchanged.
+          return { ...event, action: { ...event.action, diagnosticResizeJournal: summary } };
+        };
         journal("appKitControllerAttach", identity.logicalWindowId, { identity, native: read(native) });
         const controller = addon.attachAppKitRuntimeHost(handle, identity, (eventJson) => {
           let event: unknown;
           try { event = JSON.parse(eventJson); } catch { event = { invalidJson: true }; }
-          journal("appKitNativeCallback", identity.logicalWindowId, { identity, event, native: read(native) });
+          journal("appKitNativeCallback", identity.logicalWindowId,
+            { identity, event: captureResize(event), native: read(native) });
           callback(eventJson);
         });
         return new Proxy(controller, { get(target, property) {

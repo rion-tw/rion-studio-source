@@ -281,7 +281,8 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     tabWindow
   });
   await quitChromiumApplicationVisible(context);
-  await expectTerminalConsumerRelease(shutdownRole.id, tabShutdown.tabId, "KeyT");
+  await expectTerminalConsumerRelease(shutdownRole.id, tabShutdown.tabId, "KeyT",
+    { kind: "native-quit", platform: context.platform });
   await expectRoleSurfacesDestroyed([shutdownRole.id]);
 }
 

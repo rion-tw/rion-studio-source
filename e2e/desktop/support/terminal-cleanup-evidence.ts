@@ -1,6 +1,6 @@
 import { readFile, watch } from "node:fs/promises";
 import { join } from "node:path";
-import { assertFixtureKeyboardReleased, type FixtureKeyboardEvidence } from
+import { assertFixtureKeyboardReleased, type FixtureKeyboardEvidence, type FixtureKeyboardReleaseContext } from
   "../../../src/electron/e2e/fixtureKeyboardEvidence";
 
 async function waitForArtifact<T>(name: string, select: (value: unknown) => T | undefined): Promise<T> {
@@ -38,10 +38,12 @@ async function waitForArtifact<T>(name: string, select: (value: unknown) => T | 
   throw new Error(`Terminal artifact was not observed: ${name}`);
 }
 
-export async function expectTerminalConsumerRelease(roleId: string, tabId: string, code: string): Promise<void> {
+export async function expectTerminalConsumerRelease(
+  roleId: string, tabId: string, code: string, context?: FixtureKeyboardReleaseContext
+): Promise<void> {
   const evidence = await waitForArtifact("electron-fixture-keyboard-terminal.json", value =>
     (value as FixtureKeyboardEvidence[]).find(entry => entry.roleId === roleId && entry.tabId === tabId));
-  assertFixtureKeyboardReleased(evidence, code);
+  assertFixtureKeyboardReleased(evidence, code, context);
 }
 
 export async function waitForTabDestruction(tabId: string): Promise<void> {

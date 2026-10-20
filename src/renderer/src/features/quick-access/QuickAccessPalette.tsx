@@ -90,6 +90,9 @@ export function QuickAccessPalette({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isExecuting, setIsExecuting] = useState(false);
   const items = useMemo(() => filterQuickAccessItems(catalog, query), [catalog, query]);
+  // An awaited execution must see the current open state, not its closure's.
+  const openRef = useRef(open);
+  openRef.current = open;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -123,6 +126,13 @@ export function QuickAccessPalette({
     setSelectedIndex((current) => Math.min(current, Math.max(0, items.length - 1)));
   }, [items.length]);
 
+  // Focus stays in the search field, so keyboard selection must scroll itself.
+  useEffect(() => {
+    const item = items[selectedIndex];
+    if (!open || !item) return;
+    document.getElementById(quickAccessOptionId(item))?.scrollIntoView?.({ block: "nearest" });
+  }, [items, open, selectedIndex]);
+
   async function execute(
     item: QuickAccessItem,
     destination?: RuntimeLaunchDestination
@@ -146,7 +156,7 @@ export function QuickAccessPalette({
       onClose("complete");
     } else {
       setIsExecuting(false);
-      if (open && dialog && !dialog.open) dialog.showModal();
+      if (openRef.current && dialog && !dialog.open) dialog.showModal();
       inputRef.current?.focus();
     }
   }
@@ -233,7 +243,7 @@ export function QuickAccessPalette({
                   selected={index === selectedIndex}
                   t={t}
                   onExecute={(destination) => void execute(item, destination)}
-                  onPointerEnter={() => setSelectedIndex(index)}
+                  onPointerMove={() => setSelectedIndex(index)}
                   onSetPinned={(pinned) => {
                     if (item.kind !== "route") void onSetPinned(item.ref, pinned);
                   }}
@@ -261,7 +271,7 @@ function QuickAccessResultRow({
   selected,
   t,
   onExecute,
-  onPointerEnter,
+  onPointerMove,
   onSetPinned
 }: {
   gameWindows: readonly GameWindow[];
@@ -272,7 +282,7 @@ function QuickAccessResultRow({
   selected: boolean;
   t: Translator;
   onExecute: (destination?: RuntimeLaunchDestination) => void;
-  onPointerEnter: () => void;
+  onPointerMove: () => void;
   onSetPinned: (pinned: boolean) => void;
 }): JSX.Element {
   const canChooseDestination = item.kind === "role" || item.kind === "workspace";
@@ -282,7 +292,7 @@ function QuickAccessResultRow({
         "group flex min-h-12 items-center gap-1 rounded-sm border border-transparent px-1 transition-colors",
         selected && "border-border/45 bg-accent/50"
       )}
-      onPointerEnter={onPointerEnter}
+      onPointerMove={onPointerMove}
     >
       <button
         id={quickAccessOptionId(item)}

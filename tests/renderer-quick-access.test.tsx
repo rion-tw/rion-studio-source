@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type JSX, useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -252,6 +252,52 @@ describe("quick access palette", () => {
     ));
     expect(document.activeElement).not.toBe(openIn);
   });
+
+  it("scrolls the keyboard selection into view while focus stays in search", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView
+    });
+    try {
+      render(<PaletteHarness onExecute={vi.fn()} onSetPinned={vi.fn()} />);
+      await user.click(screen.getByRole("button", { name: "Open palette" }));
+      scrollIntoView.mockClear();
+
+      await user.keyboard("{ArrowUp}");
+      const search = screen.getByRole("combobox");
+      const selected = search.getAttribute("aria-activedescendant");
+      expect(selected).toBeTruthy();
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+      expect(scrollIntoView.mock.contexts.at(-1)).toBe(document.getElementById(selected ?? ""));
+      expect(document.activeElement).toBe(search);
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
+  });
+
+  it("keeps a palette closed during a pending launch closed after that launch fails", async () => {
+    const user = userEvent.setup();
+    let finishExecution!: (succeeded: boolean) => void;
+    const onExecute = vi.fn(() => new Promise<boolean>((resolve) => {
+      finishExecution = resolve;
+    }));
+    render(<PaletteHarness onExecute={onExecute} onSetPinned={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Open palette" }));
+    const dialog = screen.getByTestId("quick-access-palette");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(onExecute).toHaveBeenCalledOnce());
+    await user.click(screen.getByRole("button", { name: "Close palette" }));
+    expect(dialog.getAttribute("data-presentation-state")).toBe("closed");
+
+    await act(async () => {
+      finishExecution(false);
+    });
+    expect(dialog.hasAttribute("open")).toBe(false);
+    expect(dialog.getAttribute("data-presentation-state")).toBe("closed");
+  });
 });
 
 function PaletteHarness({
@@ -266,6 +312,7 @@ function PaletteHarness({
   return (
     <>
       <button type="button" onClick={() => setOpen(true)}>Open palette</button>
+      <button type="button" onClick={() => setOpen(false)}>Close palette</button>
       <QuickAccessPalette
         catalog={catalogFor({})}
         gameWindows={[gameWindow()]}

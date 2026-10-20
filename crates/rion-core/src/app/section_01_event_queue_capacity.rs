@@ -364,6 +364,8 @@ pub struct AppCore {
     embedded_input: Mutex<crate::embedded_input::EmbeddedInputRuntime>,
     browser_runtime_issues: RwLock<std::collections::HashMap<String, BrowserRuntimeFailureReason>>,
     workspace_slot_loads: std::sync::Mutex<std::collections::HashMap<(String, String), crate::model::WorkspaceSlotLoadRecord>>,
+    /// Web surfaces whose failure degraded a Workspace tab, by tab and attempt.
+    workspace_web_failures: std::sync::Mutex<std::collections::HashMap<String, (String, std::collections::HashSet<String>)>>,
     browser_runtime_ready_roles: RwLock<std::collections::HashSet<String>>,
     embedded_closing_tabs: Mutex<std::collections::HashSet<String>>,
     embedded_operations: Mutex<std::collections::HashMap<String, String>>,
@@ -553,6 +555,7 @@ impl AppCore {
             embedded_input: Mutex::new(crate::embedded_input::EmbeddedInputRuntime::default()),
             browser_runtime_issues: RwLock::new(std::collections::HashMap::new()),
             workspace_slot_loads: std::sync::Mutex::new(std::collections::HashMap::new()),
+            workspace_web_failures: std::sync::Mutex::new(std::collections::HashMap::new()),
             browser_runtime_ready_roles: RwLock::new(std::collections::HashSet::new()),
             embedded_closing_tabs: Mutex::new(std::collections::HashSet::new()),
             embedded_operations: Mutex::new(std::collections::HashMap::new()),

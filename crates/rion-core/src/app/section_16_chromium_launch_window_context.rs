@@ -128,6 +128,12 @@ impl AppCore {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("applied")
             .to_owned();
+        self.recover_workspace_web_tab_phase(
+            &input.tab_id,
+            &input.expected_attempt_generation,
+            &input.surface_id,
+            &operation_id,
+        )?;
         Ok(
             crate::model::BrowserWorkspaceWebNavigationCommitReceiptRecord {
                 operation_id,
@@ -431,8 +437,97 @@ impl AppCore {
         if commit.status == crate::RuntimeCommitStatus::Superseded {
             return Ok(receipt("superseded", commit.revision));
         }
+        {
+            let mut failures = self.workspace_web_failures.lock().map_err(|_| {
+                CoreError::Internal("workspace web failure state poisoned".to_owned())
+            })?;
+            // Retired tabs and attempts no longer own a degraded phase.
+            failures.retain(|tab_id, (attempt, _)| {
+                before.browser_runtime.tabs.iter().any(|tab| {
+                    tab.id == *tab_id && tab.attempt_generation.as_deref() == Some(attempt.as_str())
+                })
+            });
+            let entry = failures
+                .entry(input.tab_id.clone())
+                .or_insert_with(|| (input.expected_attempt_generation.clone(), Default::default()));
+            if entry.0 != input.expected_attempt_generation {
+                *entry = (input.expected_attempt_generation.clone(), Default::default());
+            }
+            entry.1.insert(input.surface_id.clone());
+        }
         self.project_embedded_runtime_snapshot_without_persistence(Some(&operation_id))?;
         Ok(receipt("accepted", commit.revision))
+    }
+
+    /// A Web surface that failed and then committed a navigation no longer
+    /// degrades its Workspace tab. The tab returns to Ready only when no other
+    /// Web surface, Workspace slot load, or Role surface still reports failure.
+    fn recover_workspace_web_tab_phase(
+        &self,
+        tab_id: &str,
+        attempt_generation: &str,
+        surface_id: &str,
+        operation_id: &str,
+    ) -> CoreResult<()> {
+        use crate::model::RuntimeTabActivationPhaseRecord as Phase;
+        {
+            let mut failures = self.workspace_web_failures.lock().map_err(|_| {
+                CoreError::Internal("workspace web failure state poisoned".to_owned())
+            })?;
+            let Some((failed_attempt, surfaces)) = failures.get_mut(tab_id) else {
+                return Ok(());
+            };
+            if failed_attempt != attempt_generation || !surfaces.remove(surface_id) {
+                return Ok(());
+            }
+            if !surfaces.is_empty() {
+                return Ok(());
+            }
+            failures.remove(tab_id);
+        }
+        let snapshot = self.browser_runtime.snapshot()?;
+        let Some(activation) = snapshot.tab_activations.get(tab_id) else {
+            return Ok(());
+        };
+        let Some(browser_tab) = snapshot.browser_runtime.tabs.iter().find(|tab| {
+            tab.id == tab_id && tab.attempt_generation.as_deref() == Some(attempt_generation)
+        }) else {
+            return Ok(());
+        };
+        if activation.phase != Phase::Degraded {
+            return Ok(());
+        }
+        let slot_unsettled = self
+            .workspace_slot_loads
+            .lock()
+            .map_err(|_| CoreError::Internal("slot load state poisoned".to_owned()))?
+            .values()
+            .any(|slot| {
+                slot.tab_id == tab_id
+                    && slot.attempt_generation == attempt_generation
+                    && slot.phase != "ready"
+            });
+        let role_failed = {
+            let issues = self
+                .browser_runtime_issues
+                .read()
+                .map_err(|_| CoreError::Internal("role issues poisoned".to_owned()))?;
+            browser_tab.slots.iter().any(|slot| issues.contains_key(&slot.role_id))
+        };
+        if slot_unsettled || role_failed {
+            return Ok(());
+        }
+        let ready_operation_id = format!("{operation_id}:web-recovered");
+        let commit = self.apply_runtime_intent(crate::RuntimeIntent::SetTabActivationPhase {
+            activation_attempt_id: activation.attempt_id.clone(),
+            operation_id: ready_operation_id.clone(),
+            phase: Phase::Ready,
+            tab_id: crate::RuntimeTabId::new(tab_id.to_owned()).map_err(CoreError::InvalidInput)?,
+        })?;
+        if commit.status != crate::RuntimeCommitStatus::Superseded {
+            self.project_embedded_runtime_snapshot_without_persistence(Some(&ready_operation_id))?;
+        }
+        Ok(())
     }
 
 }

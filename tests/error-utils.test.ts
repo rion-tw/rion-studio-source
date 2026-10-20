@@ -72,6 +72,14 @@ describe("renderer error localization", () => {
     }
   });
 
+  it("localizes the runtime's lowercase already-running refusal", async () => {
+    await loadTranslations("zh-TW");
+    expect(localizeErrorMessage("macro is already running for this role", "zh-TW"))
+      .not.toBe("macro is already running for this role");
+    expect(localizeErrorMessage("macro is already running for this role", "en"))
+      .toBe("Macro is already running for this role.");
+  });
+
   it("localizes hidden browser helper launch failures", () => {
     expect(localizeErrorMessage("Unable to start the hidden Rion Studio browser helper.", "en")).toBe(
       "Unable to start the hidden browser helper."

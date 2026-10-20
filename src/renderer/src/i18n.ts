@@ -238,6 +238,8 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Multiple roles share a name in the same game. Rename or remove duplicates before importing.":
     "error.portableRoleNameConflict",
   "Macro is already running for this role.": "error.macroAlreadyRunning",
+  // Core's runtime start guard reports the same refusal in lowercase.
+  "macro is already running for this role": "error.macroAlreadyRunning",
   "A role assigned to this macro is stopping and cannot accept new input.":
     "error.macroRoleStopping",
   "A role assigned to this macro is navigating and cannot accept automatic input yet.":

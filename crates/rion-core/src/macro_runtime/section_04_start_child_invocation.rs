@@ -31,6 +31,11 @@ fn start_child_invocation(
     if definition.uses_source_role() {
         *child.execution_source.lock().map_err(|_| "macro source lock poisoned")? = parent_context.source_role_id.clone();
     }
+    *child
+        .referenced_macro_ids
+        .lock()
+        .map_err(|_| "macro reference lock poisoned")? =
+        collect_invocation_macro_ids(macro_id, &parent_context.macros);
     {
         let mut inner = shared
             .inner
@@ -935,6 +940,7 @@ fn new_invocation_control(
         finished_naturally: AtomicBool::new(false),
         id,
         macro_ids: Mutex::new(HashSet::from([macro_id])),
+        referenced_macro_ids: Mutex::new(HashSet::new()),
         outcome: Mutex::new(None),
         owner_signal: Mutex::new(None),
         restart_intent: Mutex::new(None),

@@ -797,6 +797,10 @@ impl MacroRuntime {
                         .macro_ids
                         .lock()
                         .is_ok_and(|ids| !ids.is_disjoint(&macro_ids))
+                        || control
+                            .referenced_macro_ids
+                            .lock()
+                            .is_ok_and(|ids| !ids.is_disjoint(&macro_ids))
                 })
                 .cloned()
                 .collect::<Vec<_>>();
@@ -1106,6 +1110,11 @@ impl MacroRuntime {
         if root.uses_source_role() {
             *control.execution_source.lock().map_err(|_| CoreError::Internal("macro source lock poisoned".to_owned()))? = request.source_role_id.clone();
         }
+        *control
+            .referenced_macro_ids
+            .lock()
+            .map_err(|_| CoreError::Internal("macro reference lock poisoned".to_owned()))? =
+            invocation_macro_ids.clone();
         if let Ok(mut control_attempt_id) = control.start_attempt_id.lock() {
             *control_attempt_id = start_attempt_id.map(str::to_owned);
         }

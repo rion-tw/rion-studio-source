@@ -209,6 +209,9 @@ struct InvocationControl {
     finished_naturally: AtomicBool,
     id: String,
     macro_ids: Mutex<HashSet<String>>,
+    /// Every Macro this invocation may call, resolved from its start snapshot.
+    /// Changing one of them stops the invocation instead of running stale steps.
+    referenced_macro_ids: Mutex<HashSet<String>>,
     outcome: Mutex<Option<Result<(), String>>>,
     owner_signal: Mutex<Option<Weak<InvocationControl>>>,
     restart_intent: Mutex<Option<MacroRestartIntent>>,

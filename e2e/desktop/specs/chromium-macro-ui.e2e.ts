@@ -214,7 +214,8 @@ async function setPortableDelayStep(): Promise<void> {
   const type = await step.$("button[aria-label='Step type']");
   // Escape closes the open list only; it must not cancel the unsaved editor.
   await type.click();
-  const listbox = await $("[role='listbox']");
+  // The closed Quick Access dialog keeps its own listbox mounted; match the open Select.
+  const listbox = await $("[role='listbox'][data-state='open']");
   await listbox.waitForDisplayed({ timeout: 10_000 });
   await browser.keys(Key.Escape);
   await listbox.waitForExist({ reverse: true, timeout: 10_000 });

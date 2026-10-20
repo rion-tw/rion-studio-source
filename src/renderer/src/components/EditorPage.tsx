@@ -72,6 +72,9 @@ export function EditorPage({
       }
 
       if (event.key === "Escape") {
+        // An open Select, menu, or IME composition consumes Escape first; it
+        // closes that layer and must not also leave the editor.
+        if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
         event.preventDefault();
         onCancel();
         return;

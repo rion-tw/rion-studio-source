@@ -3,7 +3,9 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Columns2 } from "lucide-react";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { EditorPage } from "../src/renderer/src/components/EditorPage";
 
 import {
   Select,
@@ -100,5 +102,32 @@ describe("select width constraints", () => {
     const plainTextContent = trigger.querySelector("[data-slot=select-item-content]");
     expect(plainTextContent?.textContent).toContain("Studio Display");
     expect([...plainTextContent!.classList]).toEqual(expect.arrayContaining(["block", "truncate"]));
+  });
+
+  it("closes an open Select with Escape without leaving its editor page", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+
+    render(
+      <EditorPage backActionLabel="Back" backLabel="Back to list" description="Edit this macro" isSaving={false} onCancel={onCancel}
+        onSubmit={() => undefined} saveIcon={null} saveLabel="Save" title="Edit macro">
+        <Select defaultValue="key">
+          <SelectTrigger aria-label="Step type"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="key">Key</SelectItem>
+            <SelectItem value="delay">Delay</SelectItem>
+          </SelectContent>
+        </Select>
+      </EditorPage>
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Step type" }));
+    expect(screen.getByRole("listbox")).toBeTruthy();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(onCancel).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });

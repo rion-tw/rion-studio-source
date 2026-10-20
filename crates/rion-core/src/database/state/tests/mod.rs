@@ -12,3 +12,4 @@ include!("behavior_09_portable_snapshot_migration_authority.rs");
 include!("behavior_10_macro_activation_mode_migration.rs");
 include!("behavior_11_snapshot_replacement_preserves_extensions.rs");
 include!("behavior_12_ordinals_after_delete.rs");
+include!("behavior_13_deleted_sources_prune_saved_game_windows.rs");

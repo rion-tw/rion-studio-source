@@ -18,7 +18,7 @@ use crate::domain::{
     default_macro_settings, default_quick_access_preferences, default_runtime_window_preferences,
     delete_game, delete_game_window, delete_macro, delete_macros, delete_workspace,
     macro_shortcut_source_role_ids, normalize_game_browser_settings, normalize_macro_settings,
-    reorder_game_windows, reorder_roles, reorder_workspaces, reset_builtin_game,
+    prune_game_window_sources, reorder_game_windows, reorder_roles, reorder_workspaces, reset_builtin_game,
     save_runtime_game_window, update_game, update_game_window, update_macro, update_role,
     update_workspace, validate_game_window_collection,
 };
@@ -271,13 +271,14 @@ impl StateMutation {
             | Self::RoleBrowserDataReset { .. }
             | Self::RoleAssignGameIds(_) => vec![Roles],
             Self::RoleDelete { .. } | Self::RolesDelete { .. } => {
-                vec![Roles, LaunchWorkspaces, Macros]
+                vec![Roles, LaunchWorkspaces, Macros, GameWindows]
+            }
+            Self::WorkspaceDelete { .. } | Self::WorkspacesDelete { .. } => {
+                vec![LaunchWorkspaces, GameWindows]
             }
             Self::WorkspaceCreate(_)
             | Self::WorkspaceUpdate { .. }
             | Self::WorkspaceReorder { .. }
-            | Self::WorkspaceDelete { .. }
-            | Self::WorkspacesDelete { .. }
             | Self::WorkspaceClearRole { .. }
             | Self::WorkspaceSetRoleBrowserZoom { .. } => vec![LaunchWorkspaces],
             Self::WorkspaceWebNavigationCommit { .. } => {

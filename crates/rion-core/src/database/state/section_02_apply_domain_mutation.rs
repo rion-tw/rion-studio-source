@@ -257,6 +257,7 @@ fn apply_domain_mutation(
                 .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
             sync_workspaces(&transaction, &workspaces)?;
             sync_macros(&transaction, &macros)?;
+            prune_deleted_game_window_sources(&transaction, std::slice::from_ref(&id), &[])?;
             if let Some(operation_id) = operation_id {
                 set_operation_journal_phase(&transaction, &operation_id, "committed")?;
             }
@@ -310,6 +311,7 @@ fn apply_domain_mutation(
             }
             sync_workspaces(&transaction, &workspaces)?;
             sync_macros(&transaction, &macros)?;
+            prune_deleted_game_window_sources(&transaction, &deleted_ids, &[])?;
             prune_quick_access_items(&transaction, "role", &deleted_ids)?;
             Ok(json!({ "deletedIds": deleted_ids, "skipped": skipped }))
         }
@@ -397,6 +399,7 @@ fn apply_domain_mutation(
             transaction
                 .execute("DELETE FROM workspaces WHERE id=?1", params![id])
                 .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            prune_deleted_game_window_sources(&transaction, &[], std::slice::from_ref(&id))?;
             prune_quick_access_items(&transaction, "workspace", std::slice::from_ref(&id))?;
             Ok(json!({ "deleted": true }))
         }
@@ -425,6 +428,7 @@ fn apply_domain_mutation(
                     .execute("DELETE FROM workspaces WHERE id=?1", params![id])
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
             }
+            prune_deleted_game_window_sources(&transaction, &[], &deleted_ids)?;
             prune_quick_access_items(&transaction, "workspace", &deleted_ids)?;
             Ok(json!({ "deletedIds": deleted_ids, "skipped": skipped }))
         }
@@ -810,6 +814,27 @@ fn normalize_bulk_ids(ids: Vec<String>) -> CoreResult<Vec<String>> {
         }
     }
     Ok(normalized)
+}
+
+/// Keeps saved Game Windows restorable inside the same transaction that deletes
+/// their Role or Workspace sources. Only persisted window records change; live
+/// windows remain owned by the runtime, which persists its own snapshots.
+fn prune_deleted_game_window_sources(
+    transaction: &Transaction<'_>,
+    deleted_role_ids: &[String],
+    deleted_workspace_ids: &[String],
+) -> CoreResult<()> {
+    if deleted_role_ids.is_empty() && deleted_workspace_ids.is_empty() {
+        return Ok(());
+    }
+    let mut game_windows =
+        read_typed_collection::<StateGameWindowRecord>(transaction, "gameWindows")?;
+    for ordinal in
+        prune_game_window_sources(&mut game_windows, deleted_role_ids, deleted_workspace_ids)?
+    {
+        upsert_game_window(transaction, &json_value(&game_windows[ordinal])?, ordinal)?;
+    }
+    Ok(())
 }
 
 fn bulk_skip(id: String, reason: &str, related_names: Vec<String>) -> Value {

@@ -495,6 +495,74 @@ pub fn clear_workspace_role(workspaces: &mut [StateLaunchWorkspaceRecord], role_
     }
 }
 
+/// Removes saved Game Window content whose Role or Workspace source was deleted
+/// so every remaining saved tab can still be restored. Role tabs and Workspace
+/// tabs for a deleted source are removed, a deleted Role is cleared from the
+/// remaining Workspace layout snapshots (together with its slot zoom), and a
+/// Workspace tab left without any Role or Web content is removed. A window may
+/// become empty; empty saved windows remain valid domain records. Returns the
+/// indexes of the windows that changed.
+pub(crate) fn prune_game_window_sources(
+    game_windows: &mut [StateGameWindowRecord],
+    deleted_role_ids: &[String],
+    deleted_workspace_ids: &[String],
+) -> CoreResult<Vec<usize>> {
+    let deleted_roles = deleted_role_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let deleted_workspaces = deleted_workspace_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut changed = Vec::new();
+    for (index, window) in game_windows.iter_mut().enumerate() {
+        let mut tabs = window.tabs.clone();
+        tabs.retain_mut(|tab| match tab.tab_type.as_str() {
+            "role" => !deleted_roles.contains(tab.source_id.as_str()),
+            "workspace" if deleted_workspaces.contains(tab.source_id.as_str()) => false,
+            "workspace" => {
+                tab.role_slots
+                    .retain(|slot| !deleted_roles.contains(slot.role_id.as_str()));
+                for slot in &mut tab.workspace_slots {
+                    if slot
+                        .role_id
+                        .as_deref()
+                        .is_some_and(|role_id| deleted_roles.contains(role_id))
+                    {
+                        slot.role_id = None;
+                        slot.browser_zoom_percent = None;
+                    }
+                }
+                !tab.role_slots.is_empty()
+                    || tab
+                        .workspace_slots
+                        .iter()
+                        .any(|slot| slot.role_id.is_some() || slot.web.is_some())
+            }
+            _ => true,
+        });
+        if tabs == window.tabs {
+            continue;
+        }
+        // A removed active tab falls back through the same normalization that
+        // admits every saved window: the first remaining visible tab, or none.
+        let active_tab_id = window
+            .active_tab_id
+            .clone()
+            .filter(|active| tabs.iter().any(|tab| &tab.id == active));
+        *window = normalize_game_window(StateGameWindowRecord {
+            tabs,
+            active_tab_id,
+            updated_at: now.clone(),
+            ..window.clone()
+        })?;
+        changed.push(index);
+    }
+    Ok(changed)
+}
+
 pub fn set_workspace_role_browser_zoom(
     workspaces: &mut [StateLaunchWorkspaceRecord],
     workspace_id: &str,

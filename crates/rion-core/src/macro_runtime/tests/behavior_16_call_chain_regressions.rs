@@ -135,3 +135,62 @@
         runtime.shutdown();
     }
 
+    #[test]
+    fn a_failed_recovery_member_releases_siblings_that_already_resumed() {
+        for cancel in [false, true] {
+            let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+            // The unacknowledged holds only keep the root registered; a short
+            // action deadline lets shutdown retire it quickly.
+            let runtime = MacroRuntime::new_with_waiter_and_timeout(
+                Arc::new(move |batch| {
+                    let _ = events.send(batch);
+                }),
+                Arc::new(default_wait),
+                Duration::from_millis(300),
+            );
+            let mut start = request(vec![MacroStepDefinition::Key {
+                id: "k".to_owned(),
+                code: "KeyA".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+                duration_ms: None,
+            }]);
+            start.macros[0].role_ids = vec!["r1".to_owned(), "r2".to_owned()];
+            start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 0 };
+            start.active_role_ids = vec!["r1".to_owned(), "r2".to_owned()];
+            let starting = runtime.clone();
+            let handle = thread::spawn(move || starting.start(start));
+            let focus = next_browser_actions(&receiver);
+            runtime.dispatch_results(success_results(focus)).unwrap();
+            handle.join().unwrap().unwrap();
+            let _unacknowledged_holds = next_browser_actions(&receiver);
+            let first = runtime.ensure_input_recovery("rec-a", "r1").unwrap();
+            runtime.ensure_input_recovery("rec-b", "r2").unwrap();
+            assert!(runtime.resume_role_input("r1", first.input_epoch).unwrap());
+
+            if cancel {
+                runtime.cancel_input_recovery_for_role("r2").unwrap();
+            } else {
+                assert!(runtime.fail_input_recovery("rec-b", "r2", "neutralization failed").unwrap());
+            }
+
+            let inner = runtime.shared.inner.lock().unwrap();
+            assert!(!inner.recovering_role_ids.contains("r1"), "cancel={cancel}");
+            assert!(!inner.input_recovery_by_role.contains_key("r1"), "cancel={cancel}");
+            assert!(!inner.input_recoveries.contains_key("rec-a"), "cancel={cancel}");
+            assert!(
+                !inner.statuses.keys().any(|key| key.starts_with(&recovery_status_prefix("rec-a"))),
+                "cancel={cancel}"
+            );
+            drop(inner);
+            let r1 = runtime
+                .input_diagnostics()
+                .unwrap()
+                .roles
+                .into_iter()
+                .find(|role| role.role_id == "r1");
+            assert!(r1.is_none_or(|role| !role.quiesced && !role.restart_required), "cancel={cancel}");
+            runtime.shutdown();
+        }
+    }

@@ -60,7 +60,9 @@ impl MacroRuntime {
             return Ok(false);
         }
         inner.input_recovery_by_role.remove(role_id);
-        inner.input_recoveries.remove(recovery_id);
+        if let Some(failed) = inner.input_recoveries.remove(recovery_id) {
+            release_resumed_recovery_siblings(&mut inner, &failed);
+        }
         inner.recovering_role_ids.remove(role_id);
         inner.restart_required_role_ids.insert(role_id.to_owned());
         let prefix = recovery_status_prefix(recovery_id);
@@ -448,11 +450,48 @@ fn cancel_recovery_for_role(inner: &mut Inner, role_id: &str) -> bool {
         inner.restart_required_role_ids.remove(role_id);
         return false;
     };
-    inner.input_recoveries.remove(&recovery_id);
+    if let Some(cancelled) = inner.input_recoveries.remove(&recovery_id) {
+        release_resumed_recovery_siblings(inner, &cancelled);
+    }
     inner.recovering_role_ids.remove(role_id);
     inner.restart_required_role_ids.remove(role_id);
     remove_recovery_statuses(inner, &recovery_id);
     true
+}
+
+/// A recovery group restarts its shared Macros only after every member resumed.
+/// When one member fails or is cancelled, members that already resumed wait
+/// only for it; release them without restarting the group's Macros. Members
+/// still quiesced finish through their own completion.
+fn release_resumed_recovery_siblings(inner: &mut Inner, ended: &MacroInputRecovery) {
+    let sequences = ended
+        .intents
+        .iter()
+        .map(|intent| intent.sequence)
+        .collect::<HashSet<_>>();
+    if sequences.is_empty() {
+        return;
+    }
+    let siblings = inner
+        .input_recoveries
+        .iter()
+        .filter(|(_, recovery)| {
+            !inner.quiesced_role_ids.contains(&recovery.role_id)
+                && recovery
+                    .intents
+                    .iter()
+                    .any(|intent| sequences.contains(&intent.sequence))
+        })
+        .map(|(recovery_id, recovery)| (recovery_id.clone(), recovery.role_id.clone()))
+        .collect::<Vec<_>>();
+    for (recovery_id, role_id) in siblings {
+        inner.input_recoveries.remove(&recovery_id);
+        if inner.input_recovery_by_role.get(&role_id) == Some(&recovery_id) {
+            inner.input_recovery_by_role.remove(&role_id);
+            inner.recovering_role_ids.remove(&role_id);
+        }
+        remove_recovery_statuses(inner, &recovery_id);
+    }
 }
 
 fn remove_recovery_statuses(inner: &mut Inner, recovery_id: &str) {

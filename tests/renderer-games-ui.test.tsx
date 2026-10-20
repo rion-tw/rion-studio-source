@@ -9,6 +9,7 @@ import { ConfirmationProvider } from "../src/renderer/src/components/Confirmatio
 import GameEditorRoute from "../src/renderer/src/features/games/GameModal";
 import GamesRoute from "../src/renderer/src/features/games/GamesRoute";
 import type { Translator } from "../src/renderer/src/i18n";
+import { createGameCoverImageDataUrl } from "../src/renderer/src/features/games/gameCover";
 import en from "../src/renderer/src/i18n/en.json";
 import type { Game } from "../src/shared/types";
 
@@ -180,6 +181,35 @@ describe("games cover UI", () => {
 
     await user.click(removeCoverButton);
     expect(container.querySelector(`img[src="${processedCover}"]`)).toBeNull();
+  });
+
+  it("keeps a name typed while a chosen cover is still processing", async () => {
+    const user = userEvent.setup();
+    let finishCover!: (value: string) => void;
+    vi.mocked(createGameCoverImageDataUrl).mockImplementationOnce(
+      () => new Promise((resolve) => { finishCover = resolve; })
+    );
+    const router = createMemoryRouter([{
+      path: "/games/:id/edit",
+      element: <ConfirmationProvider><GameEditorRoute
+        games={[game({ id: "game-1", name: "Custom game" })]}
+        isSaving={false}
+        t={t}
+        onError={vi.fn()}
+        onReset={vi.fn()}
+        onSave={vi.fn()}
+      /></ConfirmationProvider>
+    }], { initialEntries: ["/games/game-1/edit"] });
+    const { container } = render(<RouterProvider router={router} />);
+
+    await user.upload(screen.getByLabelText("Choose cover"), new File(["cover"], "cover.png", { type: "image/png" }));
+    const name = document.getElementById("game-name") as HTMLInputElement;
+    await user.clear(name);
+    await user.type(name, "Renamed while processing");
+    finishCover(processedCover);
+
+    await waitFor(() => expect(container.querySelector(`img[src="${processedCover}"]`)).toBeTruthy());
+    expect(name.value).toBe("Renamed while processing");
   });
 
   it("shows the packaged cover without editing controls for a built-in game", () => {

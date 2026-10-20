@@ -1,5 +1,5 @@
 import { Check, ImagePlus, RotateCcw, Save, Trash2 } from "lucide-react";
-import { type ChangeEvent, type FormEvent, type JSX, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type Dispatch, type FormEvent, type JSX, type SetStateAction, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { createGameFormState, createNewGameForm, areEditorFormsEqual } from "../../app/editorFormState";
@@ -122,7 +122,7 @@ function GameEditor({
   );
 }
 
-function GameCoverEditor({ form, game, isSaving, t, onChange, onError }: { form: GameFormState; game?: Game; isSaving: boolean; t: Translator; onChange: (form: GameFormState) => void; onError: (error: unknown | null) => void }): JSX.Element {
+function GameCoverEditor({ form, game, isSaving, t, onChange, onError }: { form: GameFormState; game?: Game; isSaving: boolean; t: Translator; onChange: Dispatch<SetStateAction<GameFormState>>; onError: (error: unknown | null) => void }): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   // A custom game's preview is its form value; falling back to the saved image
   // would keep showing an image the user just removed.
@@ -133,7 +133,9 @@ function GameCoverEditor({ form, game, isSaving, t, onChange, onError }: { form:
     event.target.value = "";
     if (!file) return;
     try {
-      onChange({ ...form, coverImageDataUrl: await createGameCoverImageDataUrl(file) });
+      const coverImageDataUrl = await createGameCoverImageDataUrl(file);
+      // Edits made while the image was processing stay; only the cover changes.
+      onChange((current) => ({ ...current, coverImageDataUrl }));
       onError(null);
     } catch (error) {
       onError(error);
@@ -155,12 +157,16 @@ function GameCoverEditor({ form, game, isSaving, t, onChange, onError }: { form:
   </Surface>;
 }
 
-function GameIconEditor({ form, game, isSaving, t, onChange, onError }: { form: GameFormState; game?: Game; isSaving: boolean; t: Translator; onChange: (form: GameFormState) => void; onError: (error: unknown | null) => void }): JSX.Element {
+function GameIconEditor({ form, game, isSaving, t, onChange, onError }: { form: GameFormState; game?: Game; isSaving: boolean; t: Translator; onChange: Dispatch<SetStateAction<GameFormState>>; onError: (error: unknown | null) => void }): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const iconUrl = form.source === "custom" ? form.iconImageDataUrl : form.iconImageDataUrl ?? getGameIconUrl(game);
   async function change(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
-    try { onChange({ ...form, iconImageDataUrl: await createSquareImage(file) }); onError(null); } catch (error) { onError(error); }
+    try {
+      const iconImageDataUrl = await createSquareImage(file);
+      onChange((current) => ({ ...current, iconImageDataUrl }));
+      onError(null);
+    } catch (error) { onError(error); }
   }
   return <Surface className="grid gap-3 p-4" variant="inset"><FieldHeader title={t("games.form.icon")} description={form.source === "builtin" ? t("games.form.iconBuiltin") : t("games.form.iconDescription")} /><div className="mx-auto grid aspect-square w-full max-w-52 place-items-center overflow-hidden rounded-xl bg-muted">{iconUrl ? <img className="size-full object-cover" src={iconUrl} alt="" /> : <ImagePlus size={30} />}</div>{form.source === "custom" ? <><input ref={inputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={isSaving} onChange={(event) => void change(event)} /><div className="flex gap-2"><Button className="flex-1" type="button" variant="outline" onClick={() => inputRef.current?.click()}><ImagePlus size={15} />{t("games.form.chooseIcon")}</Button>{form.iconImageDataUrl ? <Button aria-label={t("games.form.removeIcon")} title={t("games.form.removeIcon")} type="button" variant="ghost" size="icon" onClick={() => onChange({ ...form, iconImageDataUrl: undefined })}><Trash2 size={15} /></Button> : null}</div></> : null}</Surface>;
 }

@@ -95,6 +95,8 @@ describe("Game Window recovery dashboard", () => {
     );
 
     expect(screen.getByText("Rion Studio did not close normally")).toBeTruthy();
+    // One live and one saved window: the saved list never repeats live windows.
+    expect(screen.getByText("2 · 3 tabs")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Restore session" }));
     // One recovery action at a time; the banner stays until Core settles it.
     expect((screen.getByRole("button", { name: "Discard" }) as HTMLButtonElement).disabled).toBe(true);

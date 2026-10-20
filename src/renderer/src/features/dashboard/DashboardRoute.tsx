@@ -341,7 +341,8 @@ function RuntimeWindowsPanel({
   t: Translator;
 }): JSX.Element {
   const savedTabCount = (runtime.savedWindows ?? []).reduce((total, item) => total + item.tabCount, 0);
-  const windowCount = Math.max(runtime.windows.length, runtime.savedWindows?.length ?? 0);
+  // Saved windows exclude live ones, so the two lists never overlap.
+  const windowCount = runtime.windows.length + (runtime.savedWindows?.length ?? 0);
   const tabCount = runtime.tabs.length + savedTabCount;
 
   return (

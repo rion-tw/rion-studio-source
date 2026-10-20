@@ -11,6 +11,12 @@ use sha2::{Digest, Sha256};
 use crate::{Platform, PlatformError};
 
 const LOCK_FILES: &[&str] = &["SingletonCookie", "SingletonLock", "SingletonSocket"];
+/// Windows Chrome's process-singleton lock in the user data directory. Chrome
+/// holds it for its whole lifetime with write access, read-only sharing, and
+/// `FILE_FLAG_DELETE_ON_CLOSE`, so Windows deletes it on every exit, including
+/// a crash. POSIX Chrome uses the Singleton* markers instead.
+#[cfg(windows)]
+const WINDOWS_LOCK_FILE: &str = "lockfile";
 const COPY_FILES: &[&str] = &[
     "Cookies",
     "Cookies-wal",
@@ -54,6 +60,45 @@ pub fn chrome_user_data_in_use(source: &Path) -> bool {
     LOCK_FILES
         .iter()
         .any(|name| fs::symlink_metadata(source.join(name)).is_ok())
+        || windows_lock_file_held(source)
+}
+
+/// Probes whether a live process holds Chrome's Windows `lockfile`. A
+/// read-only open that refuses to share writing conflicts with Chrome's write
+/// handle, so only a held lock reports a sharing violation; the probe never
+/// writes, creates, or deletes the file.
+#[cfg(windows)]
+fn windows_lock_file_held(source: &Path) -> bool {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+    let probe = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+        .open(source.join(WINDOWS_LOCK_FILE))
+        .map(drop);
+    lock_file_probe_indicates_in_use(probe)
+}
+
+#[cfg(not(windows))]
+fn windows_lock_file_held(_source: &Path) -> bool {
+    false
+}
+
+#[cfg(any(windows, test))]
+fn lock_file_probe_indicates_in_use(probe: std::io::Result<()>) -> bool {
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    match probe {
+        // Nobody holds the file, so it is stale evidence (for example after
+        // a power loss) rather than a running Chrome.
+        Ok(()) => false,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) if error.raw_os_error() == Some(ERROR_SHARING_VIOLATION) => true,
+        // An unclassified state, such as a pending delete or denied access,
+        // fails closed; apply re-checks before reading any source data.
+        Err(_) => true,
+    }
 }
 
 pub fn discover_chrome_profiles(source: &Path) -> Result<Vec<ChromeProfileEntry>, PlatformError> {
@@ -296,6 +341,60 @@ mod tests {
         assert!(!chrome_user_data_in_use(source.path()));
         fs::write(source.path().join("SingletonLock"), b"locked").unwrap();
         assert!(chrome_user_data_in_use(source.path()));
+    }
+
+    /// Holds `lockfile` the way the running browser does on each platform:
+    /// Windows Chrome keeps a write handle with read-only sharing and
+    /// delete-on-close; POSIX Chrome never uses this file.
+    fn hold_lock_file_like_running_chrome(source: &Path) -> fs::File {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_SHARE_READ: u32 = 0x0000_0001;
+            const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
+            options
+                .share_mode(FILE_SHARE_READ)
+                .custom_flags(FILE_FLAG_DELETE_ON_CLOSE);
+        }
+        options.open(source.join("lockfile")).unwrap()
+    }
+
+    #[test]
+    fn windows_lock_file_marks_the_source_in_use_only_while_chrome_holds_it() {
+        let source = tempdir().unwrap();
+        assert!(!chrome_user_data_in_use(source.path()));
+
+        let held = hold_lock_file_like_running_chrome(source.path());
+        // macOS keeps its Singleton-marker detection unchanged.
+        assert_eq!(chrome_user_data_in_use(source.path()), cfg!(windows));
+        drop(held);
+        if cfg!(windows) {
+            // Chrome's delete-on-close handle removes the file at exit.
+            assert!(!source.path().join("lockfile").exists());
+        }
+        assert!(!chrome_user_data_in_use(source.path()));
+
+        // A lockfile nobody holds is stale evidence, not a running Chrome.
+        fs::write(source.path().join("lockfile"), b"").unwrap();
+        assert!(!chrome_user_data_in_use(source.path()));
+    }
+
+    #[test]
+    fn windows_lock_file_probe_fails_closed_on_unknown_open_errors() {
+        const ERROR_ACCESS_DENIED: i32 = 5;
+        const ERROR_SHARING_VIOLATION: i32 = 32;
+        assert!(!lock_file_probe_indicates_in_use(Ok(())));
+        assert!(!lock_file_probe_indicates_in_use(Err(
+            std::io::ErrorKind::NotFound.into()
+        )));
+        assert!(lock_file_probe_indicates_in_use(Err(
+            std::io::Error::from_raw_os_error(ERROR_SHARING_VIOLATION)
+        )));
+        assert!(lock_file_probe_indicates_in_use(Err(
+            std::io::Error::from_raw_os_error(ERROR_ACCESS_DENIED)
+        )));
     }
 
     #[test]

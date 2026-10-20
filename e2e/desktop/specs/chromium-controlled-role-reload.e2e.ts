@@ -8,9 +8,16 @@ import {
   failNextElectronDesktopE2eRuntimeTabReload,
   type ElectronDesktopE2eRuntimeTabReloadInspection
 } from "../support/electron-driver";
-import { clickVisibleElectronPageElement, readElectronRoleDocumentState } from
-  "../support/electron-role-surface";
-import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
+import {
+  clickVisibleElectronPageElement,
+  readElectronRoleDocumentState,
+  withRolePageTarget
+} from "../support/electron-role-surface";
+import {
+  fixtureCursor,
+  fixtureRequest,
+  waitFixtureEvent
+} from "../support/fixture";
 import { selectMacosVisibleRuntimeTabMenuAction } from
   "../support/macos-appkit-ui";
 import {
@@ -23,7 +30,9 @@ import {
   bootstrapChromiumMacroCutover,
   createChromiumMacroWindow,
   launchChromiumRoleVisible,
-  macroFixtureUrl
+  macroFixtureUrl,
+  waitForChromiumMacroRoleReady,
+  type ChromiumMacroScenarioContext
 } from "./chromium-macro-cutover-support";
 
 // [journey:CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-RELOAD-031]
@@ -38,6 +47,8 @@ const ROLE_NAME = "Chromium Controlled Reload Role";
 const ROLE_FIXTURE = "chromium-controlled-role-reload";
 const POPUP_FIXTURE = "e2e-workspace-popup";
 const INJECTED_FAILURE = "ELECTRON_DESKTOP_E2E_RUNTIME_TAB_RELOAD_INJECTED";
+const RETAINED_RECEIPT_FAILURE = "ELECTRON_ROLE_RELOAD_NOT_APPLIED";
+const RETAINED_ROLE_FAILURE = "ELECTRON_ROLE_RELOAD_DOCUMENT_RETAINED";
 
 async function createRole(): Promise<Role> {
   const launchUrl = macroFixtureUrl(ROLE_FIXTURE, "mode=observe");
@@ -60,6 +71,7 @@ async function waitForReloads(
   windowsMenuCaptures = count
 ): Promise<ElectronDesktopE2eRuntimeTabReloadInspection> {
   let inspection: ElectronDesktopE2eRuntimeTabReloadInspection | undefined;
+  let lastError = "none";
   await browser.waitUntil(async () => {
     try {
       inspection = await electronDesktopE2eRuntimeTabReload(windowId);
@@ -67,13 +79,18 @@ async function waitForReloads(
         inspection.observations.length === count &&
         inspection.windowsMenuCaptures.length ===
           (platform === "windows" ? windowsMenuCaptures : 0);
-    } catch {
+    } catch (error) {
+      lastError = String(error).slice(0, 1_024);
       return false;
     }
   }, {
     interval: 100,
     timeout: 45_000,
-    timeoutMsg: `Visible controlled Reload ${count} did not reach input-ready`
+    timeoutMsg: `Visible controlled Reload ${count} did not reach its terminal`
+  }).catch((error: unknown) => {
+    throw new Error(`${String(error)}; last inspection error: ${lastError}`, {
+      cause: error
+    });
   });
   return inspection!;
 }
@@ -227,8 +244,183 @@ async function exerciseRoleNamedOauthPopup(input: Readonly<{
   });
 }
 
+interface ReloadScenario extends ChromiumMacroScenarioContext {
+  readonly role: Role;
+  readonly tabId: string;
+}
+
+/** Reads the fixture page's own document token; it changes only with a new document. */
+async function fixtureDocumentToken(mainWindowHandle: string): Promise<string> {
+  return withRolePageTarget(
+    macroFixtureUrl(ROLE_FIXTURE, "mode=observe"),
+    mainWindowHandle,
+    async () => browser.execute(() => (window as typeof window & {
+      __rionFixtureKeyboardSnapshot: () => { documentToken: string };
+    }).__rionFixtureKeyboardSnapshot().documentToken)
+  );
+}
+
+/** Core derives Macro readiness from its input diagnostics at read time. */
+async function expectRoleMacroInputReady(roleId: string): Promise<void> {
+  const statuses = await rendererCall("listRoleStatuses");
+  expect(statuses.filter((status) => status.roleId === roleId)).toEqual([
+    expect.objectContaining({ automationState: "ready", roleId, state: "running" })
+  ]);
+}
+
+/**
+ * Selects visible Reload while the fixture answers the next Role page request
+ * with 204 No Content, so the navigation never commits, then proves Core
+ * terminalized it as failed on the retained document with input resumed.
+ */
+async function selectRetainedReload(
+  scenario: ReloadScenario
+): Promise<ElectronDesktopE2eRuntimeTabReloadInspection> {
+  const { platform, role, tabId } = scenario;
+  const before = await electronDesktopE2eRuntimeTabReload(WINDOW_ID);
+  const beforeShellErrors = await runtimeTabShellErrors();
+  const beforeToken = await fixtureDocumentToken(scenario.mainWindowHandle);
+  await waitForChromiumMacroRoleReady(role.id);
+  const afterSequence = await fixtureCursor();
+  // Deterministic precondition only; the Reload itself is the visible menu.
+  await fixtureRequest("/api/no-content-navigation", { roleId: ROLE_FIXTURE });
+
+  await selectReload(scenario);
+  const retained = await waitForReloads(
+    WINDOW_ID,
+    before.observations.length + 1,
+    platform,
+    before.failures.length,
+    before.windowsMenuCaptures.length + 1
+  );
+  // The fixture answered the reload's own request without a document.
+  await waitFixtureEvent({
+    afterSequence,
+    kind: "role-no-content-served",
+    roleId: ROLE_FIXTURE
+  });
+  const observation = retained.observations.at(-1)!;
+  const document = before.roles[0]!.documentInstanceId;
+  expect(observation.request).toEqual(expect.objectContaining({
+    tabId,
+    windowGeneration: before.nativeWindow.windowGeneration,
+    windowId: WINDOW_ID
+  }));
+  expect(observation.request.topologyRevision).toBeGreaterThanOrEqual(
+    before.nativeWindow.topologyRevision
+  );
+  expect(observation.receipt.receipt).toEqual(expect.objectContaining({
+    completionPolicy: "eventBound",
+    completionScope: "inputReady",
+    failureCode: RETAINED_RECEIPT_FAILURE,
+    status: "failed",
+    subsystem: "navigation",
+    tabId,
+    windowId: WINDOW_ID
+  }));
+  expect(observation.receipt.roles).toEqual([expect.objectContaining({
+    afterDocumentInstanceId: document,
+    beforeDocumentInstanceId: document,
+    coreInputResumed: true,
+    failureCode: RETAINED_ROLE_FAILURE,
+    nativeInputResumed: true,
+    ownerGeneration: before.roles[0]!.ownerGeneration,
+    restartRequired: false,
+    roleId: role.id,
+    status: "failed",
+    submissionState: "submitted",
+    surfaceGeneration: before.roles[0]!.surfaceGeneration
+  })]);
+  expect(observation.receipt.roles[0]!.navigationSequence).toBeUndefined();
+
+  expect(retained.roles).toEqual(before.roles);
+  expect(retained.popups).toEqual(before.popups);
+  expect(retained.failures).toEqual(before.failures);
+  expect(stableNativeWindowIdentity(retained)).toEqual(
+    stableNativeWindowIdentity(before)
+  );
+  expect(await fixtureDocumentToken(scenario.mainWindowHandle)).toBe(beforeToken);
+  await expectRoleMacroInputReady(role.id);
+  await browser.waitUntil(async () =>
+    (await runtimeTabShellErrors()).length === beforeShellErrors.length + 1, {
+    interval: 100,
+    timeout: 10_000,
+    timeoutMsg: "The retained-document Reload did not publish one shell error"
+  });
+  expect(await runtimeTabShellErrors()).toEqual([
+    ...beforeShellErrors,
+    {
+      code: RETAINED_RECEIPT_FAILURE,
+      message: "Core did not terminalize the exact controlled Reload at input-ready."
+    }
+  ]);
+  if (platform === "windows") {
+    const capture = retained.windowsMenuCaptures.at(-1)!;
+    expect(capture.projectionRevision).toBeGreaterThan(
+      before.windowsMenuCaptures.at(-1)!.projectionRevision
+    );
+    expect(capture).toEqual(expect.objectContaining({
+      lifecycleEpoch: observation.request.lifecycleEpoch,
+      tabId,
+      topologyRevision: observation.request.topologyRevision,
+      windowGeneration: observation.request.windowGeneration,
+      windowId: WINDOW_ID
+    }));
+  }
+  return retained;
+}
+
+/** A visible Reload after a retained document commits a new one again. */
+async function selectReloadAfterRetainedDocument(
+  scenario: ReloadScenario,
+  lastApplied: ElectronDesktopE2eRuntimeTabReloadInspection["observations"][number]
+): Promise<void> {
+  const before = await electronDesktopE2eRuntimeTabReload(WINDOW_ID);
+  const beforeShellErrors = await runtimeTabShellErrors();
+  const beforeToken = await fixtureDocumentToken(scenario.mainWindowHandle);
+  await selectReload(scenario);
+  const recovered = await waitForReloads(
+    WINDOW_ID,
+    before.observations.length + 1,
+    scenario.platform,
+    before.failures.length,
+    before.windowsMenuCaptures.length + 1
+  );
+  const receipt = recovered.observations.at(-1)!.receipt;
+  const previousRole = lastApplied.receipt.roles[0]!;
+  expect(receipt.receipt).toEqual(expect.objectContaining({
+    completionScope: "inputReady",
+    status: "applied"
+  }));
+  expect(receipt.roles).toEqual([expect.objectContaining({
+    beforeDocumentInstanceId: before.roles[0]!.documentInstanceId,
+    coreInputResumed: true,
+    nativeInputResumed: true,
+    restartRequired: false,
+    status: "applied",
+    submissionState: "submitted"
+  })]);
+  expect(receipt.roles[0]!.afterDocumentInstanceId).not.toBe(
+    before.roles[0]!.documentInstanceId
+  );
+  expect(receipt.roles[0]!.navigationSequence).toBeGreaterThan(
+    previousRole.navigationSequence!
+  );
+  expect(recovered.roles[0]!.documentInstanceId).toBe(
+    receipt.roles[0]!.afterDocumentInstanceId
+  );
+  expect(stableRoleIdentity(recovered)).toEqual(stableRoleIdentity(before));
+  expect(stableNativeWindowIdentity(recovered)).toEqual(
+    stableNativeWindowIdentity(before)
+  );
+  expect(recovered.popups).toEqual(before.popups);
+  expect(await fixtureDocumentToken(scenario.mainWindowHandle)).not.toBe(beforeToken);
+  await waitForChromiumMacroRoleReady(scenario.role.id);
+  expect(await runtimeTabShellErrors()).toEqual(beforeShellErrors);
+}
+
 describe("Chromium controlled Role Reload", () => {
-  it("reloads twice, fails once, and recovers through visible native menus", async () => {
+  it("reloads, fails, keeps a non-committing Reload's document, and recovers through visible native menus", async () => {
     const context = await bootstrapChromiumMacroCutover();
     await installRuntimeTabShellErrorJournal();
     const role = await createRole();
@@ -497,5 +689,13 @@ describe("Chromium controlled Role Reload", () => {
       ...context, muted: false, tabId: tab.tabId, tabName: role.name, windowId: WINDOW_ID
     });
     expect(await runtimeTabShellErrors()).toHaveLength(1);
+
+    // A Reload whose navigation never commits keeps the running document.
+    const scenario = { ...context, role, tabId: tab.tabId };
+    const retained = await selectRetainedReload(scenario);
+    expect(retained.observations.at(-1)!.receipt.roles[0]!.beforeDocumentInstanceId)
+      .toBe(recoveredRole.afterDocumentInstanceId);
+    await selectReloadAfterRetainedDocument(scenario, recovered.observations[2]!);
+    expect(await runtimeTabShellErrors()).toHaveLength(2);
   });
 });

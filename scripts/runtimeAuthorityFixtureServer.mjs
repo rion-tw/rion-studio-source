@@ -1,3 +1,4 @@
+import { createControlledReloadFixture } from "./controlledReloadFixture.mjs";
 import { createFixtureKeyboardJournal } from "./fixtureKeyboardJournal.mjs";
 import { serveWorkspaceWebDrmFixture } from "./workspaceWebDrmFixtureRoutes.mjs";
 import { createServer } from "node:http";
@@ -16,6 +17,9 @@ const eventWaiters = new Set();
 const events = [];
 const gates = new Map();
 const navigationFailures = new Map();
+const controlledReload = createControlledReloadFixture({
+  json, recordFixtureEvent, requestBody
+});
 let nextEventSequence = 1;
 
 const EVENT_CAPACITY = 4_096;
@@ -1241,6 +1245,7 @@ const server = createServer(async (request, response) => {
       gates.clear();
       for (const roleId of navigationFailures.keys()) releaseNavigationFailure(roleId);
       navigationFailures.clear();
+      controlledReload.reset();
       json(response, 200, { ok: true });
       return;
     }
@@ -1290,6 +1295,7 @@ const server = createServer(async (request, response) => {
       });
       return;
     }
+    if (await controlledReload.serveControl(request, response, url)) return;
     if (request.method === "GET" && url.pathname === "/api/session-cookie") {
       json(response, 200, { cookie: sessionCookie(request) });
       return;
@@ -1382,6 +1388,7 @@ const server = createServer(async (request, response) => {
     const roleMatch = request.method === "GET" && url.pathname.match(/^\/role\/([a-z0-9-]+)$/);
     if (roleMatch) {
       const roleId = roleMatch[1];
+      if (controlledReload.serveRolePage(response, roleId)) return;
       const failure = navigationFailureState(roleId);
       if (failure.enabled) {
         if (failure.failedAttempts === 0) {

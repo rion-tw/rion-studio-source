@@ -8,11 +8,12 @@ async function source(path: string): Promise<string> {
 
 describe("Chromium controlled Role Reload source contract", () => {
   it("keeps two platform verdicts on one visible-menu phase", async () => {
-    const [spec, phases, manifestSource, fixture] = await Promise.all([
+    const [spec, phases, manifestSource, fixture, reloadFixture] = await Promise.all([
       source("e2e/desktop/specs/chromium-controlled-role-reload.e2e.ts"),
       source("e2e/desktop/phaseSpecs.ts"),
       source("docs/e2e-coverage.json"),
-      source("scripts/runtimeAuthorityFixtureServer.mjs")
+      source("scripts/runtimeAuthorityFixtureServer.mjs"),
+      source("scripts/controlledReloadFixture.mjs")
     ]);
     const manifest = JSON.parse(manifestSource) as {
       journeys: Array<Record<string, unknown>>;
@@ -50,9 +51,20 @@ describe("Chromium controlled Role Reload source contract", () => {
     }
     expect(phases).toContain('"chromium-controlled-role-reload"');
     expect(phases).toContain("chromium-controlled-role-reload.e2e.ts");
-    expect(spec.match(/await selectReload\(/gu)).toHaveLength(4);
+    expect(spec.match(/await selectReload\(/gu)).toHaveLength(6);
     expect(spec).toContain("failNextElectronDesktopE2eRuntimeTabReload");
     expect(spec).toContain("ELECTRON_DESKTOP_E2E_RUNTIME_TAB_RELOAD_INJECTED");
+    // A non-committing Reload: fixture precondition, visible selection.
+    expect(spec).toContain("await selectRetainedReload(scenario)");
+    expect(spec).toContain("await selectReloadAfterRetainedDocument(");
+    expect(spec).toContain('"ELECTRON_ROLE_RELOAD_DOCUMENT_RETAINED"');
+    expect(spec).toContain('fixtureRequest("/api/no-content-navigation"');
+    expect(spec).toContain('kind: "role-no-content-served"');
+    expect(spec).toContain('rendererCall("listRoleStatuses")');
+    expect(spec).toContain("__rionFixtureKeyboardSnapshot().documentToken");
+    expect(fixture).toContain("controlledReload.serveRolePage(response, roleId)");
+    expect(reloadFixture).toContain("noContentNavigations.delete(roleId)");
+    expect(reloadFixture).toContain('response.writeHead(204, { "cache-control": "no-store" })');
     expect(spec).toContain("selectMacosVisibleRuntimeTabMenuAction");
     expect(spec).toContain("selectVisibleWindowsRuntimeTabMenuAction");
     expect(spec).toContain("electronDesktopE2eRuntimeTabReload");
@@ -96,6 +108,7 @@ describe("Chromium controlled Role Reload source contract", () => {
     expect(ingress).toContain("lifecycleEpoch: fence.lifecycleEpoch");
     expect(inspection).toContain("nativeInputResumed");
     expect(inspection).toContain("coreInputResumed");
+    expect(inspection).toContain("function retainedRole(");
     expect(observer).toContain("ELECTRON_DESKTOP_E2E_RUNTIME_TAB_RELOAD_INJECTED");
     expect(docs).toContain("Tauri v22");
   });

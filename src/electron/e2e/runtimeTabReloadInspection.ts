@@ -15,6 +15,8 @@ export type ElectronDesktopE2eWindowsReloadCommand = Extract<
 >;
 
 export const ELECTRON_DESKTOP_E2E_RUNTIME_TAB_RELOAD_JOURNAL_CAPACITY = 32;
+const ELECTRON_ROLE_RELOAD_DOCUMENT_RETAINED =
+  "ELECTRON_ROLE_RELOAD_DOCUMENT_RETAINED";
 
 export interface ElectronDesktopE2eRuntimeTabReloadObservation {
   readonly receipt: Readonly<BrowserTabReloadReceiptRecord>;
@@ -106,20 +108,40 @@ function canonicalUrl(value: unknown): value is string {
   }
 }
 
+type ReloadRoleReceipt = BrowserTabReloadReceiptRecord["roles"][number];
+
+/** A committed reload replaced the document and advanced its navigation. */
+function appliedRole(role: ReloadRoleReceipt): boolean {
+  return identifier(role.afterDocumentInstanceId) &&
+    role.afterDocumentInstanceId !== role.beforeDocumentInstanceId &&
+    positiveInteger(role.navigationSequence) && role.status === "applied" &&
+    role.failureCode === undefined;
+}
+
+/** A reload that never committed left the fenced, drained document running. */
+function retainedRole(role: ReloadRoleReceipt): boolean {
+  return role.afterDocumentInstanceId === role.beforeDocumentInstanceId &&
+    role.navigationSequence === undefined && role.status === "failed" &&
+    role.failureCode === ELECTRON_ROLE_RELOAD_DOCUMENT_RETAINED;
+}
+
 function validReceipt(
   observation: ElectronDesktopE2eRuntimeTabReloadObservation,
   windowId: string
 ): boolean {
   const { receipt, request } = observation;
   const terminal = receipt.receipt;
+  const applied = terminal.status === "applied" && terminal.failureCode === undefined;
+  const retained = terminal.status === "failed" &&
+    typeof terminal.failureCode === "string";
   return request.windowId === windowId && identifier(request.operationId) &&
     identifier(request.tabId) && positiveInteger(request.windowGeneration) &&
     positiveInteger(request.topologyRevision) &&
     positiveInteger(request.lifecycleEpoch) &&
-    terminal.operationId === request.operationId && terminal.status === "applied" &&
+    terminal.operationId === request.operationId && (applied || retained) &&
     terminal.completionPolicy === "eventBound" &&
     terminal.completionScope === "inputReady" &&
-    terminal.subsystem === "navigation" && terminal.failureCode === undefined &&
+    terminal.subsystem === "navigation" &&
     terminal.tabId === request.tabId && terminal.windowId === request.windowId &&
     terminal.windowGeneration === request.windowGeneration &&
     terminal.topologyRevision === request.topologyRevision &&
@@ -128,13 +150,24 @@ function validReceipt(
       identifier(role.roleId) && positiveInteger(role.ownerGeneration) &&
       positiveInteger(role.inputEpoch) && positiveInteger(role.surfaceGeneration) &&
       identifier(role.beforeDocumentInstanceId) &&
-      identifier(role.afterDocumentInstanceId) &&
-      role.afterDocumentInstanceId !== role.beforeDocumentInstanceId &&
-      positiveInteger(role.navigationSequence) && role.status === "applied" &&
       role.submissionState === "submitted" && role.nativeInputResumed &&
       role.coreInputResumed && !role.restartRequired &&
-      role.failureCode === undefined
+      (applied ? appliedRole(role) : retainedRole(role))
     );
+}
+
+function receiptSummary(
+  observation: ElectronDesktopE2eRuntimeTabReloadObservation
+): string {
+  const terminal = observation.receipt.receipt;
+  const roles = observation.receipt.roles.map((role) => [
+    role.status,
+    role.failureCode ?? "none",
+    role.submissionState,
+    role.restartRequired ? "restartRequired" : "resumable"
+  ].join("/"));
+  return `receipt ${observation.sequence} ${terminal.status}/` +
+    `${terminal.failureCode ?? "none"} roles ${roles.join(",")}`;
 }
 
 function validAppKitIdentity(
@@ -222,22 +255,34 @@ export function parseElectronDesktopE2eRuntimeTabReloadInspection(
   })) {
     throw new Error("Electron desktop E2E Windows Reload failure capture is invalid.");
   }
+  const navigationSequences = new Map<string, number>();
   for (let index = 0; index < inspection.observations.length; index += 1) {
     const observation = inspection.observations[index]!;
-    if (observation.sequence !== index + 1 ||
-        !validReceipt(observation, inspection.windowId)) {
+    if (observation.sequence !== index + 1) {
       throw new Error("Electron desktop E2E runtime-tab Reload inspection is invalid.");
     }
-    if (index > 0) {
-      const previous = inspection.observations[index - 1]!.receipt.roles;
-      for (const role of observation.receipt.roles) {
-        const prior = previous.find((candidate) => candidate.roleId === role.roleId);
-        if (!prior || role.beforeDocumentInstanceId !== prior.afterDocumentInstanceId ||
-            role.navigationSequence! <= prior.navigationSequence!) {
-          throw new Error(
-            "Electron desktop E2E runtime-tab Reload observations are not monotonic."
-          );
-        }
+    if (!validReceipt(observation, inspection.windowId)) {
+      throw new Error(
+        "Electron desktop E2E runtime-tab Reload inspection is invalid: " +
+          `${receiptSummary(observation)}.`
+      );
+    }
+    // A retained document chains to the next reload without a navigation.
+    const previous = index > 0
+      ? inspection.observations[index - 1]!.receipt.roles
+      : null;
+    for (const role of observation.receipt.roles) {
+      const prior = previous?.find((candidate) => candidate.roleId === role.roleId);
+      if ((previous && (!prior ||
+          role.beforeDocumentInstanceId !== prior.afterDocumentInstanceId)) ||
+          (role.navigationSequence !== undefined &&
+            role.navigationSequence <= (navigationSequences.get(role.roleId) ?? 0))) {
+        throw new Error(
+          "Electron desktop E2E runtime-tab Reload observations are not monotonic."
+        );
+      }
+      if (role.navigationSequence !== undefined) {
+        navigationSequences.set(role.roleId, role.navigationSequence);
       }
     }
   }

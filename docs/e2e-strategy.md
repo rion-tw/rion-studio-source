@@ -374,8 +374,19 @@ surviving pre-existing popup, and an initially empty shell-error journal. The
 token-authenticated E2E harness then arms one exact window/tab failure without
 performing the action; a third visible menu selection must publish exactly one
 classified shell error without changing the document, owners, or popup, and a
-fourth visible selection must recover successfully. This is a v23 Chromium
-journey; stable Tauri v22 intentionally has no controlled-reload UI or command.
+fourth visible selection must recover successfully. A Reload whose navigation
+never commits follows: the fixture answers the next Role page request with 204
+No Content, and the visible selection must terminalize as Failed
+`ELECTRON_ROLE_RELOAD_DOCUMENT_RETAINED` with a submitted, input-resumed,
+not-restart-required receipt whose before and after documents are the running
+one, an unchanged fixture page token and Role/host/popup identity, Core Macro
+readiness, and exactly one classified shell error; a final visible Reload must
+commit a new document. A page `beforeunload` cancellation is lower-layer-covered
+only: ChromeDriver's DevTools session on the Role page intercepts the
+beforeunload prompt and accepts it, as WebDriver requires, so the harness would
+observe a committed Reload rather than Electron's default cancellation. This is
+a v23 Chromium journey; stable Tauri v22 intentionally has no controlled-reload
+UI or command.
 
 `scripts/electronAppKitRuntimeProbe.cjs` is a lower-layer, standalone native
 adapter probe, not a Chromium product-journey verdict. With

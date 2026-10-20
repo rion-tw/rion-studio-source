@@ -10,6 +10,12 @@ const POPUP_WINDOW_ID = `popup-${POPUP_ID}`;
 const OPEN_OPERATION_ID = "50000000-0000-4000-8000-000000000001";
 const LAUNCH_GENERATION = "60000000-0000-4000-8000-000000000001";
 const RELOAD_OPERATION_ID = "70000000-0000-4000-8000-000000000001";
+const ROLE_ID = "80000000-0000-4000-8000-000000000001";
+const DOCUMENT_IDS = [
+  "90000000-0000-4000-8000-000000000001",
+  "90000000-0000-4000-8000-000000000002",
+  "90000000-0000-4000-8000-000000000003"
+] as const;
 
 function appKitIdentity(logicalWindowId: string) {
   return { launchGeneration: LAUNCH_GENERATION, logicalWindowId, nativeGeneration: 1 };
@@ -149,5 +155,104 @@ describe("Electron desktop E2E runtime-tab Reload inspection", () => {
     });
     expect(parsed.failures[0]?.request.topologyRevision).toBe(2);
     expect(parsed.nativeWindow.topologyRevision).toBe(3);
+  });
+
+  it("chains a document-retained failure between committed reloads", () => {
+    const request = (sequence: number) => ({
+      lifecycleEpoch: 3,
+      operationId: `70000000-0000-4000-8000-00000000000${sequence}`,
+      tabId: TAB_ID,
+      topologyRevision: 2,
+      type: "browserRuntimeTabReload",
+      windowGeneration: 1,
+      windowId: WINDOW_ID
+    } as const);
+    const observation = (
+      sequence: number,
+      before: string,
+      after: string,
+      navigationSequence: number | undefined
+    ) => {
+      const retained = navigationSequence === undefined;
+      return {
+        receipt: {
+          receipt: {
+            completionPolicy: "eventBound",
+            completionScope: "inputReady",
+            lifecycleEpoch: 3,
+            operationId: request(sequence).operationId,
+            status: retained ? "failed" : "applied",
+            subsystem: "navigation",
+            tabId: TAB_ID,
+            topologyRevision: 2,
+            windowGeneration: 1,
+            windowId: WINDOW_ID,
+            ...(retained ? { failureCode: "ELECTRON_ROLE_RELOAD_NOT_APPLIED" } : {})
+          },
+          roles: [{
+            afterDocumentInstanceId: after,
+            beforeDocumentInstanceId: before,
+            coreInputResumed: true,
+            inputEpoch: 4,
+            nativeInputResumed: true,
+            ownerGeneration: 5,
+            restartRequired: false,
+            roleId: ROLE_ID,
+            status: retained ? "failed" : "applied",
+            submissionState: "submitted",
+            surfaceGeneration: 6,
+            ...(retained
+              ? { failureCode: "ELECTRON_ROLE_RELOAD_DOCUMENT_RETAINED" }
+              : { navigationSequence })
+          }]
+        },
+        request: request(sequence),
+        sequence
+      };
+    };
+    const role = {
+      audioMuted: false,
+      documentInstanceId: DOCUMENT_IDS[2],
+      ownerGeneration: 5,
+      roleId: ROLE_ID,
+      surfaceGeneration: 6,
+      tabId: TAB_ID,
+      visible: true
+    };
+    const observations = [
+      observation(1, DOCUMENT_IDS[0], DOCUMENT_IDS[1], 2),
+      observation(2, DOCUMENT_IDS[1], DOCUMENT_IDS[1], undefined),
+      observation(3, DOCUMENT_IDS[1], DOCUMENT_IDS[2], 3)
+    ];
+    const valid = { ...inspection("darwin"), observations, roles: [role] };
+    expect(parseElectronDesktopE2eRuntimeTabReloadInspection(valid).observations)
+      .toHaveLength(3);
+    expect(parseElectronDesktopE2eRuntimeTabReloadInspection({
+      ...valid,
+      observations: observations.slice(0, 2),
+      roles: [{ ...role, documentInstanceId: DOCUMENT_IDS[1] }]
+    }).observations[1]?.receipt.receipt.status).toBe("failed");
+
+    const restartRequired = structuredClone(observations);
+    restartRequired[1]!.receipt.roles[0]!.restartRequired = true;
+    expect(() => parseElectronDesktopE2eRuntimeTabReloadInspection({
+      ...valid,
+      observations: restartRequired
+    })).toThrow(
+      "inspection is invalid: receipt 2 failed/ELECTRON_ROLE_RELOAD_NOT_APPLIED " +
+        "roles failed/ELECTRON_ROLE_RELOAD_DOCUMENT_RETAINED/submitted/restartRequired."
+    );
+    const replaced = structuredClone(observations);
+    replaced[1]!.receipt.roles[0]!.afterDocumentInstanceId = DOCUMENT_IDS[2];
+    expect(() => parseElectronDesktopE2eRuntimeTabReloadInspection({
+      ...valid,
+      observations: replaced
+    })).toThrow(/inspection is invalid: receipt 2/u);
+    const stale = structuredClone(observations);
+    Object.assign(stale[2]!.receipt.roles[0]!, { navigationSequence: 2 });
+    expect(() => parseElectronDesktopE2eRuntimeTabReloadInspection({
+      ...valid,
+      observations: stale
+    })).toThrow(/not monotonic/u);
   });
 });

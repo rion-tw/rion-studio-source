@@ -1,4 +1,4 @@
-import { getEditorParentPath } from "../../app/editorNavigation";
+import { getEditorParentPath, normalizeAppReturnTo } from "../../app/editorNavigation";
 
 export const settingsSectionIds = [
   "preferences",
@@ -50,4 +50,17 @@ export function readSettingsReturnTo(state: unknown): string {
   }
 
   return "/dashboard";
+}
+
+// Opening Settings from inside Settings keeps the original application page.
+export function createSettingsNavigationState(location: {
+  pathname: string;
+  search: string;
+  state: unknown;
+}): { returnTo: string } {
+  return {
+    returnTo: location.pathname.startsWith("/settings")
+      ? readSettingsReturnTo(location.state)
+      : normalizeAppReturnTo(location.pathname, location.search)
+  };
 }

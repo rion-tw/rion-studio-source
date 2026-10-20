@@ -8,6 +8,7 @@ import { Surface } from "./components/ui/patterns";
 import { LegalOnboarding } from "./features/legal/LegalOnboarding";
 import { FirstRunOnboardingGate } from "./features/onboarding/FirstRunOnboardingGate";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
+import { createSettingsNavigationState } from "./features/settings/settingsNavigation";
 import { QuickAccessPalette } from "./features/quick-access/QuickAccessPalette";
 import { useQuickAccessPresentation } from "./features/quick-access/useQuickAccessPresentation";
 import {
@@ -15,7 +16,7 @@ import {
   isQuickAccessShortcut,
   type QuickAccessItem
 } from "./features/quick-access/quickAccessModel";
-import { createEditEditorPath, createNewEditorPath, normalizeAppReturnTo } from "./app/editorNavigation";
+import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
 import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
 import { isPersistentRuntimeError, toMessage } from "./app/errorUtils";
 import { shouldShowUpdateBadge } from "./app/statusUtils";
@@ -444,9 +445,7 @@ export function App(): JSX.Element {
       }
     } else {
       if (item.routeId === "settings") {
-        navigate(item.path, {
-          state: { returnTo: normalizeAppReturnTo(location.pathname, location.search) }
-        });
+        navigate(item.path, { state: createSettingsNavigationState(location) });
       } else {
         navigate(item.path);
       }
@@ -459,8 +458,7 @@ export function App(): JSX.Element {
     return succeeded;
   }, [
     beginErrorOperation,
-    location.pathname,
-    location.search,
+    location,
     macroWorkflow,
     navigate,
     navigateToMacros,

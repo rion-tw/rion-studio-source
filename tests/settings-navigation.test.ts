@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createSettingsNavigationState,
   readSettingsReturnTo,
   readSettingsSection,
   settingsSectionQueryValues
@@ -36,5 +37,17 @@ describe("settings navigation", () => {
     expect(readSettingsReturnTo({ returnTo: "/settings?section=updates" })).toBe("/dashboard");
     expect(readSettingsReturnTo({ returnTo: "https://example.com" })).toBe("/dashboard");
     expect(readSettingsReturnTo(null)).toBe("/dashboard");
+  });
+
+  it("keeps the original application page when Settings opens from Settings", () => {
+    expect(createSettingsNavigationState({ pathname: "/roles/role-1/edit", search: "", state: null }))
+      .toEqual({ returnTo: "/roles" });
+    expect(createSettingsNavigationState({
+      pathname: "/settings",
+      search: "?section=updates",
+      state: { returnTo: "/macros?filter=running" }
+    })).toEqual({ returnTo: "/macros?filter=running" });
+    expect(createSettingsNavigationState({ pathname: "/settings", search: "", state: null }))
+      .toEqual({ returnTo: "/dashboard" });
   });
 });

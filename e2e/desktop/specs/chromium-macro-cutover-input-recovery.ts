@@ -37,7 +37,7 @@ import {
   installRuntimeTabShellErrorJournal,
   runtimeTabShellErrors
 } from "../support/native-runtime-tabs";
-import { pressVisibleMacosRoleKey } from
+import { withVisibleMacosRoleKeyReceipt } from
   "../support/native-application-actions";
 import {
   activateChromiumRoleVisible,
@@ -90,28 +90,34 @@ async function exerciseConcurrentPhysicalInput(input: Readonly<{
   ).presentation;
   const nativeBefore = (await electronDesktopE2eGameWindowRuntime(WINDOW_ID)).currentRuntime;
   const trustedInputBefore = await electronDesktopE2eTrustedInputRuntime(input.roleId);
-  const pressY = () => input.platform === "macos"
-    ? pressVisibleMacosRoleKey({
-      code: "KeyY",
-      processId: input.processId,
-      runtimeTabName: input.roleName,
-      runtimeWindowId: WINDOW_ID
-    })
-    : submitElectronRoleKeyPhases(input.roleUrl, input.mainWindowHandle, [
+  // A one-shot native sender can exit before the WindowServer delivers KeyY;
+  // on macOS it stays alive until KeyY's effect has been observed.
+  const pressY = async (observe: () => Promise<unknown>): Promise<void> => {
+    if (input.platform === "macos") {
+      await withVisibleMacosRoleKeyReceipt({
+        code: "KeyY",
+        processId: input.processId,
+        runtimeTabName: input.roleName,
+        runtimeWindowId: WINDOW_ID
+      }, async () => { await observe(); });
+      return;
+    }
+    await submitElectronRoleKeyPhases(input.roleUrl, input.mainWindowHandle, [
       { key: "y", phase: "keyDown" },
       { key: "y", phase: "keyUp" }
     ], { windowId: WINDOW_ID, focusCanvas: false });
-  await pressY();
-  expect((await electronDesktopE2eFullscreenToolbarRuntime(WINDOW_ID)).presentation)
-    .toBe(presentationBefore);
-  expect((await electronDesktopE2eGameWindowRuntime(WINDOW_ID)).currentRuntime?.nativeDisplay)
-    .toEqual(nativeBefore?.nativeDisplay);
-  await waitForMacroProjection({
+    await observe();
+  };
+  await pressY(() => waitForMacroProjection({
     afterSequence: input.macroStatusCursor,
     macroId: input.macroId,
     roleIds: [input.roleId],
     state: "running"
-  });
+  }));
+  expect((await electronDesktopE2eFullscreenToolbarRuntime(WINDOW_ID)).presentation)
+    .toBe(presentationBefore);
+  expect((await electronDesktopE2eGameWindowRuntime(WINDOW_ID)).currentRuntime?.nativeDisplay)
+    .toEqual(nativeBefore?.nativeDisplay);
   await waitExactKey({
     afterSequence,
     code: "KeyJ",
@@ -174,17 +180,16 @@ async function exerciseConcurrentPhysicalInput(input: Readonly<{
 
   const stopProjectionCursor = await rendererEventCursor();
   const stopInputCursor = await fixtureCursor();
-  await pressY();
-  expect((await electronDesktopE2eFullscreenToolbarRuntime(WINDOW_ID)).presentation)
-    .toBe(presentationBefore);
-  expect((await electronDesktopE2eGameWindowRuntime(WINDOW_ID)).currentRuntime?.nativeDisplay)
-    .toEqual(nativeBefore?.nativeDisplay);
-  await waitExactKey({
+  await pressY(() => waitExactKey({
     afterSequence: stopInputCursor,
     code: "KeyY",
     kind: "consumer-keyup",
     roleId: FIXTURE_ID
-  });
+  }));
+  expect((await electronDesktopE2eFullscreenToolbarRuntime(WINDOW_ID)).presentation)
+    .toBe(presentationBefore);
+  expect((await electronDesktopE2eGameWindowRuntime(WINDOW_ID)).currentRuntime?.nativeDisplay)
+    .toEqual(nativeBefore?.nativeDisplay);
   await waitForMacroProjection({
     absent: true,
     afterSequence: stopProjectionCursor,

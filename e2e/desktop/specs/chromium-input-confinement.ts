@@ -2,7 +2,9 @@ import { expect } from "@wdio/globals";
 import {
   electronDesktopE2eGameWindowRuntime, electronDesktopE2eTrustedInputRuntime
 } from "../support/electron-driver";
+import { readVisibleElectronCanvasPoint } from "../support/electron-role-surface";
 import { fixtureCursor, fixtureEvents, waitFixtureEvent } from "../support/fixture";
+import { clickMacosVisibleRoleControl } from "../support/macos-appkit-ui";
 import { withVisibleMacosRoleKeyReceipt } from "../support/native-application-actions";
 import { submitElectronRoleKeyPhases } from "../support/electron-role-surface";
 
@@ -24,8 +26,14 @@ export async function verifyUnboundChromiumInput(input: Readonly<{
     }
   };
   if (input.platform === "macos") {
-    // Keep the native sender alive until the page receipt; an early exit can
-    // drop the key before Chromium consumes it on a busy runner.
+    // Tab activation alone does not prove the Role page became first responder;
+    // CI observed KeyY reaching no page focus at all. Give the Canvas physical
+    // focus first, then keep the native sender alive until the page receipt.
+    const clickCursor = await fixtureCursor();
+    await clickMacosVisibleRoleControl(input.windowId, input.roleId,
+      await readVisibleElectronCanvasPoint(input.roleUrl, input.mainWindowHandle));
+    const click = await waitFixtureEvent({ afterSequence: clickCursor, kind: "game-click", roleId: input.fixtureId });
+    expect(click.isTrusted).toBe(true);
     await withVisibleMacosRoleKeyReceipt({ code: "KeyY", processId: input.processId,
       runtimeTabName: input.roleName, runtimeWindowId: input.windowId }, receiveKeyY);
   } else {

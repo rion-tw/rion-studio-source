@@ -383,6 +383,37 @@ describe("Windows runtime-host renderer", () => {
     expect(tabs.scrollLeft).toBe(300);
   });
 
+  it("keeps keyboard focus on the same tab control when a projection rebuilds the strip", async () => {
+    let project!: (projection: WindowsRuntimeHostProjection) => void;
+    Object.assign(window, { rionStudioWindowsRuntimeHost: {
+      onProjection: (listener: typeof project) => { project = listener; return () => undefined; },
+      submit: vi.fn()
+    } });
+    await import("../src/renderer/src/runtime-windows-host");
+    const value: WindowsRuntimeHostProjection = {
+      windowId, windowMaximized: false, windowName: "", activeTabId: firstTabId,
+      alwaysShowToolbarInFullScreen: false,
+      contentBounds: { height: 600, width: 900, x: 0, y: 40 },
+      fullscreen: false, lifecycleEpoch: 4, moveTargets: [], projectionRevision: 5,
+      tabs: [
+        { tabId: firstTabId, name: "First", active: true, hidden: false, audioMuted: false, phase: "ready" },
+        { tabId: secondTabId, name: "Second", active: false, hidden: false, audioMuted: false, phase: "ready" }
+      ],
+      toolbarVisible: true, topologyRevision: 8, windowGeneration: 2, workspaceDividers: []
+    };
+    project(value);
+    const control = (tabId: string, kind: "activate" | "close") => document.querySelector<HTMLElement>(
+      `[data-runtime-tab-${kind}][data-tab-id="${tabId}"]`
+    )!;
+    control(secondTabId, "activate").focus();
+    project({ ...value, projectionRevision: 6, tabs: value.tabs.map((tab) => ({ ...tab, phase: "loading" as const })) });
+    expect(document.activeElement).toBe(control(secondTabId, "activate"));
+
+    control(firstTabId, "close").focus();
+    project({ ...value, projectionRevision: 7 });
+    expect(document.activeElement).toBe(control(firstTabId, "close"));
+  });
+
   it("submits hover chrome only when fullscreen presentation can change", async () => {
     const submit = vi.fn();
     let project!: (projection: WindowsRuntimeHostProjection) => void;

@@ -319,6 +319,10 @@ function render(projection: WindowsRuntimeHostProjection): void {
   windowName!.hidden = projection.windowName.length === 0;
   revealEdge!.hidden = projection.toolbarVisible || !projection.fullscreen ||
     projection.alwaysShowToolbarInFullScreen;
+  // Every projection rebuilds the strip; keep keyboard focus on the same control.
+  const focused = document.activeElement instanceof HTMLElement && tabs!.contains(document.activeElement)
+    ? { tabId: document.activeElement.dataset.tabId, close: document.activeElement.dataset.runtimeTabClose !== undefined }
+    : null;
   tabs!.replaceChildren(...projection.tabs.filter((tab) => !tab.hidden).map((tab) => {
     const item = document.createElement("div");
     item.className = "runtime-tab";
@@ -386,6 +390,11 @@ function render(projection: WindowsRuntimeHostProjection): void {
     item.addEventListener("contextmenu", (event) => openTabMenu(event, tab.tabId));
     return item;
   }));
+  if (focused?.tabId) {
+    const selector = focused.close ? "[data-runtime-tab-close]" : "[data-runtime-tab-activate]";
+    [...tabs!.querySelectorAll<HTMLElement>(selector)]
+      .find((element) => element.dataset.tabId === focused.tabId && !element.hidden)?.focus();
+  }
   tabToolbar.render(labels, projection.activeTabId);
   renderDividers(projection);
   document.documentElement.dataset.fullscreen = String(projection.fullscreen);

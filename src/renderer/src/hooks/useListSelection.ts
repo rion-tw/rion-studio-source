@@ -235,7 +235,12 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
   }, [scrollContainerRef, stopAutoScroll, updateMarqueeSelection]);
 
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLElement>): void => {
-    if (event.button !== 0 || event.isPrimary === false || isInteractiveTarget(event.target as HTMLElement)) {
+    if (
+      event.button !== 0 ||
+      event.isPrimary === false ||
+      isOverlayTarget(event) ||
+      isInteractiveTarget(event.target as HTMLElement)
+    ) {
       return;
     }
     const marqueeTopInset = Number.parseFloat(event.currentTarget.dataset.selectionMarqueeInsetTop ?? "0");
@@ -308,14 +313,18 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
       return;
     }
     const target = event.target as HTMLElement;
-    if (!target.closest("[data-selection-id]") && !isInteractiveTarget(target)) {
+    if (!isOverlayTarget(event) && !target.closest("[data-selection-id]") && !isInteractiveTarget(target)) {
       clearSelection();
     }
   }, [clearSelection]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
-      if (event.defaultPrevented || isKeyboardInputTarget(event.target) || document.querySelector("dialog[open]")) {
+      if (
+        event.defaultPrevented ||
+        isKeyboardInputTarget(event.target) ||
+        document.querySelector("dialog[open], [aria-modal='true']")
+      ) {
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
@@ -419,6 +428,15 @@ function rectanglesIntersect(selection: SelectionRect, item: SelectionRect): boo
     selection.top <= item.top + item.height &&
     selection.top + selection.height >= item.top
   );
+}
+
+// React events bubble through portals, so the selection toolbar and portaled
+// or inline dialogs reach the collection without being part of the list.
+function isOverlayTarget(event: { currentTarget: HTMLElement; target: EventTarget }): boolean {
+  const target = event.target;
+  return !(target instanceof Element) ||
+    !event.currentTarget.contains(target) ||
+    target.closest("dialog, [role='dialog'], [role='alertdialog']") !== null;
 }
 
 function isInteractiveTarget(target: HTMLElement): boolean {

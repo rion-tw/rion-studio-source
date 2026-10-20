@@ -2,6 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { type JSX, useCallback, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { SelectionMarquee } from "../src/renderer/src/components/ListSelection";
@@ -139,6 +140,36 @@ describe("list selection", () => {
     expect(document.querySelector("[data-selection-marquee]")).toBeNull();
   });
 
+  it("keeps the selection when a portaled toolbar or a dialog is clicked or dragged", () => {
+    render(<SelectionHarness ids={["one", "two"]} includeOverlays />);
+    fireEvent.click(screen.getByTestId("one"), { metaKey: true });
+    fireEvent.click(screen.getByTestId("two"), { ctrlKey: true });
+    expect(screen.getByTestId("selected").textContent).toBe("one,two");
+
+    fireEvent.click(screen.getByText("2 selected"));
+    fireEvent.click(screen.getByText("Rename one"));
+    fireEvent.pointerDown(screen.getByText("Rename one"), {
+      button: 0, clientX: 0, clientY: 0, isPrimary: true, pointerId: 5
+    });
+    fireEvent.pointerMove(screen.getByTestId("collection"), {
+      clientX: 40, clientY: 40, isPrimary: true, pointerId: 5
+    });
+    expect(document.querySelector("[data-selection-marquee]")).toBeNull();
+    expect(screen.getByTestId("selected").textContent).toBe("one,two");
+
+    fireEvent.click(screen.getByTestId("collection"));
+    expect(screen.getByTestId("selected").textContent).toBe("");
+  });
+
+  it("ignores select-all and Escape while an aria-modal dialog is open", () => {
+    render(<SelectionHarness ids={["one", "two"]} includeModal />);
+    fireEvent.click(screen.getByTestId("one"), { metaKey: true });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Import" }), { ctrlKey: true, key: "a" });
+    expect(screen.getByTestId("selected").textContent).toBe("one");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Import" }), { key: "Escape" });
+    expect(screen.getByTestId("selected").textContent).toBe("one");
+  });
+
   it("prunes selected ids when filtering changes the visible collection", () => {
     const { rerender } = render(<SelectionHarness ids={["one", "two"]} />);
     fireEvent.keyDown(window, { metaKey: true, key: "a" });
@@ -183,10 +214,14 @@ describe("list selection", () => {
 
 function SelectionHarness({
   ids,
+  includeModal = false,
+  includeOverlays = false,
   includeWindowDragHandle = false,
   onAction = () => undefined
 }: {
   ids: string[];
+  includeModal?: boolean;
+  includeOverlays?: boolean;
   includeWindowDragHandle?: boolean;
   onAction?: () => void;
 }): JSX.Element {
@@ -202,6 +237,19 @@ function SelectionHarness({
     <section ref={setScrollContainerRef} data-testid="scroll-container">
       <div data-testid="collection" {...selection.collectionProps}>
         {includeWindowDragHandle ? <WindowDragHandle data-testid="window-drag-handle" /> : null}
+        {includeOverlays ? (
+          <>
+            {createPortal(
+              <div role="toolbar"><span>{selection.selectedIds.size} selected</span></div>,
+              document.body
+            )}
+            <dialog open><p>Rename one</p></dialog>
+          </>
+        ) : null}
+        {includeModal ? createPortal(
+          <div role="dialog" aria-modal="true"><button type="button">Import</button></div>,
+          document.body
+        ) : null}
         {ids.map((id) => (
           <div
             key={id}

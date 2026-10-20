@@ -288,12 +288,13 @@ export function BrowserFontsSettingsRows({
         tone: "success",
         text: t("settings.browserFontsCustomDownloadSuccess").replace("{family}", () => family)
       });
-    } catch (error) {
+    } catch {
+      // The inline notice is this action's only failure surface; a global
+      // banner would repeat it.
       setCustomFontNotice({
         tone: "destructive",
         text: t("settings.browserFontsCustomDownloadFailed").replace("{family}", () => family)
       });
-      onError(error);
     } finally {
       setIsInstallingCustomFont(false);
     }

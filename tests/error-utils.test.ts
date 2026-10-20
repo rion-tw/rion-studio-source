@@ -218,6 +218,28 @@ describe("renderer error localization", () => {
     );
   });
 
+  it("localizes browser font download and cache failures without transport detail", async () => {
+    const codes = {
+      BROWSER_FONT_DOWNLOAD_FAILED: "error.browserFontDownloadFailed",
+      BROWSER_FONT_CACHE_FAILED: "error.browserFontCacheFailed",
+      BROWSER_FONT_CACHE_INVALID: "error.browserFontCacheInvalid",
+      BROWSER_FONT_NOT_FOUND: "error.browserFontNotFound"
+    } as const;
+    const detail =
+      "error sending request for url (https://fonts.googleapis.com/css2?family=Inter): tcp connect error";
+
+    for (const language of languages) {
+      const translations = await loadTranslations(language);
+      const t = (key: TranslationKey) => translations[key];
+      for (const [code, key] of Object.entries(codes) as Array<[string, TranslationKey]>) {
+        const localized = toMessage({ code, message: detail }, language, t);
+        expect(translations[key]).toBeTruthy();
+        expect(localized).toBe(translations[key]);
+        expect(localized).not.toContain("fonts.googleapis.com");
+      }
+    }
+  });
+
   it("localizes the unassigned macro workflow error", async () => {
     const message = "Assign a role to this macro and every called macro before running it.";
     await Promise.all([loadTranslations("zh-TW"), loadTranslations("zh-CN"), loadTranslations("ja")]);

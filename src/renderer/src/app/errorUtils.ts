@@ -47,6 +47,11 @@ function isSurfaceReleaseMessage(message: string): boolean {
 
 function localizedErrorKey(code: unknown) {
   const keys = {
+    // Font failures carry transport/filesystem detail; it belongs in logs only.
+    BROWSER_FONT_CACHE_FAILED: "error.browserFontCacheFailed",
+    BROWSER_FONT_CACHE_INVALID: "error.browserFontCacheInvalid",
+    BROWSER_FONT_DOWNLOAD_FAILED: "error.browserFontDownloadFailed",
+    BROWSER_FONT_NOT_FOUND: "error.browserFontNotFound",
     ELECTRON_CHROMIUM_SAVED_WINDOW_RESTORE_UNSUPPORTED: "error.savedWindowLaunchRequiresShow",
     GAME_WINDOW_NAME_DUPLICATE: "error.gameWindowNameDuplicate",
     GAME_WINDOW_NAME_REQUIRED: "error.gameWindowNameRequired",

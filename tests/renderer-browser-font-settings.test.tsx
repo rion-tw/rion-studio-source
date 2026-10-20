@@ -118,14 +118,26 @@ afterEach(() => {
 
 function renderSettings(
   onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>,
-  gameBrowserSettings: GameBrowserSettings = DEFAULT_GAME_BROWSER_SETTINGS
+  gameBrowserSettings: GameBrowserSettings = DEFAULT_GAME_BROWSER_SETTINGS,
+  onError: (error: unknown) => void = vi.fn()
 ): void {
-  render(<SettingsHarness settings={gameBrowserSettings} onChange={onGameBrowserSettingsChange} />);
+  render(
+    <SettingsHarness
+      settings={gameBrowserSettings}
+      onChange={onGameBrowserSettingsChange}
+      onError={onError}
+    />
+  );
 }
 
-function SettingsHarness({ settings: gameBrowserSettings, onChange: onGameBrowserSettingsChange = async (next) => next }: {
+function SettingsHarness({
+  settings: gameBrowserSettings,
+  onChange: onGameBrowserSettingsChange = async (next) => next,
+  onError = vi.fn()
+}: {
   settings: GameBrowserSettings;
   onChange?: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+  onError?: (error: unknown) => void;
 }): JSX.Element {
   return (
     <MemoryRouter initialEntries={["/settings?section=interface"]}>
@@ -139,7 +151,7 @@ function SettingsHarness({ settings: gameBrowserSettings, onChange: onGameBrowse
           }}
           onCheckForUpdates={async () => undefined}
           onDiscardPortableImport={async () => undefined}
-          onError={vi.fn()}
+          onError={onError}
           onExportPortableData={async () => null}
           onGameBrowserSettingsChange={onGameBrowserSettingsChange}
           onInstallDownloadedUpdate={async () => undefined}
@@ -469,11 +481,14 @@ describe("browser font settings", () => {
     });
   });
 
-  it("shows an inline alert when a named Google Font download fails", async () => {
+  it("shows only the inline alert when a named Google Font download fails", async () => {
     const user = userEvent.setup();
     const installGoogleFont = vi.fn(async () => {
-      throw new Error("Font download returned HTTP 400.");
+      throw Object.assign(new Error("Font download returned HTTP 400 Bad Request."), {
+        code: "BROWSER_FONT_DOWNLOAD_FAILED"
+      });
     });
+    const onError = vi.fn();
     window.rionStudio = {
       listBrowserFontCatalog: vi.fn(async () => catalog),
       installBrowserFont: vi.fn(),
@@ -482,7 +497,7 @@ describe("browser font settings", () => {
       getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
     } as unknown as RionStudioApi;
 
-    renderSettings(vi.fn(async (settings) => settings));
+    renderSettings(vi.fn(async (settings) => settings), DEFAULT_GAME_BROWSER_SETTINGS, onError);
     await user.click(screen.getByRole("button", { name: "Customize fonts" }));
     await user.click(screen.getByRole("button", { name: "Advanced font management" }));
     await user.type(
@@ -495,6 +510,12 @@ describe("browser font settings", () => {
       "Couldn’t download Definitely Missing Font. Check the font name and internet connection, then try again."
     );
     expect(installGoogleFont).toHaveBeenCalledWith("Definitely Missing Font");
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Download font" }) as HTMLButtonElement).disabled).toBe(false)
+    );
+    // The inline alert already explains the failure; a second app-level banner
+    // would repeat it with untranslated transport detail.
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it("redownloads a selected custom Google Font by its persisted family name", async () => {

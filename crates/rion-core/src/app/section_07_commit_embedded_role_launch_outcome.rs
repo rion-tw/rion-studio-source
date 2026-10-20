@@ -164,13 +164,17 @@ impl AppCore {
                 // the Workspace remains authoritative for current slot
                 // content. Restore every stable slot's geometry together so a
                 // Web slot cannot drift from the adjacent restored Role slot.
+                // Zoom belongs to slot content, so a slot emptied since the
+                // save keeps none.
                 for slot in &mut workspace.slots {
                     if let Some(saved) = saved_workspace_slots
                         .iter()
                         .find(|saved| saved.id == slot.id)
                     {
                         slot.rect = saved.rect.clone();
-                        slot.browser_zoom_percent = saved.browser_zoom_percent;
+                        if slot.role_id.is_some() || slot.web.is_some() {
+                            slot.browser_zoom_percent = saved.browser_zoom_percent;
+                        }
                     }
                 }
             }
@@ -181,7 +185,11 @@ impl AppCore {
                             || slot.role_id.as_deref() == Some(saved.role_id.as_str())
                     }) {
                         slot.rect = saved.rect.clone();
-                        slot.browser_zoom_percent = saved.browser_zoom_percent;
+                        // The saved layout still overlays an occupied slot,
+                        // but an emptied slot cannot carry zoom.
+                        if slot.role_id.is_some() || slot.web.is_some() {
+                            slot.browser_zoom_percent = saved.browser_zoom_percent;
+                        }
                     }
                 }
             }

@@ -95,6 +95,17 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
   const translate = useRef(t);
   translate.current = t;
   useEffect(() => {
+    if (previousView.current !== view) {
+      // An error belongs to the page that raised it, not to the next one.
+      setError("");
+      // Leaving the install confirmation any other way than Install or Cancel
+      // must still release its prepared package in Core.
+      if (previousView.current === "install" && pending.current && !commandBusy.current) {
+        void window.rionStudio.extensions({ type: "cancel", operationId: pending.current }).catch(() => undefined);
+        pending.current = null;
+        setPrepared(null);
+      }
+    }
     if (previousView.current !== "installed" && view === "installed") {
       const card = returnFocus.current ? document.querySelector<HTMLButtonElement>(`[data-extension-id="${returnFocus.current}"] button`) : null;
       (card ?? addButton.current)?.focus();

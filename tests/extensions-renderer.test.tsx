@@ -480,3 +480,56 @@ it("counts only current roles on an installed extension card", async () => {
   await update({ roles: [role, { ...role, id: deleted[0], name: "Role B" }] });
   expect(screen.getByText("1.0 · 2 roles")).toBeTruthy();
 });
+
+const storeState = {
+  url: `https://chromewebstore.google.com/detail/x/${id}`, extensionId: id,
+  canGoBack: false, canGoForward: false, loading: false, failed: false
+};
+
+it("cancels a prepared install that is left through the sidebar", async () => {
+  let storePublish!: (state: unknown) => void;
+  const commands: Array<{ type: string; operationId?: string }> = [];
+  window.rionStudio = {
+    extensions: vi.fn(async (input: { type: string; operationId?: string }) => {
+      commands.push(input);
+      return { snapshot: { ...original, installed: [] }, lease: null,
+        prepared: input.type === "prepare" ? { operationId: input.operationId, package: original.installed[0] } : null };
+    }),
+    extensionStore: vi.fn(async () => storeState),
+    onExtensionsChanged: () => () => undefined,
+    onExtensionStoreChanged: (listener: typeof storePublish) => { storePublish = listener; return () => undefined; }
+  } as unknown as RionStudioApi;
+  const user = userEvent.setup();
+  const { router } = mount({ language: "en", roles: [role], t }, "/extensions/store");
+  await act(async () => storePublish(storeState));
+  await user.click(await screen.findByRole("button", { name: en["extensions.install"] }));
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe("/extensions/install"));
+  const prepared = commands.find((command) => command.type === "prepare")!.operationId;
+
+  await act(async () => { await router.navigate("/extensions"); });
+
+  expect(commands).toContainEqual({ type: "cancel", operationId: prepared });
+});
+
+it("drops a store error when returning to the installed list", async () => {
+  let storePublish!: (state: unknown) => void;
+  const otherStore = { ...storeState, extensionId: "c".repeat(32), url: `https://chromewebstore.google.com/detail/x/${"c".repeat(32)}` };
+  window.rionStudio = {
+    extensions: vi.fn(async (input: { type: string }) => {
+      if (input.type === "prepare") throw new Error("The extension package signature could not be verified.");
+      return { snapshot: original, lease: null, prepared: null };
+    }),
+    extensionStore: vi.fn(async () => otherStore),
+    onExtensionsChanged: () => () => undefined,
+    onExtensionStoreChanged: (listener: typeof storePublish) => { storePublish = listener; return () => undefined; }
+  } as unknown as RionStudioApi;
+  const user = userEvent.setup();
+  mount({ language: "en", roles: [role], t }, "/extensions/store");
+  await act(async () => storePublish(otherStore));
+  await user.click(await screen.findByRole("button", { name: en["extensions.install"] }));
+  await screen.findByRole("alert");
+
+  await user.click(screen.getByRole("button", { name: en["extensions.returnToList"] }));
+  await screen.findByText("Fixture");
+  expect(screen.queryByRole("alert")).toBeNull();
+});

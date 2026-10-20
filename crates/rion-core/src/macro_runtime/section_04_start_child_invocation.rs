@@ -36,11 +36,14 @@ fn start_child_invocation(
             .inner
             .lock()
             .map_err(|_| "macro runtime lock poisoned".to_owned())?;
+        // A finished execution may stay registered while it waits for macros it
+        // triggered; its steps no longer run, so a later call is not a duplicate.
         let duplicate = inner.invocations.values().any(|control| {
-            control
-                .macro_ids
-                .lock()
-                .is_ok_and(|ids| ids.contains(macro_id))
+            !control.execution_finished.load(Ordering::Acquire)
+                && control
+                    .macro_ids
+                    .lock()
+                    .is_ok_and(|ids| ids.contains(macro_id))
                 && (!definition.uses_source_role() || control_source_matches(control, parent_context.source_role_id.as_deref()))
         });
         if duplicate {

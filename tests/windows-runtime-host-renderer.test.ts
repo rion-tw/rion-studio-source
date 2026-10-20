@@ -412,6 +412,14 @@ describe("Windows runtime-host renderer", () => {
     control(firstTabId, "close").focus();
     project({ ...value, projectionRevision: 7 });
     expect(document.activeElement).toBe(control(firstTabId, "close"));
+
+    // A layout-only projection keeps the pressed controls instead of replacing them.
+    const close = control(secondTabId, "close");
+    project({ ...value, projectionRevision: 8, contentBounds: { height: 500, width: 800, x: 0, y: 40 } });
+    expect(close.isConnected).toBe(true);
+    expect(control(secondTabId, "close")).toBe(close);
+    project({ ...value, projectionRevision: 9, tabs: value.tabs.map((tab) => ({ ...tab, name: `${tab.name} 2` })) });
+    expect(close.isConnected).toBe(false);
   });
 
   it("submits hover chrome only when fullscreen presentation can change", async () => {

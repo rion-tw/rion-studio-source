@@ -45,6 +45,7 @@ workspaceBackground.setAttribute("aria-hidden", "true");
 document.body.prepend(workspaceBackground);
 
 let current: WindowsRuntimeHostProjection | null = null;
+let renderedTabSignature: string | null = null;
 let resizeEventCount = 0;
 const dividerElements = new Map<string, HTMLButtonElement>();
 const activePointers = new Map<number, {
@@ -295,35 +296,16 @@ function renderSlotLoads(projection: WindowsRuntimeHostProjection): void {
   }));
 }
 
-function render(projection: WindowsRuntimeHostProjection): void {
-  renderSlotLoads(projection);
-  current = projection;
-  const labels = runtimeTabStripLabels(projection.appearance?.language ?? "en");
-  document.documentElement.lang = projection.appearance?.language ?? "en";
-  document.documentElement.dataset.theme = projection.appearance?.theme ?? "light";
-  document.documentElement.style.colorScheme = projection.appearance?.theme ?? "light";
-  for (const [command, label] of Object.entries({ minimizeWindow: labels.minimizeWindow, closeWindow: labels.closeWindow,
-    toggleMaximizeWindow: projection.windowMaximized || projection.fullscreen ? labels.restoreWindow : labels.maximizeWindow })) {
-    const button = windowControls!.querySelector<HTMLButtonElement>(`[data-window-command="${command}"]`);
-    if (button) { button.setAttribute("aria-label", label); button.title = label; }
-  }
-  if (fullscreenControl) {
-    const label = projection.fullscreen ? labels.exitFullscreen : labels.enterFullscreen;
-    fullscreenControl.setAttribute("aria-label", label);
-    fullscreenControl.setAttribute("aria-pressed", String(projection.fullscreen));
-    fullscreenControl.title = label;
-  }
-  workspaceBackground.style.background = projection.workspaceBackground === "black" ? "#000" : "transparent";
-  toolbar!.hidden = !projection.toolbarVisible;
-  windowName!.textContent = projection.windowName;
-  windowName!.hidden = projection.windowName.length === 0;
-  revealEdge!.hidden = projection.toolbarVisible || !projection.fullscreen ||
-    projection.alwaysShowToolbarInFullScreen;
-  // Every projection rebuilds the strip; keep keyboard focus on the same control.
+function renderTabs(
+  projection: WindowsRuntimeHostProjection,
+  visibleTabs: WindowsRuntimeHostProjection["tabs"],
+  labels: ReturnType<typeof runtimeTabStripLabels>
+): void {
+  // A rebuild keeps keyboard focus on the same tab control.
   const focused = document.activeElement instanceof HTMLElement && tabs!.contains(document.activeElement)
     ? { tabId: document.activeElement.dataset.tabId, close: document.activeElement.dataset.runtimeTabClose !== undefined }
     : null;
-  tabs!.replaceChildren(...projection.tabs.filter((tab) => !tab.hidden).map((tab) => {
+  tabs!.replaceChildren(...visibleTabs.map((tab) => {
     const item = document.createElement("div");
     item.className = "runtime-tab";
     item.dataset.active = String(tab.active);
@@ -395,6 +377,40 @@ function render(projection: WindowsRuntimeHostProjection): void {
     [...tabs!.querySelectorAll<HTMLElement>(selector)]
       .find((element) => element.dataset.tabId === focused.tabId && !element.hidden)?.focus();
   }
+}
+
+function render(projection: WindowsRuntimeHostProjection): void {
+  renderSlotLoads(projection);
+  current = projection;
+  const labels = runtimeTabStripLabels(projection.appearance?.language ?? "en");
+  document.documentElement.lang = projection.appearance?.language ?? "en";
+  document.documentElement.dataset.theme = projection.appearance?.theme ?? "light";
+  document.documentElement.style.colorScheme = projection.appearance?.theme ?? "light";
+  for (const [command, label] of Object.entries({ minimizeWindow: labels.minimizeWindow, closeWindow: labels.closeWindow,
+    toggleMaximizeWindow: projection.windowMaximized || projection.fullscreen ? labels.restoreWindow : labels.maximizeWindow })) {
+    const button = windowControls!.querySelector<HTMLButtonElement>(`[data-window-command="${command}"]`);
+    if (button) { button.setAttribute("aria-label", label); button.title = label; }
+  }
+  if (fullscreenControl) {
+    const label = projection.fullscreen ? labels.exitFullscreen : labels.enterFullscreen;
+    fullscreenControl.setAttribute("aria-label", label);
+    fullscreenControl.setAttribute("aria-pressed", String(projection.fullscreen));
+    fullscreenControl.title = label;
+  }
+  workspaceBackground.style.background = projection.workspaceBackground === "black" ? "#000" : "transparent";
+  toolbar!.hidden = !projection.toolbarVisible;
+  windowName!.textContent = projection.windowName;
+  windowName!.hidden = projection.windowName.length === 0;
+  revealEdge!.hidden = projection.toolbarVisible || !projection.fullscreen ||
+    projection.alwaysShowToolbarInFullScreen;
+  // Layout-only projections leave the strip as is, so a press on a tab control
+  // is not lost to a rebuild between pointer down and up.
+  const visibleTabs = projection.tabs.filter((tab) => !tab.hidden);
+  const tabSignature = JSON.stringify([projection.appearance?.language ?? null,
+    projection.alwaysHideTabCloseButton === true,
+    visibleTabs.map((tab) => [tab.tabId, tab.name, tab.active, tab.phase, tab.audioMuted])]);
+  if (tabSignature !== renderedTabSignature) renderTabs(projection, visibleTabs, labels);
+  renderedTabSignature = tabSignature;
   tabToolbar.render(labels, projection.activeTabId);
   renderDividers(projection);
   document.documentElement.dataset.fullscreen = String(projection.fullscreen);

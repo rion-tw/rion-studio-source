@@ -1,3 +1,37 @@
+#if defined(RION_DESKTOP_E2E)
+#include <os/log.h>
+
+static void RionEmitAppKitConstraintDiagnostic(
+    NSString * _Nonnull prefix, NSDictionary * _Nonnull evidence) {
+  NSData *encoded = [NSJSONSerialization dataWithJSONObject:evidence options:0 error:nil];
+  if (!encoded || encoded.length > 16 * 1024) {
+    NSString *failure = encoded ? @"{\"serializationError\":true,\"reason\":\"payload-too-large\"}"
+                               : @"{\"serializationError\":true,\"reason\":\"encoding\"}";
+    encoded = [failure dataUsingEncoding:NSUTF8StringEncoding];
+  }
+  NSString *base64 = [encoded base64EncodedStringWithOptions:0];
+  NSString *identifier = NSUUID.UUID.UUIDString;
+  const NSUInteger chunkSize = 320;
+  const NSUInteger count = (base64.length + chunkSize - 1) / chunkSize;
+  for (NSUInteger index = 0; index < count; ++index) {
+    const NSUInteger offset = index * chunkSize;
+    NSString *data = [base64 substringWithRange:NSMakeRange(offset,
+        MIN(chunkSize, base64.length - offset))];
+    NSDictionary *chunk = @{ @"type" : @"chunk", @"id" : identifier,
+                             @"index" : @(index), @"count" : @(count), @"data" : data };
+    NSData *wrapper = [NSJSONSerialization dataWithJSONObject:chunk
+        options:NSJSONWritingWithoutEscapingSlashes error:nil];
+    NSString *json = wrapper ? [[NSString alloc] initWithData:wrapper encoding:NSUTF8StringEncoding] : nil;
+    NSString *record = json ? [prefix stringByAppendingString:json]
+                           : [prefix stringByAppendingString:@"{\"serializationError\":true,\"reason\":\"chunk-encoding\"}"];
+    if ([record lengthOfBytesUsingEncoding:NSUTF8StringEncoding] >= 700) {
+      record = [prefix stringByAppendingString:@"{\"serializationError\":true,\"reason\":\"chunk-envelope-too-large\"}"];
+    }
+    os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "%{public}s", record.UTF8String);
+  }
+}
+#endif
+
 // The window resize border wins over a divider ending at the content edge.
 static BOOL RionWorkspacePointIsOnWindowResizeBorder(NSView * _Nonnull view, NSPoint point) {
   NSWindow *window = view.window;
@@ -97,6 +131,46 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
 
 @end
 
+#if defined(RION_DESKTOP_E2E)
+static void RionLogWorkspaceCornerConstraintDiagnostic(
+    RionRuntimeWorkspaceDividerOverlayView *overlay, NSString *phase,
+    NSEvent *event, NSRect requestedFrame) {
+  const char *diagnostic = std::getenv("RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC");
+  if (!diagnostic || std::strcmp(diagnostic, "1") != 0) return;
+  NSWindow *window = overlay.window;
+  if (!window) return;
+  const auto rect = [](NSRect value) -> NSDictionary * {
+    return @{ @"x" : @(NSMinX(value)), @"y" : @(NSMinY(value)),
+              @"width" : @(NSWidth(value)), @"height" : @(NSHeight(value)) };
+  };
+  NSPoint pointer = NSEvent.mouseLocation;
+  NSPoint eventPoint = event.locationInWindow;
+  NSView *contentView = window.contentView;
+  NSDictionary *evidence = @{
+    @"phase" : phase,
+    @"windowNumber" : @(window.windowNumber),
+    @"windowPointer" : [NSString stringWithFormat:@"%p", (__bridge void *)window],
+    @"overlayPointer" : [NSString stringWithFormat:@"%p", (__bridge void *)overlay],
+    @"inLiveResize" : @(window.inLiveResize),
+    @"cornerResizeActive" : @(overlay.cornerResizeActive),
+    @"eventType" : @(event.type),
+    @"eventWindowNumber" : @(event.windowNumber),
+    @"pointer" : @{ @"x" : @(pointer.x), @"y" : @(pointer.y) },
+    @"eventPoint" : @{ @"x" : @(eventPoint.x), @"y" : @(eventPoint.y) },
+    @"minSize" : @{ @"width" : @(window.minSize.width), @"height" : @(window.minSize.height) },
+    @"contentMinSize" : @{ @"width" : @(window.contentMinSize.width), @"height" : @(window.contentMinSize.height) },
+    @"windowFrame" : rect(window.frame),
+    @"contentViewFrame" : contentView ? rect(contentView.frame) : (id)NSNull.null,
+    @"contentViewBounds" : contentView ? rect(contentView.bounds) : (id)NSNull.null,
+    @"requestedFrame" : rect(requestedFrame),
+    @"overlayFrame" : rect(overlay.frame),
+    @"overlayBounds" : rect(overlay.bounds),
+    @"overlayLayoutOrigin" : @{ @"x" : @(overlay.layoutOrigin.x), @"y" : @(overlay.layoutOrigin.y) }
+  };
+  RionEmitAppKitConstraintDiagnostic(@"RION_APPKIT_CORNER_CONSTRAINT_DIAGNOSTIC ", evidence);
+}
+#endif
+
 @implementation RionRuntimeWorkspaceDividerOverlayView {
   BOOL _cornerResizeActive;
   NSRect _cornerResizeInitialFrame;
@@ -171,6 +245,9 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   _cornerResizeInitialFrame = window.frame;
   _cornerResizeInitialPointer = NSEvent.mouseLocation;
   _cornerResizeActive = YES;
+#if defined(RION_DESKTOP_E2E)
+  RionLogWorkspaceCornerConstraintDiagnostic(self, @"mouseDown", event, _cornerResizeInitialFrame);
+#endif
 }
 
 - (void)mouseDragged:(NSEvent *)event {
@@ -188,7 +265,13 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   NSRect frame = NSMakeRect(NSMinX(_cornerResizeInitialFrame),
                             NSMaxY(_cornerResizeInitialFrame) - height,
                             width, height);
+#if defined(RION_DESKTOP_E2E)
+  RionLogWorkspaceCornerConstraintDiagnostic(self, @"mouseDragged-before", event, frame);
+#endif
   [window setFrame:frame display:YES];
+#if defined(RION_DESKTOP_E2E)
+  RionLogWorkspaceCornerConstraintDiagnostic(self, @"mouseDragged-after", event, frame);
+#endif
 }
 
 - (void)mouseUp:(NSEvent *)event {

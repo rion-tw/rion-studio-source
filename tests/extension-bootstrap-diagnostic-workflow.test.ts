@@ -16,9 +16,11 @@ function step(name: string): string {
 describe("isolated extension bootstrap diagnostic CI", () => {
   it("runs the three focused phases in their original process order on the exact branch", () => {
     const shell = step("Run macOS AppKit Chromium shell E2E");
-    expect(shell).toContain(`if [ "$GITHUB_REF" = "${branch}" ]; then`);
+    const branchGate = `if [[ "$GITHUB_REF" == "${branch}" ]]; then`;
+    expect(shell).toContain(branchGate);
     expect(shell).toContain("pnpm run test:e2e:desktop:chromium:macos-appkit -- --phase=chromium-extensions-seed");
-    expect([...shell.matchAll(/--phase=([a-z-]+)/gu)].map(match => match[1])).toEqual([
+    const branchRun = shell.slice(shell.indexOf(branchGate), shell.indexOf("\n          elif ", shell.indexOf(branchGate)));
+    expect([...branchRun.matchAll(/--phase=([a-z-]+)/gu)].map(match => match[1])).toEqual([
       "chromium-extensions-context-menu",
       "chromium-extension-filtering",
       "chromium-extensions-seed"

@@ -1,3 +1,7 @@
+#if defined(RION_DESKTOP_E2E)
+#include <os/log.h>
+#endif
+
 NS_ASSUME_NONNULL_BEGIN
 
 static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
@@ -543,6 +547,75 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
           MAX(0.0, frameSize.width - layoutSize.width)),
       MAX(rawMinimum.height, contentMinimum.height +
           MAX(0.0, frameSize.height - layoutSize.height)));
+  const char *diagnostic = std::getenv("RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC");
+  if (diagnostic && std::strcmp(diagnostic, "1") == 0) {
+    const auto size = [](NSSize value) -> NSDictionary * {
+      return @{ @"width" : @(value.width), @"height" : @(value.height) };
+    };
+    const auto rect = [](NSRect value) -> NSDictionary * {
+      return @{ @"x" : @(NSMinX(value)), @"y" : @(NSMinY(value)),
+                @"width" : @(NSWidth(value)), @"height" : @(NSHeight(value)) };
+    };
+    const NSRect contentMinimumRect =
+        NSMakeRect(0, 0, contentMinimum.width, contentMinimum.height);
+    const NSRect frame = _window.frame;
+    const NSRect contentRect = [_window contentRectForFrameRect:frame];
+    const NSRect rawMinimumCandidate = NSMakeRect(
+        NSMinX(frame), NSMaxY(frame) - minimumFrameSize.height,
+        minimumFrameSize.width, minimumFrameSize.height);
+    NSView *contentView = _window.contentView;
+    NSView *frameView = contentView.superview;
+    NSScreen *screen = _window.screen;
+    NSMutableArray *contentSubviews = [NSMutableArray array];
+    for (NSView *view in contentView.subviews) {
+      [contentSubviews addObject:@{
+        @"class" : NSStringFromClass(object_getClass(view)),
+        @"pointer" : [NSString stringWithFormat:@"%p", (__bridge void *)view],
+        @"sameWindow" : @(view.window == _window),
+        @"frame" : rect(view.frame), @"bounds" : rect(view.bounds)
+      }];
+    }
+    NSDictionary *evidence = @{
+      @"windowId" : _windowID ?: @"",
+      @"mainThread" : @([NSThread isMainThread]),
+      @"windowNumber" : @(_window.windowNumber),
+      @"windowPointer" : [NSString stringWithFormat:@"%p", (__bridge void *)_window],
+      @"controllerPointer" : [NSString stringWithFormat:@"%p", (__bridge void *)self],
+      @"contentViewPointer" : [NSString stringWithFormat:@"%p", (__bridge void *)contentView],
+      @"windowClass" : NSStringFromClass(object_getClass(_window)),
+      @"frameViewClass" : frameView ? NSStringFromClass(object_getClass(frameView)) : @"nil",
+      @"contentViewClass" : contentView ? NSStringFromClass(object_getClass(contentView)) : @"nil",
+      @"styleMask" : @(_window.styleMask),
+      @"toolbarStyle" : @(_window.toolbarStyle),
+      @"toolbarVisible" : @(_toolbar.visible),
+      @"inLiveResize" : @(_window.inLiveResize),
+      @"cornerResizeActive" : @(_workspaceDividerOverlay.cornerResizeActive),
+      @"overlayPointer" : [NSString stringWithFormat:@"%p", (__bridge void *)_workspaceDividerOverlay],
+      @"overlayFrame" : _workspaceDividerOverlay ? rect(_workspaceDividerOverlay.frame) : (id)NSNull.null,
+      @"overlayBounds" : _workspaceDividerOverlay ? rect(_workspaceDividerOverlay.bounds) : (id)NSNull.null,
+      @"overlayLayoutOrigin" : _workspaceDividerOverlay
+          ? @{ @"x" : @(_workspaceDividerOverlay.layoutOrigin.x),
+               @"y" : @(_workspaceDividerOverlay.layoutOrigin.y) } : (id)NSNull.null,
+      @"minSize" : size(minimumFrameSize),
+      @"contentMinSize" : size(contentMinimum),
+      @"contentMinimumRect" : rect(contentMinimumRect),
+      @"instanceContentMinimumFrameRect" : rect([_window frameRectForContentRect:contentMinimumRect]),
+      @"classContentMinimumFrameRect" : rect([NSWindow frameRectForContentRect:contentMinimumRect
+                                                                  styleMask:_window.styleMask]),
+      @"windowFrame" : rect(frame),
+      @"contentLayoutRect" : rect(_window.contentLayoutRect),
+      @"instanceContentRectForCurrentFrame" : rect(contentRect),
+      @"instanceCurrentFrameRoundtrip" : rect([_window frameRectForContentRect:contentRect]),
+      @"contentViewFrame" : contentView ? rect(contentView.frame) : (id)NSNull.null,
+      @"contentViewBounds" : contentView ? rect(contentView.bounds) : (id)NSNull.null,
+      @"contentSubviews" : contentSubviews,
+      @"rawMinimumCandidate" : rect(rawMinimumCandidate),
+      @"screenFrame" : screen ? rect(screen.frame) : (id)NSNull.null,
+      @"constrainedRawMinimumCandidate" : screen
+          ? rect([_window constrainFrameRect:rawMinimumCandidate toScreen:screen]) : (id)NSNull.null
+    };
+    RionEmitAppKitConstraintDiagnostic(@"RION_APPKIT_CONSTRAINT_DIAGNOSTIC ", evidence);
+  }
   if (!std::isfinite(minimumFrameSize.width) || minimumFrameSize.width <= 0 ||
       !std::isfinite(minimumFrameSize.height) || minimumFrameSize.height <= 0) {
     return NO;

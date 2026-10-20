@@ -189,7 +189,7 @@
     if (trigger.alt) parts.push("Alt");
     if (trigger.shift) parts.push("Shift");
     if (trigger.meta) parts.push("Meta");
-    parts.push(trigger.button === "middle" ? "Middle Click" : formatCode(trigger.code));
+    parts.push(trigger.button === "middle" ? getText().middleClick : formatCode(trigger.code));
     return parts.join("+");
   }
 

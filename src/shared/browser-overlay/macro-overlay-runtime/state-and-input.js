@@ -37,7 +37,8 @@
       coordinateMeasureHint: "Click to copy · Esc to cancel",
       triggerAria: "Open Rion Studio Macros",
       triggerTitle: "Open Rion Studio Macros (Ctrl+Shift+M)",
-      hold: "Hold"
+      hold: "Hold",
+      middleClick: "Middle Click"
     },
     "zh-TW": {
       holdUntilStop: "保持",
@@ -50,7 +51,8 @@
       coordinateMeasureHint: "點擊複製 · Esc 取消",
       triggerAria: "開啟 Rion Studio 巨集",
       triggerTitle: "開啟 Rion Studio 巨集 (Ctrl+Shift+M)",
-      hold: "按住"
+      hold: "按住",
+      middleClick: "滑鼠中鍵"
     },
     "zh-CN": {
       holdUntilStop: "保持",
@@ -63,7 +65,8 @@
       coordinateMeasureHint: "点击复制 · Esc 取消",
       triggerAria: "打开 Rion Studio 宏",
       triggerTitle: "打开 Rion Studio 宏 (Ctrl+Shift+M)",
-      hold: "按住"
+      hold: "按住",
+      middleClick: "鼠标中键"
     },
     ja: {
       holdUntilStop: "保持",
@@ -76,7 +79,8 @@
       coordinateMeasureHint: "クリックでコピー · Esc でキャンセル",
       triggerAria: "Rion Studio マクロを開く",
       triggerTitle: "Rion Studio マクロを開く (Ctrl+Shift+M)",
-      hold: "長押し"
+      hold: "長押し",
+      middleClick: "中央クリック"
     }
   };
   const triggerIconMarkup = [

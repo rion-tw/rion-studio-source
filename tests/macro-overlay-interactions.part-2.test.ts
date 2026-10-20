@@ -272,6 +272,23 @@ it("renders running click coordinates, merges duplicates, and flashes the clicke
     }
   });
 
+it("labels a middle-click shortcut badge in the page language", async () => {
+    createGameSurface(document);
+    const middleMacro = { ...clickMacro, trigger: { alt: false, button: "middle", ctrl: true, meta: false, shift: false } };
+    const state = {
+      language: "zh-TW",
+      macros: [middleMacro],
+      shortcutMacroIds: [middleMacro.id],
+      shortcutStatuses: [runningStatus({ macroId: middleMacro.id })],
+      statuses: []
+    };
+    const controller = installOverlay(window, vi.fn(async (_request: unknown) => state));
+
+    await controller.refresh();
+
+    expect(getOverlayRoot(document).querySelector(".active-badge-shortcut")?.textContent).toBe("Ctrl+滑鼠中鍵");
+  });
+
 it("shows controller-role running badges without exposing execution-role click markers", async () => {
     createGameSurface(document);
     const controllerStatus = runningStatus({

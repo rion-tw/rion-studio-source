@@ -3,6 +3,7 @@ import type {
   RionApiDispatchMethod,
   RionApiResult
 } from "../ipc/apiMethods";
+import { normalizeRionBridgeError } from "../ipc/errors";
 import type { RionApiDispatcher } from "./registerIpcBridge";
 import type { RendererIdentity } from "./rendererIdentity";
 
@@ -24,6 +25,8 @@ const SUPERSEDED_REFRESH_CODES = new Set([
 
 export interface ChromiumRoleFontRefreshPort {
   refreshRoleFonts: (roleIds: readonly string[]) => Promise<unknown>;
+  /** Reports a refresh failure after a committed whole-state import. */
+  reportImportRefreshFailure?: (error: ReturnType<typeof normalizeRionBridgeError>) => void;
 }
 
 /**
@@ -41,9 +44,18 @@ export function createChromiumRoleFontApiDispatcher(
       args: RionApiArgs<Method>
     ): Promise<RionApiResult<Method>> {
       const result = await delegate.invoke(identity, method, args);
-      if (FONT_MUTATION_METHODS.has(method)) {
+      const portableImport = method === "applyPortableImport";
+      // An import without preferences cannot change browser fonts.
+      if (FONT_MUTATION_METHODS.has(method) &&
+          (!portableImport || (result as RionApiResult<"applyPortableImport">).preferencesIncluded)) {
         await fonts.refreshRoleFonts([]).catch((error: unknown) => {
-          if (!SUPERSEDED_REFRESH_CODES.has(errorCode(error))) throw error;
+          if (SUPERSEDED_REFRESH_CODES.has(errorCode(error))) return;
+          // Core already replaced the whole state and retired the import, so
+          // the renderer must still apply its result; report the font failure alone.
+          if (!portableImport) throw error;
+          fonts.reportImportRefreshFailure?.(
+            normalizeRionBridgeError(error, "ELECTRON_ROLE_FONT_REFRESH_FAILED")
+          );
         });
       }
       return result;

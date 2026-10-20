@@ -1399,7 +1399,8 @@ async function bootstrapReadyPhase(
           }));
         }
         return chromiumRuntime.refreshRoleFonts(roleIds);
-      }
+      },
+      reportImportRefreshFailure: revealShellError
     }
   );
   const store = new ExtensionStoreHost(activeMainWindow, (state) => {

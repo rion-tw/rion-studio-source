@@ -19,7 +19,7 @@ describe("Chromium role browser-font API dispatcher", () => {
     "removeBrowserFont",
     "applyPortableImport"
   ] as const)("refreshes every live role after successful %s", async (method) => {
-    const invoke = vi.fn(async () => ({ committed: true }));
+    const invoke = vi.fn(async () => ({ committed: true, preferencesIncluded: true }));
     const refreshRoleFonts = vi.fn(async () => [{ status: "applied" }]);
     const subject = createChromiumRoleFontApiDispatcher(
       { invoke } as never,
@@ -27,12 +27,38 @@ describe("Chromium role browser-font API dispatcher", () => {
     );
 
     await expect(subject.invoke(IDENTITY, method, [] as never)).resolves.toEqual({
-      committed: true
+      committed: true, preferencesIncluded: true
     });
     expect(refreshRoleFonts).toHaveBeenCalledWith([]);
     expect(invoke.mock.invocationCallOrder[0]).toBeLessThan(
       refreshRoleFonts.mock.invocationCallOrder[0]!
     );
+  });
+
+  it("returns a committed import even when a live document rejects its fonts", async () => {
+    const imported = { preferencesIncluded: true, roleCount: 2 };
+    const failure = Object.assign(new Error("font refresh rejected"), { code: "ELECTRON_ROLE_FONT_PRELOAD_FAILED" });
+    const reportImportRefreshFailure = vi.fn();
+    const subject = createChromiumRoleFontApiDispatcher(
+      { invoke: vi.fn(async () => imported) } as never,
+      { refreshRoleFonts: vi.fn(async () => { throw failure; }), reportImportRefreshFailure }
+    );
+
+    await expect(subject.invoke(IDENTITY, "applyPortableImport", [{}] as never)).resolves.toBe(imported);
+    expect(reportImportRefreshFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ code: "ELECTRON_ROLE_FONT_PRELOAD_FAILED", message: "font refresh rejected" })
+    );
+  });
+
+  it("does not refresh fonts for an import without preferences", async () => {
+    const refreshRoleFonts = vi.fn(async () => undefined);
+    const subject = createChromiumRoleFontApiDispatcher(
+      { invoke: vi.fn(async () => ({ preferencesIncluded: false })) } as never,
+      { refreshRoleFonts }
+    );
+
+    await subject.invoke(IDENTITY, "applyPortableImport", [{}] as never);
+    expect(refreshRoleFonts).not.toHaveBeenCalled();
   });
 
   it("does not report success when a live document rejects the replacement payload", async () => {

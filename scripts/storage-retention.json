@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "root": "..",
+  "rules": [
+    {
+      "path": ".desktop-e2e-artifacts",
+      "mode": "children",
+      "maxAgeDays": 14,
+      "maxGiB": 2,
+      "keepNewest": 3,
+      "quietHours": 24,
+      "namePattern": "^\\d{4}-\\d{2}-\\d{2}T[\\d-]+Z-(darwin|win32|linux)$"
+    },
+    {
+      "path": "test-results",
+      "mode": "children",
+      "maxAgeDays": 14,
+      "maxGiB": 2,
+      "keepNewest": 3,
+      "quietHours": 24
+    }
+  ]
+}

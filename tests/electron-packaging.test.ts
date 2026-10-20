@@ -107,7 +107,7 @@ describe("Electron packaging contract", () => {
     expect(packageJson.scripts?.["package:electron:prepare"])
       .toContain("pnpm run verify:electron-renderer");
     expect(packageJson.scripts?.["test:e2e:desktop:electron:packaged"])
-      .toBe("node scripts/runPackagedElectronSmoke.mjs");
+      .toBe("node scripts/storage-retention.mjs --apply --auto && node scripts/runPackagedElectronSmoke.mjs");
     expect(packageJson.scripts?.["prepare:electron-updater:ci"])
       .toBe("node scripts/prepareElectronUpdaterCiFixture.mjs");
     expect(packageJson.scripts?.["verify:tauri-v22-updater-input"])

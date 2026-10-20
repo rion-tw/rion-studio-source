@@ -7,6 +7,7 @@ import type {
   LogSource,
   LogStorageStatus,
 } from "../../../../shared/types";
+import { hasDiagnosticCollectionFailure } from "../../../../shared/diagnosticsCollection";
 import { CLEAR_LOGS_AFTER_DIAGNOSTICS_EXPORT_STORAGE_KEY } from "../../app/constants";
 import { useConfirmation } from "../../components/confirmation";
 import { Button } from "../../components/ui/button";
@@ -84,7 +85,7 @@ export function DiagnosticsSettingsSection({
     await run(async () => {
       setExportStatus(null);
       const result = await window.rionStudio.exportDiagnostics();
-      if (result) setExportStatus(result.collectionErrorCodes?.length ? "partial" : "complete");
+      if (result) setExportStatus(hasDiagnosticCollectionFailure(result.collectionErrorCodes) ? "partial" : "complete");
       if (result && clearLogsAfterExport) {
         await window.rionStudio.clearLogs();
       }
@@ -101,7 +102,11 @@ export function DiagnosticsSettingsSection({
     setBusy(true);
     try {
       const page = await window.rionStudio.queryLogs({ ...query, cursor });
-      setEntries((current) => [...current, ...page.entries]);
+      // Offset pages shift when new entries arrive, so a page can repeat rows already shown.
+      setEntries((current) => {
+        const shown = new Set(current.map((entry) => entry.id));
+        return [...current, ...page.entries.filter((entry) => !shown.has(entry.id))];
+      });
       setCursor(page.nextCursor);
     } catch (error) { onError(error); }
     finally { setBusy(false); }

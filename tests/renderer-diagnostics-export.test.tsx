@@ -9,6 +9,10 @@ import { DiagnosticsSettingsSection } from "../src/renderer/src/features/setting
 import en from "../src/renderer/src/i18n/en.json";
 import type { Translator } from "../src/renderer/src/i18n";
 import type { RionStudioApi } from "../src/shared/api";
+import {
+  CACHED_CORE_SNAPSHOT_COLLECTION_CODE,
+  DESIGNED_DIAGNOSTIC_GAP_CODES
+} from "../src/shared/diagnosticsCollection";
 
 const t: Translator = (key) => en[key] ?? key;
 const logStatus = {
@@ -70,6 +74,31 @@ describe("diagnostic export log cleanup", () => {
     fireEvent.click(screen.getByRole("button", { name: "Export diagnostics" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe(en["settings.logsExportPartial"]));
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("reports a complete export when only designed collection gaps are present", async () => {
+    const { getLogStatus } = renderDiagnostics({
+      exportDiagnostics: async () => ({ filePath: "/exports/complete.zip", logFileCount: 1,
+        collectionErrorCodes: [...DESIGNED_DIAGNOSTIC_GAP_CODES, CACHED_CORE_SNAPSHOT_COLLECTION_CODE] })
+    });
+    await waitForInitialLogRefresh(getLogStatus);
+    fireEvent.click(screen.getByRole("button", { name: "Export diagnostics" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe(en["settings.logsExportComplete"]));
+  });
+
+  it("does not repeat rows when a later log page shifted behind new entries", async () => {
+    const entry = (id: number) => ({ id: `entry-${id}`, timestamp: `2026-08-02T00:00:${String(id).padStart(2, "0")}Z`,
+      level: "info" as const, source: "main" as const, message: `message ${id}` });
+    const queryLogs = vi.fn()
+      .mockResolvedValueOnce({ entries: [entry(9), entry(8), entry(7)], nextCursor: "3" })
+      // Two new entries arrived, so offset 3 starts two rows earlier.
+      .mockResolvedValueOnce({ entries: [entry(8), entry(7), entry(6)] });
+    const { getLogStatus } = renderDiagnostics({ queryLogs });
+    await waitForInitialLogRefresh(getLogStatus);
+    fireEvent.click(await screen.findByRole("button", { name: en["settings.logsLoadMore"] }));
+    await waitFor(() => expect(screen.getByText("message 6")).toBeTruthy());
+    expect(screen.getAllByText("message 8")).toHaveLength(1);
+    expect(screen.getAllByText("message 7")).toHaveLength(1);
   });
 
   it("offers log export without retired performance measurement controls", async () => {

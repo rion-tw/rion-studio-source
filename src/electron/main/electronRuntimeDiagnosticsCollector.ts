@@ -14,17 +14,12 @@ import { recentTrustedInputTerminals, trustedInputDiagnostics } from
   "./chromiumTrustedInputTerminalJournal";
 import { recentChromiumExtensionRuntimeFailures } from
   "./chromiumExtensionRuntimeDiagnostics";
+import {
+  CACHED_CORE_SNAPSHOT_COLLECTION_CODE,
+  DESIGNED_DIAGNOSTIC_GAP_CODES
+} from "../../shared/diagnosticsCollection";
 
-const INCOMPLETE_COLLECTION_CODES = Object.freeze([
-  "ELECTRON_RUNTIME_SURFACE_PHASE_DIAGNOSTICS_UNAVAILABLE",
-  "ELECTRON_RUNTIME_HEALTH_DIAGNOSTICS_UNAVAILABLE",
-  "ELECTRON_RUNTIME_RECOVERY_DIAGNOSTICS_UNAVAILABLE",
-  "ELECTRON_RUNTIME_MACRO_DIAGNOSTICS_UNAVAILABLE",
-  "ELECTRON_RUNTIME_LAUNCH_DIAGNOSTICS_UNAVAILABLE",
-  "ELECTRON_RUNTIME_NATIVE_CREATION_DIAGNOSTICS_UNAVAILABLE",
-  "ELECTRON_RUNTIME_OPERATION_DIAGNOSTICS_UNAVAILABLE",
-  "ELECTRON_RUNTIME_KERNEL_DIAGNOSTICS_UNAVAILABLE"
-] as const);
+const INCOMPLETE_COLLECTION_CODES = DESIGNED_DIAGNOSTIC_GAP_CODES;
 
 // SystemRuntimeDiagnosticsRecord still requires these legacy transport fields.
 // Until the v23 dynamic producers exist, use non-success sentinels paired with
@@ -97,7 +92,7 @@ export class ElectronRuntimeDiagnosticsCollector {
         const cached = this.#input.readCachedCoreSnapshot();
         core = cached?.snapshot;
         coreCapturedAt = cached?.capturedAt ?? capturedAt;
-        collectionErrorCodes.push(core ? "ELECTRON_RUNTIME_CORE_SNAPSHOT_CACHED" : "ELECTRON_RUNTIME_CORE_SNAPSHOT_UNAVAILABLE");
+        collectionErrorCodes.push(core ? CACHED_CORE_SNAPSHOT_COLLECTION_CODE : "ELECTRON_RUNTIME_CORE_SNAPSHOT_UNAVAILABLE");
       } else if (this.#input.readCoreSnapshot) core = await this.#input.readCoreSnapshot();
       else collectionErrorCodes.push("ELECTRON_RUNTIME_CORE_SNAPSHOT_UNAVAILABLE");
     } catch (error) { collectionErrorCodes.push(normalizeRionBridgeError(error, "ELECTRON_RUNTIME_CORE_SNAPSHOT_UNAVAILABLE").code); }

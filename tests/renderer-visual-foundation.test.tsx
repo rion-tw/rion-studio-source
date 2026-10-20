@@ -193,6 +193,16 @@ describe("renderer visual foundation", () => {
     );
   });
 
+  it("keeps portaled menus clickable where they overlap the top drag region", () => {
+    const styles = readSourceTreeSync(rendererPath("src", "styles.css"), "utf8");
+
+    // An item-aligned Select opens its first option above the trigger, inside the
+    // 3.5rem window-drag strip; without no-drag the caption swallows that click.
+    expect(styles).toMatch(
+      /\.glass-popover,\s*\[data-radix-popper-content-wrapper\] \{\s*-webkit-app-region: no-drag;/
+    );
+  });
+
   it("fills the Windows caption control group with themed material after page scrolling", () => {
     const bootStyles = readFileSync(rendererPath("src", "boot.css"), "utf8");
     const tokens = readFileSync(path.join(process.cwd(), "src", "shared", "designTokens.css"), "utf8");

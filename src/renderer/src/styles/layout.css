@@ -17,6 +17,13 @@
     -webkit-app-region: no-drag;
   }
 
+  /* Portaled menus and lists can open over the top window-drag strip. Electron
+     subtracts later no-drag rects from that strip, so their items stay clickable. */
+  .glass-popover,
+  [data-radix-popper-content-wrapper] {
+    -webkit-app-region: no-drag;
+  }
+
   :root[data-window-fullscreen="true"] .app-drag {
     -webkit-app-region: no-drag;
   }

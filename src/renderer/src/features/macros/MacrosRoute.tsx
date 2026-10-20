@@ -547,6 +547,24 @@ function MacroGroup({
   const expanded = forceExpanded || !isCollapsed;
   const runningCount = group.macros.filter((macro) => runStateByMacroId.get(macro.id)?.isRunning).length;
   const contentId = `macro-group-${encodeURIComponent(group.key)}`;
+  // Selection is limited to rendered rows, so a collapsed group expands first
+  // and selects its macros once they are visible.
+  const selectAfterExpandRef = useRef(false);
+  const { selectIds } = selection;
+  useEffect(() => {
+    if (!expanded || !selectAfterExpandRef.current) return;
+    selectAfterExpandRef.current = false;
+    selectIds(group.macros.map((macro) => macro.id));
+  }, [expanded, group.macros, selectIds]);
+
+  function handleSelectGroup(): void {
+    if (expanded) {
+      selectIds(group.macros.map((macro) => macro.id));
+      return;
+    }
+    selectAfterExpandRef.current = true;
+    onToggle();
+  }
 
   return (
     <tbody id={contentId} className="macro-list-group" data-macro-group={group.key}>
@@ -564,7 +582,7 @@ function MacroGroup({
               )}
               {runningCount > 0 ? <Badge variant="activity">{t("macros.group.runningCount").replace("{count}", String(runningCount))}</Badge> : null}
             </div>
-            <Button className="shrink-0" type="button" size="sm" variant="ghost" onClick={() => selection.selectIds(group.macros.map((macro) => macro.id))}>
+            <Button className="shrink-0" type="button" size="sm" variant="ghost" onClick={handleSelectGroup}>
               {t("macros.group.selectCount").replace("{count}", String(group.macros.length))}
             </Button>
             <Button

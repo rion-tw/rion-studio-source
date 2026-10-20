@@ -426,6 +426,54 @@ describe("bulk selection UI", () => {
     expect((screen.getByRole("button", { name: "Collapse macro group" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("expands a collapsed group before selecting all of its macros", async () => {
+    const main = role("role-main", "Main role");
+    const first = { ...macro("macro-first", "First"), roleIds: [main.id] };
+    const second = { ...macro("macro-second", "Second"), roleIds: [main.id] };
+    const onToggleGroup = vi.fn();
+    const route = (collapsedGroupKeys: ReadonlySet<string>) => (
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        collapsedGroupKeys={collapsedGroupKeys}
+        macros={[first, second]}
+        macroStatuses={[]}
+        macroStatusByRun={new Map()}
+        query=""
+        roleFilterId=""
+        roles={[main]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map()}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+        onToggleGroup={onToggleGroup}
+      />
+    );
+    const { rerender } = render(route(new Set()));
+    const groupKey = getSelectionItem(first.id).closest<HTMLElement>("[data-macro-group]")!.dataset.macroGroup!;
+    rerender(route(new Set([groupKey])));
+    expect(document.querySelector(`[data-selection-id='${first.id}']`)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select 2" }));
+    expect(onToggleGroup).toHaveBeenCalledWith(groupKey);
+    expect(screen.queryByText("2 selected")).toBeNull();
+
+    rerender(route(new Set()));
+    await waitFor(() => expect(screen.getByText("2 selected")).toBeTruthy());
+    expect(getSelectionItem(first.id)).toBeTruthy();
+    expect(getSelectionItem(second.id)).toBeTruthy();
+  });
+
   it("shows the loop wait duration beside its timer icon", () => {
     const item = { ...macro("macro-loop", "Auto loop"), repeat: { type: "loop" as const, intervalMs: 1000 } };
     render(

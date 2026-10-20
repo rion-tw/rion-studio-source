@@ -6,8 +6,12 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
 import { ChromeProfileImportFlow } from "../src/renderer/src/features/settings/ChromeProfileImportFlow";
+import { chromeImportFailureReason } from "../src/renderer/src/features/settings/chromeProfileImportFailure";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
+import ja from "../src/renderer/src/i18n/ja.json";
+import zhCN from "../src/renderer/src/i18n/zh-CN.json";
+import zhTW from "../src/renderer/src/i18n/zh-TW.json";
 import type {
   ChromeProfileImportResult,
   Game,
@@ -225,6 +229,80 @@ describe("Chrome profile import flow", () => {
 
     expect(screen.getByText("Cancelled")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+  });
+
+  it("explains each failed profile with a localized reason and keeps unknown codes", async () => {
+    const user = userEvent.setup();
+    const failed = (profileId: string, roleName: string, errorCode?: string) => ({
+      profileId,
+      roleName,
+      status: "failed" as const,
+      authState: "notApplicable" as const,
+      cookieCount: 0,
+      localStorageCount: 0,
+      unsupported: {
+        partitionedCookieCount: 0,
+        appBoundCookieCount: 0,
+        decryptFailureCount: 0,
+        storageReadFailureCount: 0
+      },
+      warnings: [],
+      ...(errorCode ? { errorCode } : {})
+    });
+    installApi({
+      previewChromeProfileImport: vi.fn().mockResolvedValue(preview(false)),
+      applyChromeProfileImport: vi.fn().mockResolvedValue({
+        importId: "import-1",
+        items: [
+          failed("Default", "Main", "SOURCE_CHANGED"),
+          failed("P1", "Alt", "ROLE_BROWSER_DATA_IN_USE"),
+          failed("P2", "Spare", "CHROME_PROFILE_IMPORT_FENCE_MISMATCH"),
+          failed("P3", "Legacy")
+        ]
+      })
+    });
+    renderFlow([role]);
+    await openPreview(user);
+    await user.click(screen.getByRole("combobox", { name: "Game" }));
+    await user.click(screen.getByRole("option", { name: "Example" }));
+    await user.click(screen.getByRole("button", { name: "Apply import" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Replace selected role sessions?" }))
+      .getByRole("button", { name: "Apply import" }));
+
+    const reason = (roleName: string) =>
+      within(screen.getByText(roleName).closest("[data-chrome-import-item]") as HTMLElement)
+        .queryByRole("note")?.textContent ?? null;
+    expect(reason("Main")).toBe(en["settings.chromeImportErrorSourceChanged"]);
+    expect(reason("Alt")).toBe(en["settings.chromeImportErrorRoleInUse"]);
+    expect(reason("Spare")).toBe(en["settings.chromeImportErrorUnknown"]
+      .replace("{code}", "CHROME_PROFILE_IMPORT_FENCE_MISMATCH"));
+    expect(reason("Legacy")).toBeNull();
+    expect(screen.getAllByText("Failed")).toHaveLength(4);
+  });
+
+  it("localizes every Chrome import failure reason in each language", () => {
+    const dictionaries = [en, zhTW, zhCN, ja] as Record<string, string>[];
+    const codes = [
+      "SOURCE_CHANGED",
+      "CHROME_RUNNING",
+      "ROLE_BROWSER_DATA_IN_USE",
+      "ROLE_ALREADY_RUNNING",
+      "ROLE_MUTATION_BLOCKED",
+      "PROFILE_SESSION_EMPTY",
+      "ROLE_TARGET_INVALID",
+      "ROLE_CONFLICT_RESOLUTION_REQUIRED",
+      "CORE_PLATFORM_FAILED"
+    ];
+    for (const dictionary of dictionaries) {
+      const translate: Translator = (key) => dictionary[key] ?? `missing:${key}`;
+      for (const code of codes) {
+        const message = chromeImportFailureReason(code, translate);
+        expect(message).not.toMatch(/^missing:/u);
+        expect(message).not.toContain(code);
+      }
+      expect(chromeImportFailureReason("SOMETHING_NEW", translate)).toContain("SOMETHING_NEW");
+      expect(chromeImportFailureReason(undefined, translate)).toBeNull();
+    }
   });
 
   it("opens a needs-login role in the same managed session", async () => {

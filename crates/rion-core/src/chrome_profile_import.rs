@@ -93,6 +93,35 @@ impl ChromeProfileImportRuntime {
         ))
     }
 
+    /// Rebinds a preview to the source exactly as Chrome left it at exit.
+    /// Chrome rewrites Local State, its cookie database, and LocalStorage while
+    /// quitting, so fingerprints taken while it ran can never match afterward.
+    /// The import identity and profile list stay unchanged, which keeps the
+    /// user's selections; only profiles that were fingerprinted are rebound.
+    pub fn rebind_released_source(
+        &mut self,
+        import_id: &str,
+        fingerprints: HashMap<String, String>,
+    ) -> CoreResult<ChromeProfileImportPreviewRecord> {
+        self.prune();
+        let pending = self
+            .pending
+            .iter_mut()
+            .find(|pending| pending.value.import_id == import_id)
+            .map(|pending| &mut pending.value)
+            .ok_or_else(|| domain("IMPORT_NOT_FOUND", "Chrome profile import preview expired."))?;
+        for (profile_id, fingerprint) in fingerprints {
+            if let Some(current) = pending.source_fingerprints.get_mut(&profile_id) {
+                *current = fingerprint;
+            }
+        }
+        Ok(preview_record(
+            &pending.import_id,
+            &pending.source_user_data_dir,
+            pending.profiles.clone(),
+        ))
+    }
+
     pub fn get(&mut self, import_id: &str) -> CoreResult<PendingChromeProfileImport> {
         self.prune();
         self.pending
@@ -151,6 +180,29 @@ impl ChromeProfileImportRuntime {
                 || pending.created_at.elapsed() <= PENDING_TTL
         });
     }
+}
+
+/// Fingerprints a preview's profiles once Chrome has released its user data.
+/// Returns `None` while Chrome holds the source, including when it starts
+/// again during hashing, so a torn read never rebinds a preview. A profile
+/// that cannot be read keeps its preview fingerprint and fails at apply.
+pub(crate) fn released_source_fingerprints(
+    pending: &PendingChromeProfileImport,
+) -> Option<HashMap<String, String>> {
+    let source = &pending.source_user_data_dir;
+    if rion_platform::chrome_user_data_in_use(source) {
+        return None;
+    }
+    let fingerprints = pending
+        .profiles
+        .iter()
+        .filter_map(|profile| {
+            rion_platform::chrome_profile_source_fingerprint(source, &profile.directory_name)
+                .ok()
+                .map(|fingerprint| (profile.id.clone(), fingerprint))
+        })
+        .collect();
+    (!rion_platform::chrome_user_data_in_use(source)).then_some(fingerprints)
 }
 
 pub(crate) fn session_transfer_directory(
@@ -344,6 +396,69 @@ mod tests {
         runtime.finish("import-1");
         assert!(!runtime.is_cancel_requested("import-1"));
         assert!(runtime.get("import-1").is_err());
+    }
+
+    #[test]
+    fn released_source_rebinds_fingerprints_without_changing_the_preview_identity() {
+        let source = tempdir().unwrap();
+        fs::create_dir_all(source.path().join("Default/Network")).unwrap();
+        fs::create_dir_all(source.path().join("Profile 1/Network")).unwrap();
+        fs::write(source.path().join("Local State"), "{}").unwrap();
+        fs::write(source.path().join("Default/Network/Cookies"), b"running").unwrap();
+        fs::write(source.path().join("Profile 1/Network/Cookies"), b"running").unwrap();
+        fs::write(source.path().join("SingletonLock"), b"chrome-host-1").unwrap();
+        let mut runtime = ChromeProfileImportRuntime::default();
+        let preview = runtime.preview(source.path().to_str().unwrap()).unwrap();
+        assert!(preview.source_in_use);
+        let previewed = runtime.get(&preview.import_id).unwrap();
+
+        // Chrome still holds the profile: nothing is rebound.
+        fs::write(source.path().join("Default/Network/Cookies"), b"flushing").unwrap();
+        assert!(released_source_fingerprints(&previewed).is_none());
+
+        // Chrome exited and wrote its state back.
+        fs::remove_file(source.path().join("SingletonLock")).unwrap();
+        fs::write(
+            source.path().join("Local State"),
+            r#"{"written":"at exit"}"#,
+        )
+        .unwrap();
+        fs::write(
+            source.path().join("Default/Network/Cookies"),
+            b"written at exit",
+        )
+        .unwrap();
+        let released = released_source_fingerprints(&previewed).unwrap();
+        let rebound = runtime
+            .rebind_released_source(&preview.import_id, released.clone())
+            .unwrap();
+        assert_eq!(rebound.import_id, preview.import_id);
+        assert_eq!(
+            serde_json::to_value(&rebound.profiles).unwrap(),
+            serde_json::to_value(&preview.profiles).unwrap()
+        );
+        assert!(!rebound.source_in_use);
+        let current = runtime.get(&preview.import_id).unwrap();
+        assert_eq!(current.source_fingerprints, released);
+        for profile in &current.profiles {
+            assert_eq!(
+                current.source_fingerprints[&profile.id],
+                rion_platform::chrome_profile_source_fingerprint(
+                    source.path(),
+                    &profile.directory_name
+                )
+                .unwrap()
+            );
+            assert_ne!(
+                current.source_fingerprints[&profile.id],
+                previewed.source_fingerprints[&profile.id]
+            );
+        }
+        assert!(
+            runtime
+                .rebind_released_source("missing-import", HashMap::new())
+                .is_err_and(|error| error.code() == "IMPORT_NOT_FOUND")
+        );
     }
 
     #[test]

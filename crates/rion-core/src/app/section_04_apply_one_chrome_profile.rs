@@ -1,4 +1,40 @@
 impl AppCore {
+    async fn request_chrome_quit_for_import(
+        self: &Arc<Self>,
+        import_id: String,
+    ) -> CoreResult<Value> {
+        let pending = self
+            .chrome_profile_import
+            .lock()
+            .map_err(|_| CoreError::Internal("Chrome import lock poisoned".to_owned()))?
+            .get(&import_id)?;
+        let platform = self.platform;
+        tokio::task::spawn_blocking(move || request_graceful_chrome_quit_for_import(platform))
+            .await
+            .map_err(|error| CoreError::Internal(error.to_string()))??;
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while rion_platform::chrome_user_data_in_use(&pending.source_user_data_dir)
+            && std::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let released = tokio::task::spawn_blocking(move || {
+            crate::chrome_profile_import::released_source_fingerprints(&pending)
+        })
+        .await
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let mut imports = self
+            .chrome_profile_import
+            .lock()
+            .map_err(|_| CoreError::Internal("Chrome import lock poisoned".to_owned()))?;
+        let preview = match released {
+            Some(fingerprints) => imports.rebind_released_source(&import_id, fingerprints)?,
+            None => imports.refresh(&import_id)?,
+        };
+        drop(imports);
+        serde_json::to_value(preview).map_err(|error| CoreError::Internal(error.to_string()))
+    }
+
     async fn apply_one_chrome_profile(
         self: &Arc<Self>,
         import_id: &str,
@@ -836,4 +872,19 @@ impl AppCore {
         }
     }
 
+}
+
+/// Asks Chrome to quit gracefully. Tests never signal the developer's real
+/// Chrome; they model its exit by releasing the fixture's profile lock.
+fn request_graceful_chrome_quit_for_import(platform: rion_platform::Platform) -> CoreResult<()> {
+    #[cfg(test)]
+    {
+        let _ = platform;
+        Ok(())
+    }
+    #[cfg(not(test))]
+    {
+        rion_platform::request_graceful_chrome_quit(platform)
+            .map_err(|error| CoreError::Platform(error.to_string()))
+    }
 }

@@ -819,11 +819,6 @@ fn v23_chrome_import_saga_emits_event_bound_fences_and_commits_verified_role_ato
     create_chrome_import_fixture(&source);
     let game_id = flyff_game_id(&core);
     let (import_id, profile_id) = preview_chrome_import(&core, &source);
-    let lane = std::sync::Arc::new(std::sync::Mutex::new(
-        None::<crate::ChromeProfileImportTransactionDescriptor>,
-    ));
-    let lane_for_effects = std::sync::Arc::clone(&lane);
-    let core_for_effects = std::sync::Arc::clone(&core);
     let (result, actions, _) = drive_async_command_with(
         std::sync::Arc::clone(&core),
         CoreCommand::ChromeProfileApply {
@@ -832,187 +827,7 @@ fn v23_chrome_import_saga_emits_event_bound_fences_and_commits_verified_role_ato
             consent_accepted: true,
             resolutions: vec![ChromeProfileImportResolutionRecord::Create { profile_id }],
         },
-        move |effect| {
-            assert_eq!(effect.completion_policy, crate::model::OperationCompletionPolicy::EventBound);
-            assert!(effect.deadline_ms.is_none());
-            let value_json = match &effect.action {
-                CoreEffectAction::ChromeProfileImportSnapshot {
-                    transaction_id,
-                    role_id,
-                    launch_url,
-                    replace_existing,
-                    chromium_user_data_dir: Some(chromium_path),
-                    journal_phase: Some(phase),
-                    journal_revision: Some(revision),
-                    ..
-                } => {
-                    assert_eq!(phase, "prepared");
-                    assert_eq!(*revision, 1);
-                    let descriptor = core_for_effects
-                        .acquire_chrome_profile_import_transaction_internal(
-                            crate::ChromeProfileImportTransactionAcquireInput {
-                                role_id: role_id.clone(),
-                                transaction_id: transaction_id.clone(),
-                                expected_journal_phase: phase.clone(),
-                                expected_journal_revision: *revision,
-                                expected_launch_url: Some(launch_url.clone()),
-                                expected_replace_existing: Some(*replace_existing),
-                            },
-                        )
-                        .unwrap();
-                    assert_eq!(&descriptor.role_paths.chromium_user_data_dir, chromium_path);
-                    core_for_effects
-                        .write_chrome_profile_import_backup_internal(
-                            chrome_import_fence(&descriptor),
-                            serde_json::to_vec(&serde_json::json!({
-                                "cookies": [], "localStorage": []
-                            }))
-                            .unwrap(),
-                        )
-                        .unwrap();
-                    *lane_for_effects.lock().unwrap() = Some(descriptor);
-                    None
-                }
-                CoreEffectAction::ChromeProfileImportApply {
-                    journal_phase: Some(phase),
-                    journal_revision: Some(revision),
-                    ..
-                } => {
-                    assert_eq!(phase, "applying");
-                    assert_eq!(*revision, 3);
-                    let current = lane_for_effects.lock().unwrap().clone().unwrap();
-                    let next = core_for_effects
-                        .refresh_chrome_profile_import_transaction_internal(
-                            crate::ChromeProfileImportTransactionFence {
-                                lease_id: current.lease_id,
-                                role_id: current.role_id,
-                                transaction_id: current.transaction_id,
-                                expected_journal_phase: phase.clone(),
-                                expected_journal_revision: *revision,
-                            },
-                        )
-                        .unwrap();
-                    *lane_for_effects.lock().unwrap() = Some(next);
-                    None
-                }
-                CoreEffectAction::ChromeProfileImportVerify {
-                    journal_phase: Some(phase),
-                    journal_revision: Some(revision),
-                    ..
-                } => {
-                    assert_eq!(phase, "verified");
-                    assert_eq!(*revision, 4);
-                    let current = lane_for_effects.lock().unwrap().clone().unwrap();
-                    let verified = core_for_effects
-                        .refresh_chrome_profile_import_transaction_internal(
-                            crate::ChromeProfileImportTransactionFence {
-                                lease_id: current.lease_id,
-                                role_id: current.role_id,
-                                transaction_id: current.transaction_id,
-                                expected_journal_phase: phase.clone(),
-                                expected_journal_revision: *revision,
-                            },
-                        )
-                        .unwrap();
-                    let capability = core_for_effects
-                        .prepare_chrome_profile_import_fresh_verification_internal(
-                            chrome_import_fence(&verified),
-                        )
-                        .unwrap();
-                    let awaiting = core_for_effects
-                        .refresh_chrome_profile_import_transaction_internal(
-                            crate::ChromeProfileImportTransactionFence {
-                                lease_id: verified.lease_id.clone(),
-                                role_id: verified.role_id.clone(),
-                                transaction_id: verified.transaction_id.clone(),
-                                expected_journal_phase: "awaitingFreshVerification".to_owned(),
-                                expected_journal_revision: 5,
-                            },
-                        )
-                        .unwrap();
-                    let mut source = core_for_effects
-                        .read_chrome_profile_import_payload_internal(chrome_import_fence(&awaiting))
-                        .unwrap();
-                    let inventory_sha256 =
-                        crate::chrome_profile_import_contract::sha256_hex(&source);
-                    source.fill(0);
-                    let fresh = core_for_effects
-                        .complete_chrome_profile_import_fresh_verification_internal(
-                            chrome_import_fence(&awaiting),
-                            capability,
-                            crate::ChromeProfileImportFreshVerificationReceipt {
-                                verifier_instance_id: uuid::Uuid::new_v4().to_string(),
-                                parent_exit_evidence_sha256: "a".repeat(64),
-                                surface_drain_evidence_sha256: "b".repeat(64),
-                                chromium_path_sha256: awaiting.chromium_path_sha256.clone(),
-                                inventory_sha256,
-                                cookie_count: awaiting.cookie_count,
-                                local_storage_count: awaiting.local_storage_count,
-                            },
-                        )
-                        .unwrap();
-                    *lane_for_effects.lock().unwrap() = Some(fresh);
-                    Some(serde_json::json!({ "authState": "notApplicable" }).to_string())
-                }
-                CoreEffectAction::ChromeProfileImportCommit {
-                    journal_phase: Some(phase),
-                    journal_revision: Some(revision),
-                    ..
-                } => {
-                    assert_eq!(phase, "metadataCommitted");
-                    assert_eq!(*revision, 7);
-                    let current = lane_for_effects.lock().unwrap().clone().unwrap();
-                    let metadata = core_for_effects
-                        .refresh_chrome_profile_import_transaction_internal(
-                            crate::ChromeProfileImportTransactionFence {
-                                lease_id: current.lease_id,
-                                role_id: current.role_id,
-                                transaction_id: current.transaction_id,
-                                expected_journal_phase: phase.clone(),
-                                expected_journal_revision: *revision,
-                            },
-                        )
-                        .unwrap();
-                    core_for_effects
-                        .commit_chrome_profile_import_internal(chrome_import_fence(&metadata))
-                        .unwrap();
-                    let committing = core_for_effects
-                        .refresh_chrome_profile_import_transaction_internal(
-                            crate::ChromeProfileImportTransactionFence {
-                                lease_id: metadata.lease_id.clone(),
-                                role_id: metadata.role_id.clone(),
-                                transaction_id: metadata.transaction_id.clone(),
-                                expected_journal_phase: "committing".to_owned(),
-                                expected_journal_revision: 8,
-                            },
-                        )
-                        .unwrap();
-                    core_for_effects
-                        .verify_chrome_profile_import_commit_marker_internal(
-                            chrome_import_fence(&committing),
-                        )
-                        .unwrap();
-                    core_for_effects
-                        .release_chrome_profile_import_transaction_internal(
-                            crate::ChromeProfileImportTransactionReleaseInput {
-                                lease_id: committing.lease_id,
-                                role_id: committing.role_id,
-                                transaction_id: committing.transaction_id,
-                            },
-                        )
-                        .unwrap();
-                    None
-                }
-                action => panic!("unexpected v23 Chrome-import effect: {action:?}"),
-            };
-            CoreEffectResult {
-                effect_id: effect.effect_id,
-                operation_id: effect.operation_id,
-                ok: true,
-                value_json,
-                error: None,
-            }
-        },
+        v23_chrome_import_effect_driver(std::sync::Arc::clone(&core)),
     );
     let result = result.unwrap();
     assert_eq!(
@@ -1033,6 +848,198 @@ fn v23_chrome_import_saga_emits_event_bound_fences_and_commits_verified_role_ato
     assert_eq!(migration.phase, crate::RoleSessionMigrationPhase::V23Ready);
     assert_eq!(migration.outcome, Some(crate::RoleSessionMigrationOutcome::Verified));
     core.shutdown();
+}
+
+
+/// Plays Electron's side of the v23 Chrome-import saga against the exact
+/// Core-owned transaction fences and acknowledges every effect.
+fn v23_chrome_import_effect_driver(
+    core_for_effects: std::sync::Arc<AppCore>,
+) -> impl FnMut(CoreEffectRequest) -> CoreEffectResult {
+    let lane_for_effects = std::sync::Arc::new(std::sync::Mutex::new(
+        None::<crate::ChromeProfileImportTransactionDescriptor>,
+    ));
+    move |effect| {
+        assert_eq!(effect.completion_policy, crate::model::OperationCompletionPolicy::EventBound);
+        assert!(effect.deadline_ms.is_none());
+        let value_json = match &effect.action {
+            CoreEffectAction::ChromeProfileImportSnapshot {
+                transaction_id,
+                role_id,
+                launch_url,
+                replace_existing,
+                chromium_user_data_dir: Some(chromium_path),
+                journal_phase: Some(phase),
+                journal_revision: Some(revision),
+                ..
+            } => {
+                assert_eq!(phase, "prepared");
+                assert_eq!(*revision, 1);
+                let descriptor = core_for_effects
+                    .acquire_chrome_profile_import_transaction_internal(
+                        crate::ChromeProfileImportTransactionAcquireInput {
+                            role_id: role_id.clone(),
+                            transaction_id: transaction_id.clone(),
+                            expected_journal_phase: phase.clone(),
+                            expected_journal_revision: *revision,
+                            expected_launch_url: Some(launch_url.clone()),
+                            expected_replace_existing: Some(*replace_existing),
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(&descriptor.role_paths.chromium_user_data_dir, chromium_path);
+                core_for_effects
+                    .write_chrome_profile_import_backup_internal(
+                        chrome_import_fence(&descriptor),
+                        serde_json::to_vec(&serde_json::json!({
+                            "cookies": [], "localStorage": []
+                        }))
+                        .unwrap(),
+                    )
+                    .unwrap();
+                *lane_for_effects.lock().unwrap() = Some(descriptor);
+                None
+            }
+            CoreEffectAction::ChromeProfileImportApply {
+                journal_phase: Some(phase),
+                journal_revision: Some(revision),
+                ..
+            } => {
+                assert_eq!(phase, "applying");
+                assert_eq!(*revision, 3);
+                let current = lane_for_effects.lock().unwrap().clone().unwrap();
+                let next = core_for_effects
+                    .refresh_chrome_profile_import_transaction_internal(
+                        crate::ChromeProfileImportTransactionFence {
+                            lease_id: current.lease_id,
+                            role_id: current.role_id,
+                            transaction_id: current.transaction_id,
+                            expected_journal_phase: phase.clone(),
+                            expected_journal_revision: *revision,
+                        },
+                    )
+                    .unwrap();
+                *lane_for_effects.lock().unwrap() = Some(next);
+                None
+            }
+            CoreEffectAction::ChromeProfileImportVerify {
+                journal_phase: Some(phase),
+                journal_revision: Some(revision),
+                ..
+            } => {
+                assert_eq!(phase, "verified");
+                assert_eq!(*revision, 4);
+                let current = lane_for_effects.lock().unwrap().clone().unwrap();
+                let verified = core_for_effects
+                    .refresh_chrome_profile_import_transaction_internal(
+                        crate::ChromeProfileImportTransactionFence {
+                            lease_id: current.lease_id,
+                            role_id: current.role_id,
+                            transaction_id: current.transaction_id,
+                            expected_journal_phase: phase.clone(),
+                            expected_journal_revision: *revision,
+                        },
+                    )
+                    .unwrap();
+                let capability = core_for_effects
+                    .prepare_chrome_profile_import_fresh_verification_internal(
+                        chrome_import_fence(&verified),
+                    )
+                    .unwrap();
+                let awaiting = core_for_effects
+                    .refresh_chrome_profile_import_transaction_internal(
+                        crate::ChromeProfileImportTransactionFence {
+                            lease_id: verified.lease_id.clone(),
+                            role_id: verified.role_id.clone(),
+                            transaction_id: verified.transaction_id.clone(),
+                            expected_journal_phase: "awaitingFreshVerification".to_owned(),
+                            expected_journal_revision: 5,
+                        },
+                    )
+                    .unwrap();
+                let mut source = core_for_effects
+                    .read_chrome_profile_import_payload_internal(chrome_import_fence(&awaiting))
+                    .unwrap();
+                let inventory_sha256 =
+                    crate::chrome_profile_import_contract::sha256_hex(&source);
+                source.fill(0);
+                let fresh = core_for_effects
+                    .complete_chrome_profile_import_fresh_verification_internal(
+                        chrome_import_fence(&awaiting),
+                        capability,
+                        crate::ChromeProfileImportFreshVerificationReceipt {
+                            verifier_instance_id: uuid::Uuid::new_v4().to_string(),
+                            parent_exit_evidence_sha256: "a".repeat(64),
+                            surface_drain_evidence_sha256: "b".repeat(64),
+                            chromium_path_sha256: awaiting.chromium_path_sha256.clone(),
+                            inventory_sha256,
+                            cookie_count: awaiting.cookie_count,
+                            local_storage_count: awaiting.local_storage_count,
+                        },
+                    )
+                    .unwrap();
+                *lane_for_effects.lock().unwrap() = Some(fresh);
+                Some(serde_json::json!({ "authState": "notApplicable" }).to_string())
+            }
+            CoreEffectAction::ChromeProfileImportCommit {
+                journal_phase: Some(phase),
+                journal_revision: Some(revision),
+                ..
+            } => {
+                assert_eq!(phase, "metadataCommitted");
+                assert_eq!(*revision, 7);
+                let current = lane_for_effects.lock().unwrap().clone().unwrap();
+                let metadata = core_for_effects
+                    .refresh_chrome_profile_import_transaction_internal(
+                        crate::ChromeProfileImportTransactionFence {
+                            lease_id: current.lease_id,
+                            role_id: current.role_id,
+                            transaction_id: current.transaction_id,
+                            expected_journal_phase: phase.clone(),
+                            expected_journal_revision: *revision,
+                        },
+                    )
+                    .unwrap();
+                core_for_effects
+                    .commit_chrome_profile_import_internal(chrome_import_fence(&metadata))
+                    .unwrap();
+                let committing = core_for_effects
+                    .refresh_chrome_profile_import_transaction_internal(
+                        crate::ChromeProfileImportTransactionFence {
+                            lease_id: metadata.lease_id.clone(),
+                            role_id: metadata.role_id.clone(),
+                            transaction_id: metadata.transaction_id.clone(),
+                            expected_journal_phase: "committing".to_owned(),
+                            expected_journal_revision: 8,
+                        },
+                    )
+                    .unwrap();
+                core_for_effects
+                    .verify_chrome_profile_import_commit_marker_internal(
+                        chrome_import_fence(&committing),
+                    )
+                    .unwrap();
+                core_for_effects
+                    .release_chrome_profile_import_transaction_internal(
+                        crate::ChromeProfileImportTransactionReleaseInput {
+                            lease_id: committing.lease_id,
+                            role_id: committing.role_id,
+                            transaction_id: committing.transaction_id,
+                        },
+                    )
+                    .unwrap();
+                None
+            }
+            action => panic!("unexpected v23 Chrome-import effect: {action:?}"),
+        };
+        CoreEffectResult {
+            effect_id: effect.effect_id,
+            operation_id: effect.operation_id,
+            ok: true,
+            value_json,
+            error: None,
+        }
+    }
 }
 
 #[test]

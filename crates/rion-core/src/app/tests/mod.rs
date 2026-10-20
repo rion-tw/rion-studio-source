@@ -94,3 +94,4 @@ include!("behavior_44_released_role_placeholder.rs");
 
 include!("behavior_58_cleared_workspace_slot_zoom.rs");
 include!("behavior_59_zoom_factor_percent.rs");
+include!("behavior_60_chrome_profile_quit_rebind.rs");

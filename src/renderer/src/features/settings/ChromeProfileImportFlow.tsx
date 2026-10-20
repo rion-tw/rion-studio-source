@@ -16,6 +16,7 @@ import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { StatusCallout, Surface } from "../../components/ui/patterns";
+import { chromeImportFailureReason } from "./chromeProfileImportFailure";
 
 interface ChromeProfileImportFlowProps {
   games: Game[];
@@ -356,47 +357,13 @@ export function ChromeProfileImportFlow({
                   {t("settings.chromeImportCancelled")}
                 </div>
               ) : result.items.map((item) => (
-                <div key={item.profileId} className="rounded-md border border-border/45 bg-background/25 p-3 text-xs leading-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-semibold text-foreground">{item.roleName}</span>
-                    <span className={chromeImportStatusClass(item.status)}>
-                      {chromeImportStatusLabel(item.status, t)}
-                    </span>
-                  </div>
-                  <p className="text-muted-foreground">
-                    {t("settings.chromeImportCounts")
-                      .replace("{cookies}", String(item.cookieCount))
-                      .replace("{storage}", String(item.localStorageCount))}
-                  </p>
-                  {unsupportedCount(item.unsupported) > 0 ? (
-                    <p className="text-warning-foreground">
-                      {t("settings.chromeImportUnsupportedCounts")
-                        .replace("{partitioned}", String(item.unsupported.partitionedCookieCount))
-                        .replace("{appBound}", String(item.unsupported.appBoundCookieCount))
-                        .replace("{decrypt}", String(item.unsupported.decryptFailureCount))
-                        .replace("{storage}", String(item.unsupported.storageReadFailureCount))}
-                    </p>
-                  ) : null}
-                  {item.warnings.length > 0 ? (
-                    <p className="break-words text-warning-foreground">
-                      {item.warnings.map((warning) => chromeImportWarningLabel(warning, t)).join(" · ")}
-                    </p>
-                  ) : null}
-                  {item.status === "needsLogin" && item.roleId ? (
-                    <Button
-                      className="mt-2"
-                      type="button"
-                      variant="outline"
-                      disabled={launchingRoleId !== null}
-                      onClick={() => void openRoleForLogin(item.roleId!)}
-                    >
-                      {launchingRoleId === item.roleId
-                        ? <Loader2 size={14} className="animate-spin" />
-                        : <LogIn size={14} />}
-                      {t("settings.chromeImportOpenLogin")}
-                    </Button>
-                  ) : null}
-                </div>
+                <ChromeImportResultItem
+                  key={item.profileId}
+                  item={item}
+                  launchingRoleId={launchingRoleId}
+                  onOpenLogin={(roleId) => void openRoleForLogin(roleId)}
+                  t={t}
+                />
               ))}
             </div>
           ) : applyInProgress ? (
@@ -506,6 +473,70 @@ function Modal({
       </Surface>
     </div>,
     document.body
+  );
+}
+
+function ChromeImportResultItem({
+  item,
+  launchingRoleId,
+  onOpenLogin,
+  t
+}: {
+  item: ChromeProfileImportResult["items"][number];
+  launchingRoleId: string | null;
+  onOpenLogin: (roleId: string) => void;
+  t: Translator;
+}): JSX.Element {
+  const failureReason = item.status === "failed" ? chromeImportFailureReason(item.errorCode, t) : null;
+
+  return (
+    <div
+      className="rounded-md border border-border/45 bg-background/25 p-3 text-xs leading-5"
+      data-chrome-import-item
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-semibold text-foreground">{item.roleName}</span>
+        <span className={chromeImportStatusClass(item.status)}>
+          {chromeImportStatusLabel(item.status, t)}
+        </span>
+      </div>
+      {failureReason ? (
+        <p className="break-words text-destructive" role="note">{failureReason}</p>
+      ) : null}
+      <p className="text-muted-foreground">
+        {t("settings.chromeImportCounts")
+          .replace("{cookies}", String(item.cookieCount))
+          .replace("{storage}", String(item.localStorageCount))}
+      </p>
+      {unsupportedCount(item.unsupported) > 0 ? (
+        <p className="text-warning-foreground">
+          {t("settings.chromeImportUnsupportedCounts")
+            .replace("{partitioned}", String(item.unsupported.partitionedCookieCount))
+            .replace("{appBound}", String(item.unsupported.appBoundCookieCount))
+            .replace("{decrypt}", String(item.unsupported.decryptFailureCount))
+            .replace("{storage}", String(item.unsupported.storageReadFailureCount))}
+        </p>
+      ) : null}
+      {item.warnings.length > 0 ? (
+        <p className="break-words text-warning-foreground">
+          {item.warnings.map((warning) => chromeImportWarningLabel(warning, t)).join(" · ")}
+        </p>
+      ) : null}
+      {item.status === "needsLogin" && item.roleId ? (
+        <Button
+          className="mt-2"
+          type="button"
+          variant="outline"
+          disabled={launchingRoleId !== null}
+          onClick={() => onOpenLogin(item.roleId!)}
+        >
+          {launchingRoleId === item.roleId
+            ? <Loader2 size={14} className="animate-spin" />
+            : <LogIn size={14} />}
+          {t("settings.chromeImportOpenLogin")}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

@@ -470,6 +470,49 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     });
   });
 
+  it("applies toolbar preferences to a host that finishes opening during the update", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32",
+      browserWindows: browserWindows.port,
+      displays,
+      runtimeDocumentPath,
+      runtimeForegroundProbe: new FakeRuntimeForegroundProbe()
+    });
+    // The still-opening host precedes the active one, so the update visits it
+    // first and skips it, then awaits the active host while it finishes.
+    const openingTarget = target({ windowId: "window-2" });
+    const openingCreation = factory.create(openingTarget, tab(openingTarget));
+    const openingNative = browserWindows.windows[0]!;
+    const activeTarget = target();
+    const active = await finishCreation(factory.create(activeTarget, tab(activeTarget)), browserWindows.windows[1]!);
+    await applyWindowFence(active);
+
+    const update = factory.applyWindowPreferences({
+      alwaysHideTabCloseButton: true,
+      alwaysShowToolbarInFullScreen: false,
+      restoreGameWindowsOnStartup: false
+    });
+    const opened = await finishCreation(openingCreation, openingNative);
+    await update;
+    await opened.applyWindowsChromeProjection?.({
+      activeTabId: "tab-1",
+      contentBounds: { x: 0, y: 40, width: 960, height: 640 },
+      moveTargets: [],
+      tabs: [{ active: true, audioMuted: false, hidden: false, name: "Role 1", phase: "ready", tabId: "tab-1" }],
+      topologyRevision: 9,
+      windowGeneration: 4,
+      workspaceDividers: [],
+      windowId: "window-2"
+    });
+    await vi.waitFor(() => {
+      const projections = openingNative.webContents.sent
+        .filter(([channel]) => channel === WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL)
+        .map(([, projection]) => projection as { alwaysHideTabCloseButton: boolean });
+      expect(projections.at(-1)?.alwaysHideTabCloseButton).toBe(true);
+    });
+  });
+
   it("keeps a taskbar-minimized host shown until it is actually hidden", async () => {
     const browserWindows = new FakeBrowserWindows();
     const foreground = new FakeRuntimeForegroundProbe();

@@ -563,10 +563,14 @@ implements ChromiumRuntimeHostFactoryPort {
     const prior = this.#windowPreferences;
     const applied: WindowsHostRecord[] = [];
     try {
-      for (const record of this.#activeByLogicalWindow.values()) {
-        if (record.state !== "active") continue;
-        await record.chrome.applyPreferences(preferences);
-        applied.push(record);
+      // A host can finish opening while an earlier one awaits; it compared
+      // against the prior preferences, so keep visiting until all are current.
+      for (let pending = this.#activePreferenceTargets(applied); pending.length > 0;
+        pending = this.#activePreferenceTargets(applied)) {
+        for (const record of pending) {
+          await record.chrome.applyPreferences(preferences);
+          applied.push(record);
+        }
       }
       this.#windowPreferences = Object.freeze({ ...preferences });
     } catch (error) {
@@ -586,6 +590,11 @@ implements ChromiumRuntimeHostFactoryPort {
       }
       throw error;
     }
+  }
+
+  #activePreferenceTargets(applied: readonly WindowsHostRecord[]): WindowsHostRecord[] {
+    return [...this.#activeByLogicalWindow.values()]
+      .filter((record) => record.state === "active" && !applied.includes(record));
   }
 
   /**

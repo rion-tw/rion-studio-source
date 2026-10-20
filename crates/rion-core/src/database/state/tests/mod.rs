@@ -10,3 +10,4 @@ include!("behavior_07_role_session_migration_authority.rs");
 include!("behavior_08_role_session_migration_reset_fences.rs");
 include!("behavior_09_portable_snapshot_migration_authority.rs");
 include!("behavior_10_macro_activation_mode_migration.rs");
+include!("behavior_11_snapshot_replacement_preserves_extensions.rs");

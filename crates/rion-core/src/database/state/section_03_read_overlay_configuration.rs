@@ -672,7 +672,7 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
             DELETE FROM roles;
             DELETE FROM game_images;
             DELETE FROM games;
-            DELETE FROM settings WHERE key != 'graphicsSettings';
+            DELETE FROM settings WHERE key NOT IN ('graphicsSettings', 'extensions');
             DELETE FROM legal_acceptance;
             ",
         )

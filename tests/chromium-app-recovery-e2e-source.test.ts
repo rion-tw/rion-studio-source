@@ -86,7 +86,8 @@ describe("Chromium application-recovery exact replacement", () => {
 
   it("locks the standalone namespace and exact SQLite/native evidence gates", async () => {
     const [runner, journeyEvidence, evidence, forced, bridge, driver, phases] = await Promise.all([
-      source("scripts/runDesktopE2e.mjs"),
+      Promise.all([source("scripts/runDesktopE2e.mjs"), source("scripts/desktopE2ePhaseTopology.mjs")])
+        .then(parts => parts.join("\n")),
       source("scripts/desktopE2eChromiumJourneyEvidence.mjs"),
       source("scripts/desktopE2eChromiumAppRecoveryEvidence.mjs"),
       source("scripts/desktopE2eForcedTermination.mjs"),

@@ -116,7 +116,8 @@ describe("Chromium Macro native-effect exact replacement source", () => {
       source("tests/electron-windows-chromium-trusted-input-adapter.test.ts"),
       source("crates/rion-core/src/macro_runtime/tests/behavior_10_trusted_input_recovery_restarts_eligible_roots.rs"),
       source("scripts/electronWindowsChromiumTrustedInputProbe.cjs"),
-      source("scripts/runDesktopE2e.mjs"),
+      Promise.all([source("scripts/runDesktopE2e.mjs"), source("scripts/desktopE2ePhaseTopology.mjs")])
+        .then(parts => parts.join("\n")),
       source("scripts/desktopE2eChromiumJourneyEvidence.mjs"),
       source("scripts/desktopE2eChromiumMacroNativeEffectEvidence.mjs"),
       source("e2e/desktop/phaseSpecs.ts")

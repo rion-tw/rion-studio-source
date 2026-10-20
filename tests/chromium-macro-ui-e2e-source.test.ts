@@ -91,7 +91,8 @@ describe("Chromium Macro UI exact replacement source", () => {
 
   it("binds focused dependencies, shared lifecycle state, and exact SQLite evidence", async () => {
     const [runner, journeyEvidence, evidence, phaseSpecs] = await Promise.all([
-      source("scripts/runDesktopE2e.mjs"),
+      Promise.all([source("scripts/runDesktopE2e.mjs"), source("scripts/desktopE2ePhaseTopology.mjs")])
+        .then(parts => parts.join("\n")),
       source("scripts/desktopE2eChromiumJourneyEvidence.mjs"),
       source("scripts/desktopE2eChromiumMacroUiEvidence.mjs"),
       source("e2e/desktop/phaseSpecs.ts")

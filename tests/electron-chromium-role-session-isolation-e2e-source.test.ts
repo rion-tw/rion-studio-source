@@ -59,7 +59,8 @@ describe("Chromium Role Session isolation desktop journey source", () => {
   it("routes one shared two-phase spec into both isolated Chromium profiles", async () => {
     const [phaseSpecs, runner, manifestSource] = await Promise.all([
       readFile("e2e/desktop/phaseSpecs.ts", "utf8"),
-      readFile("scripts/runDesktopE2e.mjs", "utf8"),
+      Promise.all([readFile("scripts/runDesktopE2e.mjs", "utf8"), readFile("scripts/desktopE2ePhaseTopology.mjs", "utf8")])
+        .then(parts => parts.join("\n")),
       readFile("docs/e2e-coverage.json", "utf8")
     ]);
     const manifest = JSON.parse(manifestSource) as {

@@ -27,7 +27,7 @@ describe("isolated extension bootstrap diagnostic CI", () => {
     ]);
     expect(shell).toContain("in their original process order");
     expect(shell).not.toContain("dependencies");
-    expect(shell).toContain("else\n            pnpm run test:e2e:desktop:chromium:macos-appkit\n          fi");
+    expect(shell).toContain("else\n            pnpm run test:e2e:desktop:chromium:macos-appkit -- --shard=${{ matrix.shard }}\n          fi");
     expect(shell).toContain("does not provide full desktop profile, package, or release quality evidence");
     expect(shell).not.toContain("continue-on-error");
     expect(electronJob).toContain("'Electron Chromium extension bootstrap diagnostics' || 'Electron Chromium package validation'");

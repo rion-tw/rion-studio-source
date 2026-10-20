@@ -24,7 +24,12 @@ describe("manual desktop CI scope", () => {
         ? scope === "macos" ? 1 : scope === "windows" ? 2 : 3
         : 3;
       const selected = match[index]!;
-      expect((JSON.parse(selected) as { os: string }[]).map(row => row.os)).toEqual(expected);
+      // The desktop E2E matrix repeats each platform once per shard.
+      const rows = JSON.parse(selected) as { os: string; shard?: string }[];
+      expect([...new Set(rows.map(row => row.os))]).toEqual(expected);
+      if (rows.some(row => row.shard)) {
+        for (const os of expected) expect(rows.filter(row => row.os === os).map(row => row.shard)).toEqual(["1/2", "2/2"]);
+      }
     }
   });
 

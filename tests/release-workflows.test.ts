@@ -67,8 +67,15 @@ describe("desktop shell migration workflows", () => {
       workflow.indexOf("  electron-platform-validation:")
     );
     const electronChecks = workflow.slice(
-      workflow.indexOf("  electron-platform-validation:")
+      workflow.indexOf("  electron-platform-validation:"),
+      workflow.indexOf("  desktop-e2e-journeys:")
     );
+    const journeyChecks = workflow.slice(workflow.indexOf("  desktop-e2e-journeys:"));
+    // Shards prove their own phases; one job then requires every profile journey.
+    expect(journeyChecks).toContain("needs: electron-platform-validation");
+    expect(journeyChecks).toContain("node scripts/verifyDesktopE2eShardReports.mjs desktop-e2e-shards");
+    expect(journeyChecks).toContain("chromium-macos-appkit-smoke");
+    expect(journeyChecks).toContain("chromium-windows-smoke");
     expect(workflow).not.toContain("  desktop-e2e:");
 
     expect(workflow).toContain("workflow_call:");

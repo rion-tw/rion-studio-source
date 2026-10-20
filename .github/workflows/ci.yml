@@ -372,12 +372,14 @@ jobs:
         run: exit 1
 
   electron-platform-validation:
-    name: ${{ matrix.name }} ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && matrix.os == 'macos-latest' && 'AppKit constraints diagnostics (NOT quality/release)' || github.ref == 'refs/heads/codex/extension-bootstrap-evidence' && 'Electron Chromium extension bootstrap diagnostics' || 'Electron Chromium package validation' }}
+    name: ${{ matrix.name }} ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/appkit-constraints-evidence' && matrix.os == 'macos-latest' && 'AppKit constraints diagnostics (NOT quality/release)' || github.ref == 'refs/heads/codex/extension-bootstrap-evidence' && 'Electron Chromium extension bootstrap diagnostics' || 'Electron Chromium package validation' }} · E2E shard ${{ matrix.shard }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'macos' && '[{"name":"macOS arm64","os":"macos-latest"}]' || github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'windows' && '[{"name":"Windows x64","os":"windows-latest"}]' || '[{"name":"macOS arm64","os":"macos-latest"},{"name":"Windows x64","os":"windows-latest"}]') }}
+        # Each platform's desktop E2E profile runs as two shards on separate runners;
+        # desktop-e2e-journeys verifies the complete profile across both.
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'macos' && '[{"name":"macOS arm64","os":"macos-latest","shard":"1/2","part":"1"},{"name":"macOS arm64","os":"macos-latest","shard":"2/2","part":"2"}]' || github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'windows' && '[{"name":"Windows x64","os":"windows-latest","shard":"1/2","part":"1"},{"name":"Windows x64","os":"windows-latest","shard":"2/2","part":"2"}]' || '[{"name":"macOS arm64","os":"macos-latest","shard":"1/2","part":"1"},{"name":"macOS arm64","os":"macos-latest","shard":"2/2","part":"2"},{"name":"Windows x64","os":"windows-latest","shard":"1/2","part":"1"},{"name":"Windows x64","os":"windows-latest","shard":"2/2","part":"2"}]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -442,7 +444,7 @@ jobs:
           elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF" == "refs/heads/codex/appkit-constraints-evidence" ]]; then
             pnpm run test:e2e:desktop:chromium:macos-appkit -- --phase=chromium-workspace-gap-dividers-seed
           else
-            pnpm run test:e2e:desktop:chromium:macos-appkit
+            pnpm run test:e2e:desktop:chromium:macos-appkit -- --shard=${{ matrix.shard }}
           fi
         env:
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
@@ -484,7 +486,7 @@ jobs:
         id: chromium_windows_smoke
         continue-on-error: true
         timeout-minutes: 90
-        run: pnpm run test:e2e:desktop:chromium:windows
+        run: pnpm run test:e2e:desktop:chromium:windows -- --shard=${{ matrix.shard }}
         env:
           # Keep the unpacked Chrome extension below Win32's legacy path
           # ceiling while preserving diagnostics in the checkout artifact root.
@@ -492,7 +494,7 @@ jobs:
           RION_STUDIO_E2E_USER_DATA_ROOT: ${{ runner.temp }}/rion-e2e-data
 
       - name: Probe direct View ownership with the Windows E2E addon
-        if: ${{ !cancelled() && runner.os == 'Windows' && steps.chromium_windows_smoke.outcome != 'skipped' }}
+        if: ${{ !cancelled() && runner.os == 'Windows' && matrix.part == '1' && steps.chromium_windows_smoke.outcome != 'skipped' }}
         run: pnpm exec vitest run --config vitest.native-integration.config.mjs tests/electron-chromium-view-owner.native-integration.ts
         env:
           RION_CHROMIUM_INPUT_REPORT_DIR: ${{ github.workspace }}/.desktop-e2e-artifacts/chromium-input
@@ -501,7 +503,7 @@ jobs:
         if: always() && (steps.chromium_macos_appkit_smoke.outcome != 'skipped' || steps.chromium_windows_smoke.outcome != 'skipped')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: chromium-shell-e2e-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: chromium-shell-e2e-${{ runner.os }}-shard${{ matrix.part }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 14
@@ -743,3 +745,37 @@ jobs:
           path: |
             .desktop-e2e-artifacts
             !.desktop-e2e-artifacts/**/roles/*/browser/**
+
+  desktop-e2e-journeys:
+    name: Desktop E2E journey evidence across shards
+    needs: electron-platform-validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      # Every attempt's shard evidence stays in the run, so a rerun shard's
+      # passing report replaces its own failed attempt and nothing else.
+      - name: Download every desktop E2E shard report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: chromium-shell-e2e-*-shard*-${{ github.run_id }}-*
+          path: desktop-e2e-shards
+
+      - name: Require complete journey evidence for each platform profile
+        shell: bash
+        env:
+          PLATFORM_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.platform_scope || 'all' }}
+        run: |
+          set -euo pipefail
+          profiles=()
+          if [[ "$PLATFORM_SCOPE" != "windows" ]]; then profiles+=(chromium-macos-appkit-smoke); fi
+          if [[ "$PLATFORM_SCOPE" != "macos" ]]; then profiles+=(chromium-windows-smoke); fi
+          node scripts/verifyDesktopE2eShardReports.mjs desktop-e2e-shards "${profiles[@]}"

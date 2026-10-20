@@ -50,7 +50,8 @@ describe("Chromium permanent Game Window exact replacement source", () => {
       source("src/electron/e2e/index.ts"),
       source("src/electron/e2e/gameWindowRuntimeObservation.ts"),
       source("scripts/desktopE2eChromiumGameWindowEvidence.mjs"),
-      source("scripts/runDesktopE2e.mjs")
+      Promise.all([source("scripts/runDesktopE2e.mjs"), source("scripts/desktopE2ePhaseTopology.mjs")])
+        .then(parts => parts.join("\n"))
     ]);
 
     expect(bridge).toContain('action: "gameWindowRuntime"');

@@ -86,6 +86,20 @@ function sameJsonStructure(left: unknown, right: unknown): boolean {
   );
 }
 
+/**
+ * Core persists window-id cohorts as sorted, deduplicated sets, so a receipt
+ * proves retention by membership; mutators may append in any order.
+ */
+function sameIdentifierSet(
+  left: readonly string[],
+  right: readonly string[]
+): boolean {
+  const expected = new Set(left);
+  const retained = new Set(right);
+  return expected.size === retained.size &&
+    [...expected].every((identifier) => retained.has(identifier));
+}
+
 function snapshotWindowState(snapshot: ChromiumRuntimeExecutorSnapshot): Readonly<{
   focusedWindowId: string | null;
   liveWindowIds: readonly string[];
@@ -220,10 +234,11 @@ export class ChromiumRuntimeRestoreSessionCoordinator {
       replaced.schemaVersion !== 2 ||
       replaced.sessionGeneration !== session.sessionGeneration ||
       replaced.cleanExit !== session.cleanExit ||
-      JSON.stringify(replaced.liveWindowIds ?? []) !==
-        JSON.stringify(session.liveWindowIds ?? []) ||
-      JSON.stringify(replaced.restoreInProgressWindowIds) !==
-        JSON.stringify(session.restoreInProgressWindowIds) ||
+      !sameIdentifierSet(replaced.liveWindowIds ?? [], session.liveWindowIds ?? []) ||
+      !sameIdentifierSet(
+        replaced.restoreInProgressWindowIds,
+        session.restoreInProgressWindowIds
+      ) ||
       replaced.lastFocusedWindowId !== session.lastFocusedWindowId ||
       !sameJsonStructure(replaced.windows ?? [], session.windows ?? [])
     ) {

@@ -4,8 +4,10 @@ import {
   ChromiumSavedWindowRestoreController,
   type ChromiumSavedWindowRestoreCorePort
 } from "../src/electron/main/chromiumSavedWindowRestoreController";
-import type {
-  ChromiumRuntimeRestoreSessionMutationPort
+import {
+  ChromiumRuntimeRestoreSessionCoordinator,
+  type ChromiumRuntimeRestoreSessionCorePort,
+  type ChromiumRuntimeRestoreSessionMutationPort
 } from "../src/electron/main/chromiumRuntimeRestoreSessionCoordinator";
 import type {
   CoreAppSnapshotRecord,
@@ -322,6 +324,58 @@ describe("Chromium saved Game Window restore controller", () => {
     expect(harness.launches).not.toHaveBeenCalled();
     expect(harness.session.restoreInProgressWindowIds).toEqual([]);
     expect(harness.session.liveWindowIds).toEqual([WINDOW_ONE]);
+  });
+
+  it("restores beside a residual in-progress window through Core's sorted receipts on the first attempt", async () => {
+    const windowThree = "saved-window-three";
+    const harness = new RestoreHarness([
+      savedWindow(WINDOW_ONE),
+      savedWindow(WINDOW_TWO)
+    ]);
+    harness.session = {
+      ...harness.session,
+      schemaVersion: 2,
+      lastFocusedWindowId: windowThree,
+      restoreInProgressWindowIds: [WINDOW_TWO],
+      liveWindowIds: [windowThree],
+      windows: []
+    };
+    // Rust normalization stores identifier sets sorted and deduplicated, so an
+    // id appended after a residual entry returns at a different position.
+    const canonical = (ids: readonly string[]): string[] => [...new Set(ids)].sort();
+    const restoreSession = new ChromiumRuntimeRestoreSessionCoordinator({
+      core: {
+        invoke: async (command: CoreCommand) => {
+          if (command.type !== "runtimeRestoreSessionReplace") {
+            return harness.invoke(command);
+          }
+          harness.session = {
+            ...structuredClone(command.session),
+            restoreInProgressWindowIds: canonical(
+              command.session.restoreInProgressWindowIds
+            ),
+            liveWindowIds: canonical(command.session.liveWindowIds ?? [])
+          };
+          return structuredClone(harness.session);
+        }
+      } as unknown as ChromiumRuntimeRestoreSessionCorePort,
+      now: () => CAPTURED_AT
+    });
+    const controller = new ChromiumSavedWindowRestoreController({
+      core: { invoke: harness.invoke } as unknown as ChromiumSavedWindowRestoreCorePort,
+      restoreSession,
+      launches: {
+        openEmptySavedGameWindow: harness.openEmpty,
+        restoreSavedGameWindow: harness.launches
+      }
+    });
+
+    await controller.restore({ scope: "window", windowId: WINDOW_ONE });
+
+    expect(harness.launches).toHaveBeenCalledOnce();
+    expect(harness.launches.mock.calls[0]?.[0].id).toBe(WINDOW_ONE);
+    expect(harness.session.restoreInProgressWindowIds).toEqual([WINDOW_TWO]);
+    expect(harness.session.liveWindowIds).toEqual([WINDOW_ONE, windowThree]);
   });
 
   it("opens an exact empty dormant window without entering tab restore state", async () => {

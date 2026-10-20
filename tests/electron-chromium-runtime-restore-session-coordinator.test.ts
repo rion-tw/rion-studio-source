@@ -205,6 +205,48 @@ describe("Chromium runtime restore-session coordinator", () => {
     });
   });
 
+  it("accepts Core's sorted identifier sets but rejects a receipt that loses an identifier", async () => {
+    const current: RuntimeRestoreSessionRecord = {
+      ...session(),
+      cleanExit: false,
+      restoreInProgressWindowIds: ["window-b"],
+      liveWindowIds: ["window-c"]
+    };
+    let dropIdentifier = false;
+    const coordinator = new ChromiumRuntimeRestoreSessionCoordinator({
+      core: {
+        invoke: async (command: CoreCommand) => {
+          if (command.type === "runtimeRestoreSessionGet") return current;
+          if (command.type !== "runtimeRestoreSessionReplace") {
+            throw new Error("unexpected command");
+          }
+          const restoring = [...command.session.restoreInProgressWindowIds].sort();
+          return {
+            ...command.session,
+            restoreInProgressWindowIds: dropIdentifier
+              ? restoring.slice(1)
+              : restoring,
+            liveWindowIds: [...(command.session.liveWindowIds ?? [])].sort()
+          };
+        }
+      } as ChromiumRuntimeRestoreSessionCorePort,
+      now: () => CAPTURED_AT
+    });
+    const appendWindowA = (value: Readonly<RuntimeRestoreSessionRecord>) => ({
+      restoreInProgressWindowIds: [...value.restoreInProgressWindowIds, "window-a"],
+      liveWindowIds: [...(value.liveWindowIds ?? []), "window-a"]
+    });
+
+    await expect(coordinator.mutate(appendWindowA)).resolves.toMatchObject({
+      restoreInProgressWindowIds: ["window-a", "window-b"],
+      liveWindowIds: ["window-a", "window-c"]
+    });
+    dropIdentifier = true;
+    await expect(coordinator.mutate(appendWindowA)).rejects.toMatchObject({
+      code: "ELECTRON_RUNTIME_RESTORE_SESSION_RECEIPT_INVALID"
+    });
+  });
+
   it("accepts a structurally exact serde receipt with reordered object keys", async () => {
     const current = session();
     const coordinator = new ChromiumRuntimeRestoreSessionCoordinator({

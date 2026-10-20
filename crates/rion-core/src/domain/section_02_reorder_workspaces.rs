@@ -572,13 +572,26 @@ pub fn update_macro(
     } else {
         current.trigger.clone()
     };
-    let shortcut_source_scope = normalize_macro_shortcut_source_scope(
-        input
-            .shortcut_source_scope
-            .or_else(|| Some(current.shortcut_source_scope.clone())),
-        trigger.is_some(),
-        execution_mode == Some(crate::model::MacroExecutionMode::SourceRole),
-    )?;
+    // Deleting the last selected source of a source-role Macro deliberately
+    // keeps an empty selection until the user picks new sources. Unrelated
+    // updates such as enable/disable or rename must not be rejected for it.
+    let retains_cleared_sources = input.shortcut_source_scope.is_none()
+        && execution_mode == Some(crate::model::MacroExecutionMode::SourceRole)
+        && matches!(
+            &current.shortcut_source_scope,
+            MacroShortcutSourceScope::SelectedRoles { role_ids } if role_ids.is_empty()
+        );
+    let shortcut_source_scope = if retains_cleared_sources {
+        current.shortcut_source_scope.clone()
+    } else {
+        normalize_macro_shortcut_source_scope(
+            input
+                .shortcut_source_scope
+                .or_else(|| Some(current.shortcut_source_scope.clone())),
+            trigger.is_some(),
+            execution_mode == Some(crate::model::MacroExecutionMode::SourceRole),
+        )?
+    };
     let macro_record = StateMacroRecord {
         execution_mode,
         id: current.id.clone(),

@@ -929,4 +929,12 @@ fn source_execution_preserves_manual_scope_and_conflicts_with_all_roles() {
     assert_eq!(create_macro(&mut macros, all).unwrap_err().code(), "MACRO_TRIGGER_CONFLICT");
     clear_macro_role(&mut macros, "r1");
     assert!(matches!(&macros[0].shortcut_source_scope, MacroShortcutSourceScope::SelectedRoles { role_ids } if role_ids.is_empty()));
+    let id = macros[0].id.clone();
+    let toggled = update_macro(&mut macros, &id, MacroUpdateInputRecord {
+        enabled: Some(false),
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(!toggled.enabled);
+    assert!(matches!(&toggled.shortcut_source_scope, MacroShortcutSourceScope::SelectedRoles { role_ids } if role_ids.is_empty()));
 }

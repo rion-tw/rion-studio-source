@@ -418,37 +418,6 @@ export const StatusCallout = forwardRef<HTMLDivElement, StatusCalloutProps>(
 
 StatusCallout.displayName = "StatusCallout";
 
-interface DialogLayerProps extends HTMLAttributes<HTMLDivElement> {
-  backdropLabel: string;
-  onDismiss: () => void;
-}
-
-export function DialogLayer({
-  backdropLabel,
-  children,
-  className,
-  onDismiss,
-  ...props
-}: DialogLayerProps) {
-  return (
-    <div
-      className={cn(
-        "app-no-drag fixed inset-0 z-[var(--layer-modal)] grid place-items-center p-5",
-        className
-      )}
-      {...props}
-    >
-      <button
-        aria-label={backdropLabel}
-        className="app-modal-backdrop absolute inset-0"
-        type="button"
-        onClick={onDismiss}
-      />
-      <div className="relative z-[var(--layer-selection)] flex w-full justify-center">{children}</div>
-    </div>
-  );
-}
-
 interface SettingsSectionProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   title?: ReactNode;
 }

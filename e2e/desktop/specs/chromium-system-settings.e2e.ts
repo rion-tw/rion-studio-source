@@ -241,7 +241,7 @@ async function verifyLegalCancelBoundary(): Promise<void> {
   await openDocument.waitForClickable({ timeout: 10_000 });
   await openDocument.click();
 
-  const legalDialog = await $("[role='dialog']");
+  const legalDialog = await $("dialog[open][aria-labelledby='legal-document-title']");
   await legalDialog.waitForDisplayed({ timeout: 10_000 });
   const close = await legalDialog.$("button[title='Close legal document']");
   await close.waitForClickable({ timeout: 10_000 });

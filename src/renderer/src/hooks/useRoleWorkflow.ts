@@ -209,6 +209,8 @@ export function useRoleWorkflow({
 
     const finishBusy = beginBusy(role.id);
     if (!finishBusy) {
+      // The confirmation was accepted, so say why nothing was cleared.
+      setNotice?.(t("operations.roleBusyRetry"));
       return false;
     }
 

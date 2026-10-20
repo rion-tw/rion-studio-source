@@ -1489,6 +1489,7 @@
   "settings.logsExportPartial": "已导出诊断包，部分实时数据无法获取。",
   "settings.logsExportComplete": "已导出诊断包。",
   "operations.busyRetry": "部分选取的项目仍在完成先前的动作，请稍候再试一次。",
+  "operations.roleBusyRetry": "这个角色仍在完成之前的操作，请稍后再试。",
   "bulkDelete.reason.protected": "{count} 个受保护",
   "bulkDelete.reason.in_use": "{count} 个使用中",
   "bulkDelete.reason.not_found": "{count} 个已不存在",

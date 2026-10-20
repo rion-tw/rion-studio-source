@@ -47,3 +47,29 @@ describe.each(["macos", "windows"])("%s role launch migration failure", (platfor
     expect(reportError).toHaveBeenCalledWith(failure);
   });
 });
+
+describe("clearing a busy role's browser data", () => {
+  it("explains that nothing was cleared while the role finishes an earlier action", async () => {
+    let finishLaunch!: () => void;
+    const launchRole = vi.fn(() => new Promise<void>((resolve) => { finishLaunch = resolve; }));
+    const clearRoleBrowserData = vi.fn();
+    Object.defineProperty(window, "rionStudio", { configurable: true, value: { launchRole, clearRoleBrowserData } });
+    const setNotice = vi.fn();
+    const { result } = renderHook(() => useRoleWorkflow({
+      beginErrorOperation: () => vi.fn(), roles: [], gameNamesById: new Map(), setNotice,
+      statusByRole: new Map(), t: key => en[key]
+    }), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <ConfirmationContext.Provider value={async () => true}>{children}</ConfirmationContext.Provider>
+      )
+    });
+    let launch!: Promise<unknown>;
+    act(() => { launch = result.current.handleLaunch("role-a"); });
+    await act(async () => {
+      expect(await result.current.handleClearBrowserData({ id: "role-a", name: "Role A" } as never)).toBe(false);
+    });
+    expect(clearRoleBrowserData).not.toHaveBeenCalled();
+    expect(setNotice).toHaveBeenLastCalledWith(en["operations.roleBusyRetry"]);
+    await act(async () => { finishLaunch(); await launch; });
+  });
+});

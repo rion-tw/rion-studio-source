@@ -58,6 +58,20 @@ describe("renderer error localization", () => {
     }
   });
 
+  it("asks to show a nonempty saved Game Window before launching into it", async () => {
+    const error = {
+      code: "ELECTRON_CHROMIUM_SAVED_WINDOW_RESTORE_UNSUPPORTED",
+      message: "Electron cannot launch into a nonempty dormant saved Game Window until exact hydration is migrated."
+    };
+
+    for (const language of languages) {
+      const translations = await loadTranslations(language);
+      const localized = toMessage(error, language, key => translations[key]);
+      expect(localized).toBe(translations["error.savedWindowLaunchRequiresShow"]);
+      expect(localized).not.toContain("hydration");
+    }
+  });
+
   it("localizes hidden browser helper launch failures", () => {
     expect(localizeErrorMessage("Unable to start the hidden Rion Studio browser helper.", "en")).toBe(
       "Unable to start the hidden browser helper."

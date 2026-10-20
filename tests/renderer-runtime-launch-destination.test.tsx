@@ -61,6 +61,59 @@ describe("runtime launch destination menu", () => {
     });
   });
 
+  it("disables nonempty dormant saved windows and asks to show them first", async () => {
+    const user = userEvent.setup();
+    const onLaunch = vi.fn();
+    const role = runtimeRole();
+    const runtime: EmbeddedRuntimeState = {
+      revision: 4,
+      capturedAt: "2026-01-01T00:00:00.000Z",
+      windows: [],
+      tabs: [],
+      savedWindows: [
+        savedWindowSummary("saved-with-tabs", 1),
+        savedWindowSummary("saved-empty", 0)
+      ]
+    };
+
+    renderRoles(role, runtime, [
+      gameWindow("saved-with-tabs", "Raid Window", [{
+        id: "tab-other",
+        tabType: "role",
+        sourceId: "role-other",
+        name: "Other Role",
+        roleSlots: [{
+          slotId: "slot-other",
+          roleId: "role-other",
+          rect: { x: 0, y: 0, width: 1, height: 1 }
+        }],
+        hidden: false,
+        audioMuted: false
+      }]),
+      gameWindow("saved-empty", "Quiet Window")
+    ], onLaunch);
+
+    await user.click(screen.getByRole("button", { name: "Role actions" }));
+    const openIn = screen.getByRole("menuitem", { name: "Open in…" });
+    openIn.focus();
+    await user.keyboard("{ArrowRight}");
+
+    const dormant = screen.getByRole("menuitem", { name: /Raid Window/ });
+    expect(dormant.hasAttribute("data-disabled")).toBe(true);
+    expect(dormant.textContent).toContain(en["launchDestination.state.showFirst"]);
+    expect(dormant.textContent).not.toContain("starts when selected");
+    fireEvent.click(dormant);
+    expect(onLaunch).not.toHaveBeenCalled();
+
+    const empty = screen.getByRole("menuitem", { name: /Quiet Window/ });
+    expect(empty.hasAttribute("data-disabled")).toBe(false);
+    await user.click(empty);
+    expect(onLaunch).toHaveBeenLastCalledWith(role.id, {
+      kind: "game-window",
+      windowId: "saved-empty"
+    });
+  });
+
   it("disables destination overrides when the source already has a live owner", async () => {
     const user = userEvent.setup();
     const role = runtimeRole();
@@ -198,7 +251,7 @@ function runtimeRole(): Role {
   };
 }
 
-function gameWindow(id: string, name: string): GameWindow {
+function gameWindow(id: string, name: string, tabs: GameWindow["tabs"] = []): GameWindow {
   const bounds = { x: 0, y: 0, width: 900, height: 700 };
   return {
     id,
@@ -209,9 +262,26 @@ function gameWindow(id: string, name: string): GameWindow {
       savedWorkArea: bounds,
       presentation: "normal"
     },
-    tabs: [],
+    tabs,
+    activeTabId: tabs[0]?.id,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z"
+  };
+}
+
+function savedWindowSummary(
+  id: string,
+  tabCount: number
+): NonNullable<EmbeddedRuntimeState["savedWindows"]>[number] {
+  return {
+    id,
+    displayId: 1,
+    displayLabel: "Built-in Display",
+    wasVisible: false,
+    tabCount,
+    roleCount: tabCount,
+    tabNames: [],
+    state: "dormant"
   };
 }
 

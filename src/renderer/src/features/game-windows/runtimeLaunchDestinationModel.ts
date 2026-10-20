@@ -79,7 +79,10 @@ export function createRuntimeLaunchDestinationModel(
       return {
         destination: { kind: "game-window", windowId: window.id } as const,
         detail: savedWindowDetail(state, isEmpty, t),
-        disabled: !isEmpty && state !== "dormant",
+        // Electron main admits only empty saved windows as launch targets; a
+        // nonempty dormant window must be shown (restored) before it can host
+        // another source.
+        disabled: !isEmpty,
         id: `saved:${window.id}`,
         label: window.name
       };
@@ -126,7 +129,7 @@ function savedWindowDetail(
   }
   switch (state) {
     case "dormant":
-      return t("launchDestination.state.saved");
+      return t("launchDestination.state.showFirst");
     case "awaiting-recovery":
       return t("launchDestination.state.awaitingRecovery");
     case "restoring":

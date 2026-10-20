@@ -47,6 +47,7 @@ function isSurfaceReleaseMessage(message: string): boolean {
 
 function localizedErrorKey(code: unknown) {
   const keys = {
+    ELECTRON_CHROMIUM_SAVED_WINDOW_RESTORE_UNSUPPORTED: "error.savedWindowLaunchRequiresShow",
     GAME_WINDOW_NAME_DUPLICATE: "error.gameWindowNameDuplicate",
     GAME_WINDOW_NAME_REQUIRED: "error.gameWindowNameRequired",
     GAME_WINDOW_NAME_TOO_LONG: "error.gameWindowNameTooLong",

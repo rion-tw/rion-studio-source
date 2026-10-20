@@ -1,14 +1,16 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   RUNTIME_ROLE_PLACEHOLDER_CHANNEL,
   RUNTIME_ROLE_PLACEHOLDER_SHELL_SESSION,
+  RUNTIME_ROLE_PLACEHOLDER_STATE_CHANNEL,
   type RuntimeRolePlaceholderClaimReceipt,
   type RuntimeRolePlaceholderState
 } from "../src/shared/runtimeRolePlaceholder";
+import { updateWorkspaceStartAppearance } from "../src/electron/main/workspaceStartPage";
 import {
   ChromiumRuntimeRolePlaceholderRegistry,
   type ChromiumRuntimeRolePlaceholderDescriptor,
@@ -219,7 +221,54 @@ function harness(storagePath: string | null = null, autoFinishLoad = true) {
   };
 }
 
+afterEach(() => updateWorkspaceStartAppearance({ language: "en" }));
+
+function settleQueuedProjections(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 describe("ChromiumRuntimeRolePlaceholderRegistry", () => {
+  it("republishes active placeholder copy when the application language changes", async () => {
+    const subject = harness();
+    await subject.registry.reconcile([subject.descriptor()]);
+    const contents = subject.views[0]!.webContents;
+    expect(contents.sent).toHaveLength(1);
+    expect(contents.sent[0]?.[1]).toMatchObject({
+      labels: { action: "Stop there and open here" }
+    });
+
+    updateWorkspaceStartAppearance({ language: "zh-TW" });
+    await vi.waitFor(() => expect(contents.sent).toHaveLength(2));
+    expect(contents.sent[1]).toEqual([
+      RUNTIME_ROLE_PLACEHOLDER_STATE_CHANNEL,
+      expect.objectContaining({
+        generation: 1,
+        labels: {
+          action: "停止原位置並在這裡開啟",
+          busy: "正在開啟…",
+          failed: "無法開啟角色，請再試一次。",
+          message: "這個角色目前在「Source workspace」分頁。"
+        },
+        ownerGeneration: 9,
+        placeholderId: subject.descriptor().placeholderId,
+        topologyRevision: 7
+      })
+    ]);
+    // The ready handshake reads the same language as the pushed state.
+    await expect(Promise.resolve(subject.invoke(contents, { type: "ready" })))
+      .resolves.toMatchObject({ labels: { action: "停止原位置並在這裡開啟" } });
+
+    // Reapplying the current language is not a language-change event.
+    updateWorkspaceStartAppearance({ language: "zh-TW" });
+    await settleQueuedProjections();
+    expect(contents.sent).toHaveLength(2);
+
+    await subject.registry.dispose();
+    updateWorkspaceStartAppearance({ language: "ja" });
+    await settleQueuedProjections();
+    expect(contents.sent).toHaveLength(2);
+  });
+
   it("attaches a sandboxed local placeholder through the retained native host", async () => {
     const subject = harness();
     await subject.registry.reconcile([subject.descriptor()]);

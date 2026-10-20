@@ -28,6 +28,7 @@ import type {
   ChromiumWebContentsViewFactoryPort
 } from "./chromiumRoleSurfacePorts";
 import { buildRemoteContentWebPreferences } from "./security";
+import { subscribeWorkspaceWebLanguage } from "./workspaceStartPage";
 import { runtimeRolePlaceholderLabels } from "./workspaceWebStatus";
 
 type RegistryState = "open" | "draining" | "disposed";
@@ -226,6 +227,7 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
   readonly #views: ChromiumWebContentsViewFactoryPort;
   readonly #generations = new Map<string, number>();
   readonly #onError: (error: CoreErrorPayload) => void;
+  readonly #unsubscribeLanguage: () => void;
   #disposePromise: Promise<void> | null = null;
   #state: RegistryState = "open";
 
@@ -269,6 +271,9 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
         throw error;
       })
     );
+    // EventBound: the acknowledged application-language change is the only
+    // event that changes placeholder copy without a topology projection.
+    this.#unsubscribeLanguage = subscribeWorkspaceWebLanguage(() => this.#republishLabels());
   }
 
   get activeCount(): number {
@@ -349,6 +354,7 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
     if (this.#disposePromise) return this.#disposePromise;
     if (this.#state === "disposed") return Promise.resolve();
     this.#state = "draining";
+    this.#unsubscribeLanguage();
     this.#disposePromise = Promise.allSettled(
       [...this.#records.values()].map((record) => this.#close(record))
     ).then((results) => {
@@ -697,6 +703,24 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
   #publishState(record: PlaceholderRecord): void {
     if (record.state !== "active") return;
     record.contents.send(RUNTIME_ROLE_PLACEHOLDER_STATE_CHANNEL, this.#stateFor(record));
+  }
+
+  #republishLabels(): void {
+    if (this.#state !== "open") return;
+    for (const record of this.#records.values()) {
+      // Ordered behind any in-flight projection, so copy never carries a
+      // descriptor that a failed update is about to compensate away.
+      void this.#projectionQueue.run([record.placeholderId], async () => {
+        if (
+          this.#state !== "open" || this.#records.get(record.placeholderId) !== record ||
+          record.destroyedObserved
+        ) return;
+        // An opening placeholder reads the new language when it activates.
+        this.#publishState(record);
+      }).catch((error: unknown) => {
+        this.#onError(normalizeRionBridgeError(error, "ELECTRON_ROLE_PLACEHOLDER_LABELS_FAILED"));
+      });
+    }
   }
 
   async #receiveAction(

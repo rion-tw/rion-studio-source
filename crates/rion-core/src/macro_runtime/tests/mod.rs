@@ -16,3 +16,4 @@ include!("behavior_13_source_role_execution.rs");
 include!("behavior_14_held_key_endurance.rs");
 include!("behavior_15_cancellation_handoff.rs");
 include!("behavior_16_call_chain_regressions.rs");
+include!("behavior_17_reload_replaced_recovery.rs");

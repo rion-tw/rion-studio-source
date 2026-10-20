@@ -720,6 +720,7 @@ impl MacroRuntime {
         inner.transferring_role_ids.remove(role_id);
         inner.quiesced_role_ids.remove(role_id);
         inner.application_suspend_epochs.remove(role_id);
+        inner.fenced_recovery_failures.remove(role_id);
         // Preserve a monotonic epoch so late cleanup from the released native
         // generation can never match a subsequently relaunched role.
         let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();

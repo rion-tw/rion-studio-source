@@ -178,6 +178,8 @@ struct Inner {
     input_epochs: HashMap<String, u64>,
     input_recoveries: HashMap<String, MacroInputRecovery>,
     input_recovery_by_role: HashMap<String, String>,
+    /// Roles whose input recovery failed after a newer input fence, by that fence epoch.
+    fenced_recovery_failures: HashMap<String, u64>,
     recent_start_attempts: VecDeque<MacroStartAttemptDiagnosticRecord>,
     quiesced_role_ids: HashSet<String>,
     recovering_role_ids: HashSet<String>,

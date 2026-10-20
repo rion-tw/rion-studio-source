@@ -97,3 +97,4 @@ include!("behavior_59_zoom_factor_percent.rs");
 include!("behavior_60_chrome_profile_quit_rebind.rs");
 include!("behavior_61_saved_workspace_tab_after_role_delete.rs");
 include!("behavior_62_workspace_web_failure_recovery.rs");
+include!("behavior_62_controlled_reload_interrupted_recovery.rs");

@@ -1182,7 +1182,15 @@ impl AppCore {
             } else if status == crate::model::SystemRuntimeOperationStatus::Applied
                 && operation_current
             {
-                match self.resume_controlled_role_reload_input(&role.role_id, role.input_epoch) {
+                // The reloaded document starts clean; a recovery this reload's
+                // fence interrupted cannot leave the Role needing a restart.
+                let resumed = self
+                    .macro_runtime
+                    .clear_recovery_replaced_by_fence(&role.role_id, role.input_epoch)
+                    .and_then(|_| {
+                        self.resume_controlled_role_reload_input(&role.role_id, role.input_epoch)
+                    });
+                match resumed {
                     Ok(resumed) => {
                         core_input_resumed = resumed.current;
                         if !resumed.current {

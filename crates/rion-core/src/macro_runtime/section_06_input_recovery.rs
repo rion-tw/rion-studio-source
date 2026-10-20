@@ -59,6 +59,16 @@ impl MacroRuntime {
         if inner.input_recovery_by_role.get(role_id).map(String::as_str) != Some(recovery_id) {
             return Ok(false);
         }
+        let current_epoch = inner.input_epochs.get(role_id).copied().unwrap_or_default();
+        if inner
+            .input_recoveries
+            .get(recovery_id)
+            .is_some_and(|recovery| recovery.input_epoch < current_epoch)
+        {
+            inner
+                .fenced_recovery_failures
+                .insert(role_id.to_owned(), current_epoch);
+        }
         inner.input_recovery_by_role.remove(role_id);
         if let Some(failed) = inner.input_recoveries.remove(recovery_id) {
             release_resumed_recovery_siblings(&mut inner, &failed);
@@ -232,6 +242,39 @@ impl MacroRuntime {
         drop(inner);
         self.emit_statuses();
         Ok(intents)
+    }
+
+    /// Ends the input recovery that a document-replacing fence interrupted.
+    /// The replacement document starts without held input, so neither that
+    /// recovery nor its failure against the replaced document requires a Role
+    /// restart. Returns whether such recovery state was cleared.
+    pub(crate) fn clear_recovery_replaced_by_fence(
+        &self,
+        role_id: &str,
+        fence_epoch: u64,
+    ) -> CoreResult<bool> {
+        let mut inner = self
+            .shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        if inner.input_epochs.get(role_id).copied().unwrap_or_default() != fence_epoch {
+            return Ok(false);
+        }
+        let interrupted = inner
+            .input_recovery_by_role
+            .get(role_id)
+            .and_then(|recovery_id| inner.input_recoveries.get(recovery_id))
+            .is_some_and(|recovery| recovery.input_epoch < fence_epoch);
+        let failed = inner.fenced_recovery_failures.get(role_id) == Some(&fence_epoch);
+        if !interrupted && !failed {
+            return Ok(false);
+        }
+        inner.fenced_recovery_failures.remove(role_id);
+        cancel_recovery_for_role(&mut inner, role_id);
+        drop(inner);
+        self.emit_statuses();
+        Ok(true)
     }
 
     fn cancel_input_recovery_for_role(&self, role_id: &str) -> CoreResult<bool> {

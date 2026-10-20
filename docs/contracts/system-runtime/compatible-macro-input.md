@@ -17,7 +17,11 @@ On Windows, a foreground native frame can have no focused WebContents while
 its tab strip owns focus. Compatible readiness and dispatch accept that exact
 unfocused View observation; trusted input retains its content-focus gate.
 Attachment, parent visibility, document identity and focus-fact consistency
-remain required before and after dispatch.
+remain required before and after dispatch. A minimized, non-foreground Windows
+parent satisfies parent visibility for compatible input only: the isolated-world
+dispatch reaches the same document while the last unminimized viewport keeps
+pointer geometry exact, so a taskbar minimize neither stops a running Macro nor
+refuses its recovery releases. Trusted input still requires an on-screen parent.
 Under v42, keyboard events merge the current native physical modifier snapshot
 with Core modifiers and retain legacy key codes. A held physical Shift therefore
 affects even a step with no explicit modifiers; there is no modifier isolation.

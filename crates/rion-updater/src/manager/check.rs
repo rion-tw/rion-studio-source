@@ -1,4 +1,9 @@
-use std::{fs, sync::MutexGuard};
+use std::{
+    ffi::OsStr,
+    fs,
+    path::{Path, PathBuf},
+    sync::MutexGuard,
+};
 
 use chrono::Utc;
 use sha2::{Digest, Sha256};
@@ -9,7 +14,7 @@ use super::{
     hex_lower,
 };
 use crate::{
-    PENDING_UPDATE_RECEIPT_FILE, UpdateStatusRecord,
+    PENDING_UPDATE_RECEIPT_FILE, UpdatePlatform, UpdateStatusRecord,
     persistence::{
         PENDING_UPDATE_MANIFEST_FILE, PENDING_UPDATE_SCHEMA_VERSION, PendingUpdateReceipt,
         ensure_private_directory, staging_directory, write_pending_receipt,
@@ -178,11 +183,7 @@ impl ChromiumUpdateManager {
 
         let staging = staging_directory(&self.config.user_data_dir);
         ensure_private_directory(&staging).map_err(UpdateManagerError::Persistence)?;
-        let temporary = staging.join(format!(
-            ".{}.{}.download",
-            self.config.platform.staged_file_name(),
-            Uuid::new_v4()
-        ));
+        let temporary = download_temporary_path(&staging, self.config.platform);
         let final_artifact = staging.join(self.config.platform.staged_file_name());
         let mut progress_failure = None;
         let download_result = self.transport.download_artifact(
@@ -295,4 +296,56 @@ fn wait_for_check_completion<'a>(
             .map_err(|_| UpdateManagerError::StateUnavailable)?;
     }
     Ok(state)
+}
+
+const DOWNLOAD_TEMPORARY_SUFFIX: &str = ".download";
+
+/// The downloader's only naming rule for an in-progress artifact stream.
+fn download_temporary_path(staging: &Path, platform: UpdatePlatform) -> PathBuf {
+    staging.join(format!(
+        ".{}.{}{DOWNLOAD_TEMPORARY_SUFFIX}",
+        platform.staged_file_name(),
+        Uuid::new_v4().hyphenated()
+    ))
+}
+
+fn is_download_temporary_name(name: &OsStr, platform: UpdatePlatform) -> bool {
+    name.to_str()
+        .and_then(|name| name.strip_prefix('.'))
+        .and_then(|rest| rest.strip_prefix(platform.staged_file_name()))
+        .and_then(|rest| rest.strip_prefix('.'))
+        .and_then(|rest| rest.strip_suffix(DOWNLOAD_TEMPORARY_SUFFIX))
+        .is_some_and(|identity| {
+            Uuid::try_parse(identity).is_ok_and(|uuid| uuid.hyphenated().to_string() == identity)
+        })
+}
+
+/// Reclaims artifact streams that an earlier process abandoned when it quit
+/// or crashed mid-download. The constructor runs this before any check can
+/// mint a new temporary, so every regular file matching the downloader's
+/// naming rule is unreferenced. Verified pending evidence never matches the
+/// rule. Reclamation is storage hygiene only: it never follows a symlinked
+/// staging directory or entry, and a failure never blocks the manager.
+pub(super) fn reclaim_abandoned_downloads(user_data_dir: &Path, platform: UpdatePlatform) {
+    let staging = staging_directory(user_data_dir);
+    let Ok(metadata) = fs::symlink_metadata(&staging) else {
+        return;
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(&staging) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !is_download_temporary_name(&entry.file_name(), platform) {
+            continue;
+        }
+        let path = entry.path();
+        let is_regular_file = fs::symlink_metadata(&path)
+            .is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink());
+        if is_regular_file {
+            let _ = fs::remove_file(&path);
+        }
+    }
 }

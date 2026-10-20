@@ -928,6 +928,108 @@ fn source_changed_constructor_gate_takes_precedence_over_restored_pending_update
     assert_eq!(fs::read(&journal_path).unwrap(), b"replacement");
 }
 
+#[test]
+fn construction_reclaims_abandoned_downloads_and_keeps_the_verified_pending_update() {
+    let fixture = manager_fixture(b"test", b"test", None);
+    fixture.manager.check_for_updates().unwrap();
+    let staging = crate::persistence::staging_directory(fixture.directory.path());
+    let staged = UpdatePlatform::MacosAarch64.staged_file_name();
+    let abandoned = [
+        staging.join(format!(".{staged}.{}.download", uuid::Uuid::new_v4())),
+        staging.join(format!(".{staged}.{}.download", uuid::Uuid::new_v4())),
+    ];
+    for path in &abandoned {
+        fs::write(path, b"interrupted partial download").unwrap();
+    }
+    // Only the exact downloader naming rule is reclaimable; any other staging
+    // entry, including a directory that happens to match, is left untouched.
+    let unrelated = [
+        staging.join(format!(".{staged}.not-a-uuid.download")),
+        staging.join("operator-notes.download"),
+        staging.join(format!(".{staged}.{}.tmp", uuid::Uuid::new_v4())),
+    ];
+    for path in &unrelated {
+        fs::write(path, b"unrelated").unwrap();
+    }
+    let matching_directory = staging.join(format!(".{staged}.{}.download", uuid::Uuid::new_v4()));
+    fs::create_dir(&matching_directory).unwrap();
+    let verified = [
+        staging.join(PENDING_UPDATE_RECEIPT_FILE),
+        staging.join(PENDING_UPDATE_MANIFEST_FILE),
+        staging.join(staged),
+    ];
+    let verified_bytes = verified
+        .iter()
+        .map(|path| fs::read(path).unwrap())
+        .collect::<Vec<_>>();
+
+    let manager = reopen_manager(fixture.directory.path(), fixture.transport.clone());
+
+    for path in &abandoned {
+        assert!(!path.exists(), "abandoned download {path:?} was retained");
+    }
+    for path in &unrelated {
+        assert_eq!(fs::read(path).unwrap(), b"unrelated");
+    }
+    assert!(matching_directory.is_dir());
+    for (path, bytes) in verified.iter().zip(&verified_bytes) {
+        assert_eq!(&fs::read(path).unwrap(), bytes);
+    }
+    let state = manager.state.lock().unwrap();
+    assert!(state.pending.is_some());
+    assert_eq!(state.status.state, "downloaded");
+    assert_eq!(state.status.available_version.as_deref(), Some("2.0.0"));
+}
+
+#[cfg(unix)]
+#[test]
+fn abandoned_download_reclamation_never_follows_staging_symlinks() {
+    let directory = tempfile::tempdir().unwrap();
+    let outside = directory.path().join("outside");
+    fs::create_dir(&outside).unwrap();
+    let staged = UpdatePlatform::MacosAarch64.staged_file_name();
+    let outside_download = outside.join(format!(".{staged}.{}.download", uuid::Uuid::new_v4()));
+    fs::write(&outside_download, b"not owned by the staging directory").unwrap();
+    let staging = crate::persistence::staging_directory(directory.path());
+    fs::create_dir_all(staging.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&outside, &staging).unwrap();
+
+    let manager = reopen_manager(
+        directory.path(),
+        manager_fixture(b"test", b"test", None).transport,
+    );
+
+    assert!(outside_download.is_file());
+    assert!(manager.state.lock().unwrap().pending.is_none());
+
+    fs::remove_file(&staging).unwrap();
+    fs::create_dir(&staging).unwrap();
+    let linked_download = staging.join(format!(".{staged}.{}.download", uuid::Uuid::new_v4()));
+    std::os::unix::fs::symlink(&outside_download, &linked_download).unwrap();
+    reopen_manager(
+        directory.path(),
+        manager_fixture(b"test", b"test", None).transport,
+    );
+    assert!(outside_download.is_file());
+    assert!(fs::symlink_metadata(&linked_download).is_ok());
+}
+
+fn reopen_manager(user_data_dir: &Path, transport: Arc<FakeTransport>) -> ChromiumUpdateManager {
+    ChromiumUpdateManager::new(
+        ChromiumUpdateManagerConfig {
+            user_data_dir: user_data_dir.to_path_buf(),
+            current_version: semver::Version::new(1, 0, 0),
+            platform: UpdatePlatform::MacosAarch64,
+            packaged: true,
+            endpoint: Url::parse("https://updates.example.test/latest.json").unwrap(),
+            public_key_base64: PUBLIC_KEY.to_owned(),
+        },
+        transport,
+        Arc::new(FakeInstaller::default()),
+    )
+    .unwrap()
+}
+
 struct ManagerFixture {
     directory: TempDir,
     manager: Arc<ChromiumUpdateManager>,

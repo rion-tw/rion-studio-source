@@ -191,6 +191,9 @@ impl ChromiumUpdateManager {
         installer: Arc<dyn UpdatePlatformInstaller>,
     ) -> Result<Self, UpdateManagerError> {
         validate_config(&config)?;
+        // No check can be in flight before construction completes, so any
+        // download temporary in staging belongs to an earlier process.
+        check::reclaim_abandoned_downloads(&config.user_data_dir, config.platform);
         let preferences_path = config.user_data_dir.join(UPDATE_PREFERENCES_FILE);
         let install_journal_path = config.user_data_dir.join(INSTALL_JOURNAL_FILE);
         let mut preferences = load_preferences(&preferences_path);

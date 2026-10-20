@@ -62,6 +62,11 @@ platform, fixed staged filename, byte length, manifest digest, artifact digest,
 and signature digest. A fresh process re-reads the manifest and re-verifies the
 exact regular artifact before restoring `downloaded` state. Missing, malformed,
 symlinked, mismatched, or tampered evidence is never installable.
+Because quitting never waits for a download, an interrupted stream leaves only
+its create-new temporary. Manager construction, before any check can start,
+removes regular staging files matching the downloader's temporary name; it never
+follows symlinks, never touches the pending receipt, manifest, artifact, or
+install journal, and a failed removal never blocks the manager.
 
 Packaged v23 builds have no implicit GitHub release endpoint. They must embed an
 owner-selected HTTPS origin. Direct responses or the fixed GitHub release

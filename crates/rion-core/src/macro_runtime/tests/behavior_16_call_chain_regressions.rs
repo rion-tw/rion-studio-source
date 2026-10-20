@@ -194,3 +194,58 @@
             runtime.shutdown();
         }
     }
+
+    #[test]
+    fn transient_input_that_times_out_is_indeterminate_not_applied() {
+        let (events, _receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new_with_waiter_and_timeout(
+            Arc::new(move |batch| {
+                let _ = events.send(batch);
+            }),
+            Arc::new(default_wait),
+            Duration::from_millis(50),
+        );
+        let shortcut = runtime.dispatch_managed_shortcut_phase(ManagedShortcutPhaseDispatch {
+            operation_id: "op-1",
+            role_id: "r1",
+            surface_generation: 1,
+            document_instance_id: "doc-1",
+            shortcut_cycle_id: "cycle-1",
+            code: "KeyA",
+            phase: "keyDown",
+            modifier_codes: &[],
+        });
+        assert_eq!(
+            shortcut.map(|_| ()).map_err(|error| error.code().to_owned()),
+            Err("SYSTEM_TRUSTED_INPUT_INDETERMINATE".to_owned())
+        );
+
+        let (events, _receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new_with_waiter_and_timeout(
+            Arc::new(move |batch| {
+                let _ = events.send(batch);
+            }),
+            Arc::new(default_wait),
+            Duration::from_millis(50),
+        );
+        runtime.shared.inner.lock().unwrap().held_keys.insert(
+            "owner-1".to_owned(),
+            HeldKey {
+                code: "KeyW".to_owned(),
+                modifiers: Vec::new(),
+                owner_id: "owner-1".to_owned(),
+                role_id: "r1".to_owned(),
+            },
+        );
+        let receipt = runtime
+            .reassert_held_keys_after_context_loss(HeldKeyContinuityDispatch {
+                operation_id: "op-2",
+                role_id: "r1",
+                surface_generation: 1,
+                document_instance_id: "doc-1",
+                loss_reason: "blur",
+                loss_revision: 1,
+            })
+            .unwrap();
+        assert_eq!(receipt.status, "indeterminate");
+    }

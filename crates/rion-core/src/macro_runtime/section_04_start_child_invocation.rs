@@ -560,6 +560,27 @@ fn perform_actions_with_control(
             }
         }
     }
+    // Recovery cancels registered invocations after a normal action times out.
+    // Transient controls (managed shortcuts, held-key reassertion) are not
+    // registered; elapsed time must not turn their unknown delivery into success.
+    if outcome.is_ok()
+        && !allow_cancelled
+        && !control.cancelled.load(Ordering::Acquire)
+        && let Some((request_id, role_id, _)) = pending_actions
+            .iter()
+            .find(|(request_id, _, _)| timed_out_actions.contains(request_id))
+    {
+        return Err(MacroActionFailure {
+            cause_code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE".to_owned(),
+            focus_request_ids,
+            message: format!(
+                "Macro input timed out after {} ms; its delivery is unknown.",
+                ACTION_TIMEOUT.as_millis()
+            ),
+            request_id: Some(request_id.clone()),
+            role_id: Some(role_id.clone()),
+        });
+    }
     if outcome.is_ok() && !allow_cancelled && control.cancelled.load(Ordering::Acquire) {
         return Err(MacroActionFailure {
             cause_code: "MACRO_RUN_CANCELLED".to_owned(),

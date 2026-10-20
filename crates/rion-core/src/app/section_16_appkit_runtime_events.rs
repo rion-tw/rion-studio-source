@@ -796,9 +796,12 @@ fn appkit_tab_surface_layouts(
             })
             .collect::<Vec<_>>()
     } else {
+        // An empty slot keeps its place in the complete Workspace layout but
+        // owns no native surface and no divider identity of its own.
         tab.workspace_slots
             .iter()
             .enumerate()
+            .filter(|(_, slot)| slot.role_id.is_some() || slot.web.is_some())
             .map(|(index, slot)| {
                 let role_id = match (&slot.role_id, &slot.web) {
                     (Some(role_id), None) => role_id.clone(),

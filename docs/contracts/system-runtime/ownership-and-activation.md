@@ -77,7 +77,7 @@ Role-backed subset used for ownership and compatibility, while Web App surface
 identities never become managed Role IDs. Divider commits resolve native Role
 and synthetic Web surfaces through their stable slot IDs and atomically replace
 the complete Workspace layout. The Role-backed subset may therefore be empty
-when the complete Workspace layout contains Web App content. A Role tab
+when the complete Workspace layout contains Web App content. An empty slot owns no native surface, layout record, or divider; native divider indices exist only between content slots, and moving one moves its complete layout line, including empty slots on that line, so the layout remains one complete tiling. A Role tab
 continues to own exactly its source Role slot and no Workspace slots; an empty
 Role subset is invalid for that tab type. Synthetic Web surface IDs remain
 native implementation identities and never enter Role status, macro targeting,

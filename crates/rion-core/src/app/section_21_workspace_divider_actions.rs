@@ -305,15 +305,12 @@ impl AppCore {
             );
         }
         let prior_slots = gesture.workspace_slots.clone();
-        let roles = workspace_divider_roles(&tab)?;
-        let dividers = layout::create_dividers(&roles);
-        let resize = self.resize_workspace_divider(&crate::model::WorkspaceDividerResizeInput {
-            roles,
-            dividers,
-            divider_index: event.divider_index,
-            requested_position: event.requested_position.expect("validated move position"),
-            previous_position: gesture.last_position,
-        })?;
+        let resize = self.resize_workspace_divider(&workspace_divider_resize_input(
+            &tab,
+            event.divider_index,
+            event.requested_position.expect("validated move position"),
+            gesture.last_position,
+        )?)?;
         let workspace_slots = workspace_divider_slots_from_resize(&tab, &resize)?;
         let commit = self.apply_runtime_intent(crate::RuntimeIntent::ReplaceTabWorkspaceSlots {
             expected_revision: Some(gesture.current_topology_revision),
@@ -790,34 +787,123 @@ impl AppCore {
     }
 }
 
-fn workspace_divider_roles(
+/// Resolves every Workspace slot to its divider-geometry identity. Content slots
+/// use their native Role or synthetic Web surface ID. An empty slot owns no
+/// native surface, so it receives a Core-only geometry ID that never reaches a
+/// native divider projection.
+fn workspace_divider_slot_geometry(
     tab: &crate::RuntimeLiveTabRecord,
-) -> CoreResult<Vec<crate::model::LayoutRoleInput>> {
+) -> CoreResult<Vec<(bool, crate::model::LayoutRoleInput)>> {
+    let mut role_ids = std::collections::HashSet::new();
     tab.workspace_slots
         .iter()
         .enumerate()
         .map(|(index, slot)| {
-            let role_id = match (&slot.role_id, &slot.web) {
-                (Some(role_id), None) => role_id.clone(),
-                (None, Some(_)) => workspace_web_surface_id(&tab.id, index),
-                _ => {
+            let (has_content, role_id) = match (&slot.role_id, &slot.web) {
+                (Some(role_id), None) => (true, role_id.clone()),
+                (None, Some(_)) => (true, workspace_web_surface_id(&tab.id, index)),
+                (None, None) => (false, workspace_empty_slot_geometry_id(&tab.id, index)),
+                (Some(_), Some(_)) => {
                     return Err(workspace_divider_error(
                         "WORKSPACE_DIVIDER_SLOT_INVALID",
                         "A workspace divider slot has ambiguous content ownership.",
                     ));
                 }
             };
-            Ok(crate::model::LayoutRoleInput {
-                role_id,
-                rect: crate::model::LayoutRect {
-                    x: slot.rect.x,
-                    y: slot.rect.y,
-                    width: slot.rect.width,
-                    height: slot.rect.height,
+            if !role_ids.insert(role_id.clone()) {
+                return Err(workspace_divider_error(
+                    "WORKSPACE_DIVIDER_SLOT_INVALID",
+                    "A workspace divider slot identity is duplicated.",
+                ));
+            }
+            Ok((
+                has_content,
+                crate::model::LayoutRoleInput {
+                    role_id,
+                    rect: crate::model::LayoutRect {
+                        x: slot.rect.x,
+                        y: slot.rect.y,
+                        width: slot.rect.width,
+                        height: slot.rect.height,
+                    },
                 },
-            })
+            ))
         })
         .collect()
+}
+
+fn workspace_empty_slot_geometry_id(tab_id: &str, slot_index: usize) -> String {
+    format!("empty-{tab_id}-{}", slot_index + 1)
+}
+
+/// Native divider identities exist only between content slots, matching the
+/// AppKit projection and the Electron layout resolver.
+fn workspace_divider_roles(
+    tab: &crate::RuntimeLiveTabRecord,
+) -> CoreResult<Vec<crate::model::LayoutRoleInput>> {
+    Ok(workspace_divider_slot_geometry(tab)?
+        .into_iter()
+        .filter_map(|(has_content, role)| has_content.then_some(role))
+        .collect())
+}
+
+/// Moves the complete grid line under a content divider. Empty slots on that
+/// line move with it, so the Workspace layout remains one complete tiling
+/// exactly as when every slot has content.
+fn workspace_divider_resize_input(
+    tab: &crate::RuntimeLiveTabRecord,
+    divider_index: u32,
+    requested_position: f64,
+    previous_position: Option<f64>,
+) -> CoreResult<crate::model::WorkspaceDividerResizeInput> {
+    let geometry = workspace_divider_slot_geometry(tab)?;
+    let content_roles = geometry
+        .iter()
+        .filter(|(has_content, _)| *has_content)
+        .map(|(_, role)| role.clone())
+        .collect::<Vec<_>>();
+    let content_dividers = layout::create_dividers(&content_roles);
+    let divider = usize::try_from(divider_index)
+        .ok()
+        .and_then(|index| content_dividers.get(index))
+        .ok_or_else(|| {
+            workspace_divider_error(
+                "WORKSPACE_DIVIDER_INDEX_STALE",
+                "The native divider no longer identifies a live Core divider.",
+            )
+        })?;
+    let roles = geometry
+        .into_iter()
+        .map(|(_, role)| role)
+        .collect::<Vec<_>>();
+    let dividers = layout::create_dividers(&roles);
+    let divider_index = dividers
+        .iter()
+        .position(|candidate| {
+            candidate.axis == divider.axis
+                && divider
+                    .before_role_ids
+                    .iter()
+                    .all(|role_id| candidate.before_role_ids.contains(role_id))
+                && divider
+                    .after_role_ids
+                    .iter()
+                    .all(|role_id| candidate.after_role_ids.contains(role_id))
+        })
+        .and_then(|index| u32::try_from(index).ok())
+        .ok_or_else(|| {
+            workspace_divider_error(
+                "WORKSPACE_DIVIDER_RESIZE_INVALID",
+                "A content divider has no matching complete Workspace layout line.",
+            )
+        })?;
+    Ok(crate::model::WorkspaceDividerResizeInput {
+        roles,
+        dividers,
+        divider_index,
+        requested_position,
+        previous_position,
+    })
 }
 
 fn workspace_divider_slots_from_resize(
@@ -837,13 +923,9 @@ fn workspace_divider_slots_from_resize(
         .collect::<std::collections::HashMap<_, _>>();
     tab.workspace_slots
         .iter()
-        .enumerate()
-        .map(|(index, slot)| {
-            let role_id = slot
-                .role_id
-                .clone()
-                .unwrap_or_else(|| workspace_web_surface_id(&tab.id, index));
-            let rect = rect_by_role.get(role_id.as_str()).ok_or_else(|| {
+        .zip(workspace_divider_slot_geometry(tab)?)
+        .map(|(slot, (_, role))| {
+            let rect = rect_by_role.get(role.role_id.as_str()).ok_or_else(|| {
                 workspace_divider_error(
                     "WORKSPACE_DIVIDER_RESIZE_INVALID",
                     "Core omitted a workspace slot from its divider resize projection.",

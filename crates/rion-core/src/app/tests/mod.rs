@@ -88,6 +88,7 @@ include!("behavior_55_session_recovery.rs");
 include!("behavior_56_session_upgrade.rs");
 
 include!("behavior_57_workspace_slot_loading.rs");
+include!("behavior_58_workspace_empty_slot_runtime_layout.rs");
 
 include!("behavior_44_released_role_placeholder.rs");
 

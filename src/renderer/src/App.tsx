@@ -121,14 +121,30 @@ export function App(): JSX.Element {
     (macroId: string) => navigate(createEditEditorPath("macros", macroId)),
     [navigate]
   );
-  const updateGameBrowserSettings = useCallback(async (settings: GameBrowserSettings): Promise<GameBrowserSettings> => {
-    if (!window.rionStudio) {
-      throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
-    }
+  const latestGameBrowserSettingsRef = useRef(gameBrowserSettings);
+  latestGameBrowserSettingsRef.current = gameBrowserSettings;
+  // Whole-object updates come only from the font rows. Queue them behind
+  // patches and apply their fonts to the newest settings, so a concurrent
+  // overlay, badge, or workspace patch is not written back to its old value.
+  const updateGameBrowserSettings = useCallback((settings: GameBrowserSettings): Promise<GameBrowserSettings> => {
+    const operation = gameBrowserSettingsPatchQueueRef.current.then(async () => {
+      if (!window.rionStudio) {
+        throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
+      }
 
-    const nextSettings = await window.rionStudio.updateGameBrowserSettings(settings);
-    setGameBrowserSettings(nextSettings);
-    return nextSettings;
+      const nextSettings = await window.rionStudio.updateGameBrowserSettings({
+        ...latestGameBrowserSettingsRef.current,
+        fonts: settings.fonts
+      });
+      latestGameBrowserSettingsRef.current = nextSettings;
+      setGameBrowserSettings(nextSettings);
+      return nextSettings;
+    });
+    gameBrowserSettingsPatchQueueRef.current = operation.then(
+      () => undefined,
+      () => undefined
+    );
+    return operation;
   }, []);
   const patchGameBrowserSettings = useCallback(
     (patch: GameBrowserSettingsPatch): Promise<GameBrowserSettings> => {
@@ -138,6 +154,7 @@ export function App(): JSX.Element {
         }
 
         const nextSettings = await window.rionStudio.patchGameBrowserSettings(patch);
+        latestGameBrowserSettingsRef.current = nextSettings;
         setGameBrowserSettings(nextSettings);
         return nextSettings;
       });

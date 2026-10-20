@@ -1,7 +1,7 @@
 // Focused implementation extracted from SettingsRoute.tsx.
 import { Check, ChevronDown, CloudDownload, Loader2, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 
-import { type JSX, useEffect, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 
@@ -81,10 +81,20 @@ export function BrowserFontsSettingsRows({
     .map((font) => `${font.catalogId}:${font.cachedBytes}`)
     .join("|")}`;
 
+  const savedFontsRef = useRef(savedSettings.fonts);
   useEffect(() => {
     const normalized = normalizeGameBrowserSettings(settings);
+    const previousSavedFonts = savedFontsRef.current;
+    savedFontsRef.current = normalized.fonts;
     setSavedSettings(normalized);
-    setDraft(normalized);
+    // Other rows on this page save the same settings object. Keep an unapplied
+    // font draft and only adopt their font-smoothing choice.
+    setDraft((current) => JSON.stringify(current.fonts) === JSON.stringify(previousSavedFonts)
+      ? normalized
+      : {
+          ...normalized,
+          fonts: { ...current.fonts, fontSmoothingEnabled: normalized.fonts.fontSmoothingEnabled }
+        });
   }, [settings]);
 
   useEffect(() => {
@@ -320,6 +330,7 @@ export function BrowserFontsSettingsRows({
       }
       if (downloads.length > 0) await reloadCatalog();
       const persistedSettings = normalizeGameBrowserSettings(await onSave(settingsToSave));
+      savedFontsRef.current = persistedSettings.fonts;
       setSavedSettings(persistedSettings);
       setDraft(persistedSettings);
       setMessage(t("settings.browserFontsSaved"));

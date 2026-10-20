@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { type JSX, useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
@@ -119,7 +120,14 @@ function renderSettings(
   onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>,
   gameBrowserSettings: GameBrowserSettings = DEFAULT_GAME_BROWSER_SETTINGS
 ): void {
-  render(
+  render(<SettingsHarness settings={gameBrowserSettings} onChange={onGameBrowserSettingsChange} />);
+}
+
+function SettingsHarness({ settings: gameBrowserSettings, onChange: onGameBrowserSettingsChange = async (next) => next }: {
+  settings: GameBrowserSettings;
+  onChange?: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+}): JSX.Element {
+  return (
     <MemoryRouter initialEntries={["/settings?section=interface"]}>
       <ConfirmationProvider>
         <SettingsView
@@ -286,6 +294,32 @@ describe("browser font settings", () => {
     expect(advancedPanel?.parentElement?.classList.contains("border-b")).toBe(true);
     expect(advancedPanel?.firstElementChild?.classList.contains("w-full")).toBe(true);
     expect(advancedPanel?.firstElementChild?.classList.contains("settings-row")).toBe(false);
+  });
+
+  it("keeps an unapplied font draft when another settings row saves", async () => {
+    const user = userEvent.setup();
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont: vi.fn(),
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    let replaceSettings: (settings: GameBrowserSettings) => void = () => undefined;
+    function Harness(): JSX.Element {
+      const [settings, setSettings] = useState(normalizeGameBrowserSettings(DEFAULT_GAME_BROWSER_SETTINGS));
+      replaceSettings = setSettings;
+      return <SettingsHarness settings={settings} />;
+    }
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    const preset = await screen.findByRole("button", { name: /High-legibility reading/u });
+    await user.click(preset);
+    expect(preset.getAttribute("aria-pressed")).toBe("true");
+
+    const current = normalizeGameBrowserSettings(DEFAULT_GAME_BROWSER_SETTINGS);
+    act(() => replaceSettings({ ...current, macroOverlay: { ...current.macroOverlay, showToolButton: !current.macroOverlay.showToolButton } }));
+
+    expect(screen.getByRole("button", { name: /High-legibility reading/u }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("uses larger font samples in presets without changing font selections or options", async () => {

@@ -183,7 +183,8 @@ export function useMacroWorkflow({
         })),
         trigger: null
       });
-      resetListState();
+      // The copy keeps the source's roles and steps, so it stays inside the
+      // current search and role filter; keep the user's list context.
     } catch (copyError) {
       reportError(copyError);
     } finally {
@@ -330,13 +331,6 @@ export function useMacroWorkflow({
     }
   }
 
-  function resetListState(): void {
-    setQuery("");
-    setRoleFilterId("");
-    setSort(DEFAULT_MACRO_LIST_SORT);
-    listScrollTopRef.current = 0;
-  }
-
   return {
     sourcePickerDialog: sourcePicker.dialog,
     busyMacroIds,
@@ -357,7 +351,6 @@ export function useMacroWorkflow({
     openListForRole,
     openListForMacro,
     query,
-    resetListState,
     roleFilterId,
     saveMacro,
     setQuery,

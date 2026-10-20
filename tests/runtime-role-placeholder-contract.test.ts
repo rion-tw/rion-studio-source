@@ -9,6 +9,12 @@ import {
 const state = {
   blocked: true,
   generation: 2,
+  labels: {
+    action: "Stop there and open here",
+    busy: "Opening…",
+    failed: "Could not open the role. Try again.",
+    message: "This role is open in “Source”."
+  },
   ownerGeneration: 5,
   ownerTabName: "Source",
   placeholderId: "role-placeholder:target:slot",
@@ -24,7 +30,7 @@ const state = {
 describe("runtime Role placeholder contract", () => {
   it("accepts exact state/action/receipt records", () => {
     expect(parseRuntimeRolePlaceholderState(state)).toEqual(state);
-    const { blocked: _blocked, ownerTabName: _owner, roleName: _name, ...identity } = state;
+    const { blocked: _blocked, labels: _labels, ownerTabName: _owner, roleName: _name, ...identity } = state;
     expect(parseRuntimeRolePlaceholderAction({ ...identity, type: "claim" }))
       .toEqual({ ...identity, type: "claim" });
     expect(parseRuntimeRolePlaceholderClaimReceipt({
@@ -43,6 +49,10 @@ describe("runtime Role placeholder contract", () => {
 
   it("rejects extra keys and stale/malformed generations", () => {
     expect(parseRuntimeRolePlaceholderState({ ...state, extra: true })).toBeNull();
+    expect(parseRuntimeRolePlaceholderState({ ...state, labels: { ...state.labels, extra: "x" } }))
+      .toBeNull();
+    expect(parseRuntimeRolePlaceholderState({ ...state, labels: { ...state.labels, busy: "" } }))
+      .toBeNull();
     expect(parseRuntimeRolePlaceholderAction({ type: "ready", extra: true })).toBeNull();
     expect(parseRuntimeRolePlaceholderAction({
       ...state,

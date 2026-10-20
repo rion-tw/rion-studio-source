@@ -21,9 +21,18 @@ export type RuntimeRolePlaceholderAction =
   | Readonly<{ type: "ready" }>
   | Readonly<RuntimeRolePlaceholderIdentity & { type: "claim" }>;
 
+/** Text localized by the main process in the application language. */
+export interface RuntimeRolePlaceholderLabels {
+  readonly action: string;
+  readonly busy: string;
+  readonly failed: string;
+  readonly message: string;
+}
+
 export interface RuntimeRolePlaceholderState
 extends RuntimeRolePlaceholderIdentity {
   readonly blocked: boolean;
+  readonly labels: RuntimeRolePlaceholderLabels;
   readonly ownerTabName: string | null;
   readonly roleName: string;
 }
@@ -86,6 +95,12 @@ function identity(
     positiveInteger(value.windowGeneration) && identifier(value.windowId);
 }
 
+function labels(value: unknown): value is RuntimeRolePlaceholderLabels {
+  return record(value) && exactKeys(value, ["action", "busy", "failed", "message"]) &&
+    displayText(value.action) && displayText(value.busy) &&
+    displayText(value.failed) && displayText(value.message);
+}
+
 export function parseRuntimeRolePlaceholderAction(
   value: unknown
 ): RuntimeRolePlaceholderAction | null {
@@ -109,10 +124,12 @@ export function parseRuntimeRolePlaceholderState(
     !exactKeys(value, [
       ...IDENTITY_KEYS,
       "blocked",
+      "labels",
       "ownerTabName",
       "roleName"
     ]) ||
     !identity(value) || typeof value.blocked !== "boolean" ||
+    !labels(value.labels) ||
     (value.ownerTabName !== null && !displayText(value.ownerTabName)) ||
     !displayText(value.roleName)
   ) return null;

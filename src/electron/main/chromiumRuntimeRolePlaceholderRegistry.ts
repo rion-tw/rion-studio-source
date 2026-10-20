@@ -28,6 +28,7 @@ import type {
   ChromiumWebContentsViewFactoryPort
 } from "./chromiumRoleSurfacePorts";
 import { buildRemoteContentWebPreferences } from "./security";
+import { runtimeRolePlaceholderLabels } from "./workspaceWebStatus";
 
 type RegistryState = "open" | "draining" | "disposed";
 type PlaceholderState = "opening" | "active" | "closing" | "quarantined";
@@ -163,6 +164,7 @@ function validateDescriptor(
   const state = parseRuntimeRolePlaceholderState({
     blocked: true,
     generation: 1,
+    labels: runtimeRolePlaceholderLabels({ blocked: true, ownerTabName: descriptor.ownerTabName }),
     ownerGeneration: descriptor.ownerGeneration,
     ownerTabName: descriptor.ownerTabName,
     placeholderId: descriptor.placeholderId,
@@ -670,6 +672,7 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
     const state = parseRuntimeRolePlaceholderState({
       blocked: true,
       generation: record.generation,
+      labels: runtimeRolePlaceholderLabels({ blocked: true, ownerTabName: descriptor.ownerTabName }),
       ownerGeneration: descriptor.ownerGeneration,
       ownerTabName: descriptor.ownerTabName,
       placeholderId: descriptor.placeholderId,

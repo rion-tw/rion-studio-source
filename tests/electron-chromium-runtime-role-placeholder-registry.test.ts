@@ -370,7 +370,7 @@ describe("ChromiumRuntimeRolePlaceholderRegistry", () => {
     }]);
     const next = await subject.invoke(contents, { type: "ready" }) as RuntimeRolePlaceholderState;
     const action = (state: RuntimeRolePlaceholderState) => {
-      const { blocked: _blocked, ownerTabName: _name, roleName: _role, ...identity } = state;
+      const { blocked: _blocked, labels: _labels, ownerTabName: _name, roleName: _role, ...identity } = state;
       return { ...identity, type: "claim" };
     };
     expect(next).toMatchObject({ blocked: true, ownerGeneration: null, ownerTabName: null });
@@ -389,7 +389,7 @@ describe("ChromiumRuntimeRolePlaceholderRegistry", () => {
     const pending = testDeferred<RuntimeRolePlaceholderClaimReceipt>();
     subject.claim.mockImplementationOnce(() => pending.promise);
     const claim = async () => {
-      const { blocked: _blocked, ownerTabName: _name, roleName: _role, ...identity } =
+      const { blocked: _blocked, labels: _labels, ownerTabName: _name, roleName: _role, ...identity } =
         await subject.invoke(contents, { type: "ready" }) as RuntimeRolePlaceholderState;
       return subject.invoke(contents, { ...identity, type: "claim" });
     };
@@ -413,7 +413,7 @@ describe("ChromiumRuntimeRolePlaceholderRegistry", () => {
     const subject = harness();
     await subject.registry.reconcile([subject.descriptor()]);
     const oldContents = subject.views[0]!.webContents;
-    const { blocked: _blocked, ownerTabName: _name, roleName: _role, ...identity } =
+    const { blocked: _blocked, labels: _labels, ownerTabName: _name, roleName: _role, ...identity } =
       await subject.invoke(oldContents, { type: "ready" }) as RuntimeRolePlaceholderState;
     const action = { ...identity, type: "claim" };
     await subject.registry.reconcile([]);

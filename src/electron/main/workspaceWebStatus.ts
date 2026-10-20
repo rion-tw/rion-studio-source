@@ -4,6 +4,7 @@ import zhCN from "../../renderer/src/i18n/zh-CN.json";
 import ja from "../../renderer/src/i18n/ja.json";
 import { readWorkspaceWebLanguage } from "./workspaceStartPage";
 import type { AppLanguage } from "../../shared/types";
+import type { RuntimeRolePlaceholderLabels } from "../../shared/runtimeRolePlaceholder";
 import type { WorkspaceWebChromeLabels } from "../../shared/workspaceWebChrome";
 
 const translations = { en, "zh-TW": zhTW, "zh-CN": zhCN, ja };
@@ -24,6 +25,22 @@ export function workspaceWebChromeCopy(language: AppLanguage): WorkspaceWebChrom
     invalid: messages["workspaces.webChromeInvalid"],
     emptyAddress: messages["workspaces.webChromeEmptyAddress"],
     invalidAddress: messages["workspaces.webChromeInvalidAddress"]
+  };
+}
+
+/** Blocked Role-slot text in the current application language. */
+export function runtimeRolePlaceholderLabels(
+  state: Readonly<{ blocked: boolean; ownerTabName: string | null }>
+): RuntimeRolePlaceholderLabels {
+  const messages = translations[readWorkspaceWebLanguage()];
+  const tab = state.ownerTabName ?? messages["runtimeRolePlaceholder.unknownTab"];
+  return {
+    action: messages[state.blocked ? "runtimeRolePlaceholder.claim" : "runtimeRolePlaceholder.open"],
+    busy: messages["runtimeRolePlaceholder.busy"],
+    failed: messages["runtimeRolePlaceholder.failed"],
+    message: state.blocked
+      ? messages["runtimeRolePlaceholder.blocked"].replace("{tab}", () => tab)
+      : messages["runtimeRolePlaceholder.available"]
   };
 }
 

@@ -14,6 +14,10 @@ describe("visible Role placeholder", () => {
     document.body.setAttribute("data-rion-runtime-role-placeholder", "");
     const state = {
       blocked: true, generation: 1, ownerGeneration: null, ownerTabName: null,
+      labels: {
+        action: "停止那邊並在這裡開啟", busy: "正在開啟…",
+        failed: "無法開啟角色，請再試一次。", message: "這個角色目前在「其他分頁」分頁。"
+      },
       placeholderId: "role-placeholder:target:slot", roleId: "role", roleName: "里優",
       slotId: "slot", tabId: "target", topologyRevision: 2, windowGeneration: 1,
       windowId: "window"
@@ -26,8 +30,8 @@ describe("visible Role placeholder", () => {
     window.dispatchEvent(new Event("DOMContentLoaded"));
     await Promise.resolve();
     const button = document.querySelector<HTMLButtonElement>("#claim")!;
-    expect(document.querySelector("#message")?.textContent).toBe('This role is open in “another tab”.');
-    expect(button.textContent).toBe("Stop there and open here");
+    expect(document.querySelector("#message")?.textContent).toBe(state.labels.message);
+    expect(button.textContent).toBe(state.labels.action);
     button.click();
     expect(ipc.invoke).toHaveBeenLastCalledWith(RUNTIME_ROLE_PLACEHOLDER_CHANNEL, {
       type: "claim", generation: 1, ownerGeneration: null,
@@ -37,13 +41,14 @@ describe("visible Role placeholder", () => {
     const receive = ipc.on.mock.calls.find(([channel]) => channel === RUNTIME_ROLE_PLACEHOLDER_STATE_CHANNEL)![1];
     receive({}, { ...state, topologyRevision: 3 });
     expect(button.disabled).toBe(true);
-    expect(button.textContent).toBe("Opening…");
+    expect(button.textContent).toBe(state.labels.busy);
     button.click();
     expect(ipc.invoke).toHaveBeenCalledTimes(2);
     rejectClaim(new Error("load failed"));
     await Promise.resolve();
     expect(button.disabled).toBe(false);
-    expect(button.textContent).toBe("Stop there and open here");
+    expect(button.textContent).toBe(state.labels.action);
+    expect(document.querySelector<HTMLElement>("#error")?.textContent).toBe(state.labels.failed);
     expect(document.querySelector<HTMLElement>("#error")?.hidden).toBe(false);
     ipc.invoke.mockResolvedValueOnce({});
     button.click();

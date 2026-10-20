@@ -99,11 +99,8 @@ function installRuntimeRolePlaceholder(): void {
   const render = (next: RuntimeRolePlaceholderState): void => {
     state = next;
     roleName.textContent = next.roleName;
-    message.textContent = next.blocked
-      ? `This role is open in “${next.ownerTabName ?? "another tab"}”.`
-      : "This role is currently stopped.";
-    claim.textContent = claiming ? "Opening…" :
-      next.blocked ? "Stop there and open here" : "Open here";
+    message.textContent = next.labels.message;
+    claim.textContent = claiming ? next.labels.busy : next.labels.action;
     claim.disabled = claiming;
     error.hidden = true;
   };
@@ -124,11 +121,12 @@ function installRuntimeRolePlaceholder(): void {
     const submitted = state;
     claiming = true;
     claim.disabled = true;
-    claim.textContent = "Opening…";
+    claim.textContent = submitted.labels.busy;
     error.hidden = true;
     try {
       const {
         blocked: _blocked,
+        labels: _labels,
         ownerTabName: _ownerTabName,
         roleName: _roleName,
         ...identity
@@ -145,8 +143,8 @@ function installRuntimeRolePlaceholder(): void {
     } catch {
       claiming = false;
       claim.disabled = false;
-      claim.textContent = state.blocked ? "Stop there and open here" : "Open here";
-      error.textContent = "Could not open the role. Try again.";
+      claim.textContent = state.labels.action;
+      error.textContent = state.labels.failed;
       error.hidden = false;
     }
   });

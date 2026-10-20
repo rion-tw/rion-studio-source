@@ -267,6 +267,26 @@ describe("renderer error localization", () => {
     }
   });
 
+  it("localizes Chrome profile import preview and apply failures", async () => {
+    const failures = [
+      ["SOURCE_INVALID", "Selected Chrome data folder is invalid.", "error.chromeImportSourceInvalid"],
+      ["PROFILE_INVALID", "No usable Chrome profiles were found.", "error.chromeImportProfileInvalid"],
+      ["PROFILE_INVALID", "Chrome profile data could not be read.", "error.chromeImportProfileInvalid"],
+      ["IMPORT_NOT_FOUND", "Chrome profile import preview expired.", "error.chromeImportExpired"],
+      ["CHROME_RUNNING", "Chrome is still using the selected profile.", "error.chromeImportChromeRunning"]
+    ] as const;
+
+    for (const language of languages) {
+      const translations = await loadTranslations(language);
+      const t = (key: TranslationKey) => translations[key];
+      for (const [code, message, key] of failures) {
+        expect(translations[key as TranslationKey]).toBeTruthy();
+        expect(toMessage({ code, message }, language, t)).toBe(translations[key as TranslationKey]);
+        if (language !== "en") expect(translations[key as TranslationKey]).not.toBe(message);
+      }
+    }
+  });
+
   it("replaces thrown native updater codes with grouped localized reasons", async () => {
     const reasons = {
       UPDATE_NETWORK_REQUEST_FAILED: "settings.updateErrorNetwork",

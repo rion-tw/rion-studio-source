@@ -78,6 +78,11 @@ function localizedErrorKey(code: unknown) {
     BROWSER_FONT_CACHE_INVALID: "error.browserFontCacheInvalid",
     BROWSER_FONT_DOWNLOAD_FAILED: "error.browserFontDownloadFailed",
     BROWSER_FONT_NOT_FOUND: "error.browserFontNotFound",
+    // Core's Chrome profile import uses these unprefixed codes exclusively.
+    CHROME_RUNNING: "error.chromeImportChromeRunning",
+    IMPORT_NOT_FOUND: "error.chromeImportExpired",
+    PROFILE_INVALID: "error.chromeImportProfileInvalid",
+    SOURCE_INVALID: "error.chromeImportSourceInvalid",
     ELECTRON_CHROMIUM_SAVED_WINDOW_RESTORE_UNSUPPORTED: "error.savedWindowLaunchRequiresShow",
     GAME_WINDOW_NAME_DUPLICATE: "error.gameWindowNameDuplicate",
     GAME_WINDOW_NAME_REQUIRED: "error.gameWindowNameRequired",

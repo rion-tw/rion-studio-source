@@ -352,9 +352,21 @@ function launchUrlAfterGameChange(
 ): string {
   if (current.gameId === nextGame.id) return current.launchUrl;
   const previousDefault = games.find((game) => game.id === current.gameId)?.defaultLaunchUrl;
-  const followsPreviousGame = current.launchUrl.trim() === "" || current.launchUrl === previousDefault;
+  // A URL on the previous game's own site follows that game, even when it
+  // differs from the default by a path or a trailing slash; only a URL on
+  // another site (such as a private server) is the user's custom choice.
+  const followsPreviousGame = current.launchUrl.trim() === "" ||
+    (previousDefault !== undefined && sameSite(current.launchUrl, previousDefault));
   if (!followsPreviousGame) return current.launchUrl;
   return savedRole?.gameId === nextGame.id ? savedRole.launchUrl : nextGame.defaultLaunchUrl;
+}
+
+function sameSite(left: string, right: string): boolean {
+  try {
+    return new URL(left.trim()).origin === new URL(right.trim()).origin;
+  } catch {
+    return left.trim() === right.trim();
+  }
 }
 
 export default RoleEditorRoute;

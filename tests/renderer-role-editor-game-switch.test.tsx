@@ -81,6 +81,14 @@ describe("role editor game switching", () => {
     chooseGame("Flyff");
     expect(launchUrl()).toBe("https://typed.test/play");
   });
+
+  it("treats another URL on the previous game's site as that game's URL", () => {
+    const flyffSite = new URL(flyff.defaultLaunchUrl);
+    renderRoleEditor(role({ launchUrl: `${flyffSite.origin}/` }));
+
+    chooseGame("Other");
+    expect(launchUrl()).toBe(other.defaultLaunchUrl);
+  });
 });
 
 function chooseGame(name: string): void {

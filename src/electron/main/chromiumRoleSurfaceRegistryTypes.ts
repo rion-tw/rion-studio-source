@@ -118,6 +118,7 @@ export interface ChromiumRoleSurfaceListeners {
     frameRoutingId: number
   ) => void;
   readonly didFailProvisionalLoad: ChromiumRoleSurfaceListeners["didFailLoad"];
+  readonly didStopLoading: () => void;
   readonly destroyed: () => void;
   readonly willAttachWebview: (event: ChromiumRoleSurfaceEvent) => void;
   readonly willNavigate: (

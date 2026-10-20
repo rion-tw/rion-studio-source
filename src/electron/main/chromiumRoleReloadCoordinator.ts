@@ -75,6 +75,7 @@ interface ReloadRoleRecord {
   managedRetirementUnknown: boolean;
   managedFence: "none" | "acquired" | "released";
   navigationStable: Deferred<void> | null;
+  navigationRetained: boolean;
   popupFence: "none" | "acquired" | "released";
   quarantineRetired: boolean;
   readinessAttemptInFlight: boolean;
@@ -331,6 +332,7 @@ export class ChromiumRoleReloadCoordinator {
         managedRetirementUnknown: false,
         managedFence: "none",
         navigationStable: null,
+        navigationRetained: false,
         popupFence: "none",
         quarantineRetired: false,
         readinessAttemptInFlight: false,
@@ -722,6 +724,17 @@ export class ChromiumRoleReloadCoordinator {
       this.#retireSafeOperation(operation);
       return true;
     }
+    // The reload's navigation already ended; later starts belong to the page.
+    if (role.navigationRetained) return true;
+    if (event.type === "navigation-retained") {
+      // Loading stopped before the reload committed a document (a 204/205
+      // response, a download, a stop, or a beforeunload cancellation).
+      if (role.startSequence === null && !role.terminalReceipt) {
+        role.navigationRetained = true;
+        void this.#resumeRetainedRole(role, event).catch(() => undefined);
+      }
+      return true;
+    }
     if (event.type === "navigation-started") {
       // A start replaces nothing, but a second one before the reload commits
       // raced it: the document that commits is not provably the reload's.
@@ -787,6 +800,61 @@ export class ChromiumRoleReloadCoordinator {
       this.#requireCurrentRole(operation, role, current);
       role.finishedDocument = current;
       this.#scheduleInputReadiness(role);
+    } catch {
+      this.#quarantineSubmittedRole(operation, role);
+    }
+  }
+
+  /**
+   * The surviving document is the exact one fenced, drained and proven
+   * input-neutral before submission, and nothing replaced its identity,
+   * compatible-input sequence, overlay or CDP session, so it resumes input
+   * instead of requiring a restart. The reload itself failed.
+   */
+  async #resumeRetainedRole(
+    role: ReloadRoleRecord,
+    event: Extract<ChromiumRoleNavigationLifecycleEvent, { type: "navigation-retained" }>
+  ): Promise<void> {
+    const operation = this.#operationForRole(role);
+    const retained = role.preparation.documentInstanceId;
+    try {
+      const current = this.#surfaces.currentOverlayFrame(
+        role.fence.roleId,
+        role.preparation.surfaceGeneration
+      );
+      this.#requireCurrentRole(operation, role, current);
+      if (
+        event.documentInstanceId !== retained ||
+        event.navigationSequence !== role.preparation.navigationSequence ||
+        current.documentInstanceId !== retained
+      ) throw reloadError("ELECTRON_ROLE_RELOAD_DOCUMENT_STALE",
+        "The retained document lost its exact reload preparation.");
+      if (!this.#releasePresentationFences(operation, role, retained)) {
+        throw reloadError(
+          "ELECTRON_ROLE_RELOAD_LOCAL_FENCE_RELEASE_UNKNOWN",
+          "The retained document could not release every exact local fence."
+        );
+      }
+      const resumed = await this.#trustedInput.resumeControlledDocumentReplacement(
+        role.trustedInputLease,
+        retained
+      );
+      if (!resumed) {
+        throw reloadError(
+          "ELECTRON_ROLE_RELOAD_NATIVE_RESUME_REJECTED",
+          "The native input lane rejected the retained document epoch."
+        );
+      }
+      role.trustedInputFence = "released";
+      role.localFencesReleased = true;
+      this.#settleRole(operation, role, {
+        afterDocumentInstanceId: retained,
+        failureCode: "ELECTRON_ROLE_RELOAD_DOCUMENT_RETAINED",
+        nativeInputResumed: true,
+        restartRequired: false,
+        status: "failed"
+      });
+      this.#settleNativeStability(role);
     } catch {
       this.#quarantineSubmittedRole(operation, role);
     }

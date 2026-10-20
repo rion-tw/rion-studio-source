@@ -1158,9 +1158,7 @@ export class ChromiumRoleSurfaceRegistry {
         const openerFrame = record.contents.mainFrame;
         if (
           !this.#popups || !openerFrame || this.#state !== "open" ||
-          record.state !== "active" || record.destroyed ||
-          this.#recordsByRole.get(record.roleId) !== record ||
-          record.navigation.popupAdmissionFenced
+          !this.#isActive(record) || record.navigation.popupAdmissionFenced
         ) {
           if (!popupWindow.isDestroyed()) popupWindow.destroy();
           return;
@@ -1176,10 +1174,7 @@ export class ChromiumRoleSurfaceRegistry {
       },
       didStartNavigation: (details) => {
         if (!details.isMainFrame || details.isSameDocument) return;
-        if (
-          record.state !== "active" || record.destroyed ||
-          this.#recordsByRole.get(record.roleId) !== record
-        ) return;
+        if (!this.#isActive(record)) return;
         // A start replaces nothing: 204/205 responses, downloads, cancelled
         // redirects and external-scheme links never commit, so the running
         // document keeps its identity until #commitActiveDocument. Only
@@ -1201,10 +1196,7 @@ export class ChromiumRoleSurfaceRegistry {
           this.#finishInitialLoad(record);
           return;
         }
-        if (
-          record.state !== "active" || record.destroyed ||
-          this.#recordsByRole.get(record.roleId) !== record
-        ) return;
+        if (!this.#isActive(record)) return;
         let validatedUrl: string;
         try {
           validatedUrl = canonicalChromiumRoleUrl(record.contents.getURL());
@@ -1240,13 +1232,17 @@ export class ChromiumRoleSurfaceRegistry {
           return;
         }
         if (
-          record.state !== "active" || record.destroyed ||
-          this.#recordsByRole.get(record.roleId) !== record ||
+          !this.#isActive(record) ||
           !Number.isSafeInteger(errorCode) || errorCode === 0
         ) {
           return;
         }
         this.#reportActiveMainFrameFailure(record, errorCode, validatedUrl);
+      },
+      // EventBound: a reload or start that never commits ends here (see
+      // ChromiumRoleNavigationLifecycleOwner.loadingStopped).
+      didStopLoading: () => {
+        if (this.#isActive(record)) record.navigation.loadingStopped();
       },
       didFailProvisionalLoad: (event, code, text, url, isMainFrame, ...frameIds) => {
         // Electron emits this only after an error page has committed, which
@@ -1272,9 +1268,7 @@ export class ChromiumRoleSurfaceRegistry {
       const openerFrame = contents.mainFrame;
       if (
         this.#popups && openerFrame && this.#state === "open" &&
-        record.state === "active" &&
-        !record.destroyed && this.#recordsByRole.get(record.roleId) === record &&
-        !record.navigation.popupAdmissionFenced
+        this.#isActive(record) && !record.navigation.popupAdmissionFenced
       ) {
         return this.#popups.handleWindowOpen(Object.freeze({
           ownerKind: "role",
@@ -1295,6 +1289,7 @@ export class ChromiumRoleSurfaceRegistry {
     contents.on("will-navigate", record.listeners.willNavigate);
     contents.on("will-redirect", record.listeners.willRedirect);
     contents.on("did-finish-load", record.listeners.didFinishLoad);
+    contents.on("did-stop-loading", record.listeners.didStopLoading);
     // Native WebContents events observe failures without replacing Chromium's
     // extension network delegate (any session.webRequest listener bypasses DNR).
     contents.on("did-fail-provisional-load", record.listeners.didFailProvisionalLoad);
@@ -1302,11 +1297,13 @@ export class ChromiumRoleSurfaceRegistry {
     contents.on("destroyed", record.listeners.destroyed);
   }
 
+  #isActive(record: SurfaceRecord): boolean {
+    return record.state === "active" && !record.destroyed &&
+      this.#recordsByRole.get(record.roleId) === record;
+  }
+
   #commitActiveDocument(record: SurfaceRecord): void {
-    if (
-      record.state !== "active" || record.destroyed ||
-      this.#recordsByRole.get(record.roleId) !== record
-    ) return;
+    if (!this.#isActive(record)) return;
     // EventBound: Chromium installs the new main frame and emits its commit
     // in one browser task, and authorization requires that exact frame, so
     // no message from the new document is admitted before this rotation.
@@ -1321,8 +1318,7 @@ export class ChromiumRoleSurfaceRegistry {
     validatedUrl: string
   ): void {
     if (
-      record.state !== "active" || record.destroyed ||
-      this.#recordsByRole.get(record.roleId) !== record ||
+      !this.#isActive(record) ||
       !Number.isSafeInteger(errorCode) || errorCode === -3 ||
       record.activeMainFrameFailureReported
     ) {
@@ -1818,6 +1814,7 @@ export class ChromiumRoleSurfaceRegistry {
     const contents = record.contents;
     contents.removeListener("did-finish-load", record.listeners.didFinishLoad);
     contents.removeListener("did-navigate", record.listeners.didNavigate);
+    contents.removeListener("did-stop-loading", record.listeners.didStopLoading);
     contents.removeListener("did-fail-provisional-load", record.listeners.didFailProvisionalLoad);
     contents.removeListener("did-fail-load", record.listeners.didFailLoad);
   }

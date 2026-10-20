@@ -6,6 +6,8 @@ import { ChromiumCdpInputTransport } from "../src/electron/main/chromiumCdpInput
 import { ChromiumCompatibleInput } from "../src/electron/main/chromiumCompatibleInput";
 import { ChromiumRoleOverlayCoordinator } from
   "../src/electron/main/chromiumRoleOverlayCoordinator";
+import type { ChromiumRoleNavigationLifecycleEvent } from
+  "../src/electron/main/chromiumRoleSurfaceRegistry";
 import type { ChromiumNativeTrustedInputRequest } from
   "../src/electron/main/chromiumTrustedInputCoordinator";
 import { type FakeWebContents, harness } from "./helpers/chromiumRoleSurfaceRegistryHarness";
@@ -19,8 +21,8 @@ const NON_COMMITTING = [
   ["a download response", "https://game.test/save.bin"]
 ] as const;
 
-async function activeRole() {
-  const subject = harness();
+async function activeRole(platform: "darwin" | "win32" = "darwin") {
+  const subject = harness(undefined, undefined, null, null, null, null, {}, platform);
   const creation = subject.registry.create(subject.input());
   const contents = subject.views[0].webContents;
   contents.finish("https://game.test/launch");
@@ -61,6 +63,70 @@ function keyRequest(
       activeCodesBefore: down ? [] : ["KeyJ"], activeCodes: down ? ["KeyJ"] : [] }
   };
 }
+
+describe.each(["darwin", "win32"] as const)("%s navigation that stops before committing", (platform) => {
+  async function observedRole() {
+    const { registry, contents } = await activeRole(platform);
+    const events: ChromiumRoleNavigationLifecycleEvent[] = [];
+    registry.subscribeNavigationLifecycle((event) => { events.push(event); });
+    const before = registry.currentOverlayFrame("role-1", 1);
+    return { before, contents, events, registry };
+  }
+
+  it.each(NON_COMMITTING)("reports the running document as retained after %s", async (_case, url) => {
+    const { before, contents, events, registry } = await observedRole();
+    startNavigation(contents, url);
+    // A loading subframe only delays the stop; it never starts a main-frame navigation.
+    contents.emit("did-start-navigation", {
+      isMainFrame: false, isSameDocument: false, url: "https://game.test/ad"
+    });
+    contents.emit("did-stop-loading");
+    contents.emit("did-stop-loading");
+    expect(events).toEqual([
+      expect.objectContaining({ type: "navigation-started" }),
+      {
+        documentInstanceId: before.documentInstanceId,
+        generation: 1,
+        navigationSequence: 0,
+        roleId: "role-1",
+        tabId: "tab-1",
+        type: "navigation-retained"
+      }
+    ]);
+    expect(registry.currentOverlayFrame("role-1", 1).documentInstanceId)
+      .toBe(before.documentInstanceId);
+  });
+
+  it("reports a controlled reload that beforeunload cancels before it starts", async () => {
+    const { before, contents, events, registry } = await observedRole();
+    const preparation = registry.acquireControlledReloadFence(
+      registry.preflightControlledReload("role-1", 1),
+      "reload-1"
+    );
+    registry.submitControlledReload(preparation, "reload-1");
+    expect(contents.reloadCount).toBe(1);
+    // Electron 44 emits only did-start-loading, will-prevent-unload and this.
+    contents.emit("did-stop-loading");
+    expect(events).toEqual([expect.objectContaining({
+      documentInstanceId: before.documentInstanceId,
+      navigationSequence: 0,
+      type: "navigation-retained"
+    })]);
+    expect(registry.releaseControlledReloadFence(
+      "role-1", 1, "reload-1", before.documentInstanceId
+    )).toBe(true);
+  });
+
+  it("reports nothing for a stop after a commit or without a main-frame start", async () => {
+    const { contents, events } = await observedRole();
+    contents.emit("did-stop-loading");
+    startNavigation(contents, "https://game.test/next");
+    commitNavigation(contents, "frame-token-2");
+    contents.emit("did-stop-loading");
+    expect(events.map((event) => event.type))
+      .toEqual(["navigation-started", "document-started"]);
+  });
+});
 
 describe.each(["darwin", "win32"] as const)("%s Macro input across a main-frame navigation", (platform) => {
   installMacroOverlayTestLifecycle();

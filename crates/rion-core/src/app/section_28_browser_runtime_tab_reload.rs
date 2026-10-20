@@ -1165,11 +1165,14 @@ impl AppCore {
         let native_failure_code = native.failure_code;
         let mut roles = Vec::with_capacity(native.roles.len());
         for role in native.roles {
+            // A retained document was never replaced, so it resumes exactly
+            // like a reload that was never submitted.
+            let submitted = matches!(role.submission_state.as_str(), "submitted" | "unknown")
+                && !controlled_role_reload_native_document_retained(&role);
             let mut status = role.status;
             let mut core_input_resumed = false;
             let mut restart_required = role.restart_required;
             let mut failure_code = role.failure_code;
-            let submitted = matches!(role.submission_state.as_str(), "submitted" | "unknown");
             let fence = invocation
                 .roles
                 .iter()

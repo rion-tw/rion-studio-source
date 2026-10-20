@@ -412,6 +412,17 @@ function harness(roleIds: readonly string[] = ["role-1"]) {
       type: "navigation-started"
     });
   };
+  const emitRetained = (roleId: string): void => {
+    const state = roles.get(roleId)!;
+    navigationListener?.({
+      documentInstanceId: state.documentInstanceId,
+      generation: state.generation,
+      navigationSequence: state.navigationSequence,
+      roleId,
+      tabId,
+      type: "navigation-retained"
+    });
+  };
   const emitCommit = (roleId: string): void => {
     const state = roles.get(roleId)!;
     const previousDocumentInstanceId = state.documentInstanceId;
@@ -488,6 +499,7 @@ function harness(roleIds: readonly string[] = ["role-1"]) {
     emitRetired,
     emitCommit,
     emitNavigationStart,
+    emitRetained,
     managedActive,
     managedFences,
     managedPrepareControls,
@@ -816,6 +828,115 @@ describe("ChromiumRoleReloadCoordinator", () => {
       status: "indeterminate"
     });
     subject.emitRetired("role-1");
+    subject.coordinator.dispose();
+  });
+
+  it.each(["no-content-response", "beforeunload-cancel"] as const)(
+    "resumes the fenced document when a submitted reload never commits: %s",
+    async (stop) => {
+      const subject = harness();
+      const action = prepareAction(`reload-retained-${stop}`);
+      const prepared = await prepare(subject, action);
+      const commit = commitAction(action, prepared.roles.map((role) => ({
+        ...role,
+        navigationSequence: 0,
+        tabId
+      })));
+      const terminal = subject.coordinator.commit(effect(commit), commit);
+      await subject.waitForSubmission(1);
+      // A beforeunload cancellation stops loading without reporting a start.
+      if (stop === "no-content-response") subject.emitNavigationStart("role-1");
+      subject.emitRetained("role-1");
+      // Starts after the reload's navigation ended belong to the running page.
+      subject.emitNavigationStart("role-1");
+      subject.emitNavigationStart("role-1");
+      const receipt = await terminal;
+      expect(receipt).toMatchObject({
+        failureCode: "ELECTRON_ROLE_RELOAD_NOT_APPLIED",
+        roles: [{
+          afterDocumentInstanceId: "document:role-1:0",
+          beforeDocumentInstanceId: "document:role-1:0",
+          failureCode: "ELECTRON_ROLE_RELOAD_DOCUMENT_RETAINED",
+          nativeInputResumed: true,
+          restartRequired: false,
+          status: "failed",
+          submissionState: "submitted"
+        }],
+        status: "failed"
+      });
+      expect(receipt.roles[0]).not.toHaveProperty("navigationSequence");
+      expect([
+        subject.surfaceFences.size,
+        subject.popupFences.size,
+        subject.managedFences.size,
+        subject.trustedFences.size
+      ]).toEqual([0, 0, 0, 0]);
+
+      // The role's native lane is free for the next reload, which commits.
+      const next = prepareAction(`reload-after-${stop}`);
+      const nextPrepared = await prepare(subject, next);
+      const nextCommit = commitAction(next, nextPrepared.roles.map((role) => ({
+        ...role,
+        navigationSequence: 0,
+        tabId
+      })));
+      const nextTerminal = subject.coordinator.commit(effect(nextCommit), nextCommit);
+      await subject.waitForSubmission(2);
+      subject.emitCommit("role-1");
+      subject.emitFinish("role-1");
+      await expect(nextTerminal).resolves.toMatchObject({
+        roles: [{ navigationSequence: 1, nativeInputResumed: true, restartRequired: false }],
+        status: "applied"
+      });
+      subject.coordinator.dispose();
+    }
+  );
+
+  it("quarantines a retained stop that no longer proves the fenced document", async () => {
+    const subject = harness();
+    const action = prepareAction("reload-retained-stale");
+    const prepared = await prepare(subject, action);
+    const commit = commitAction(action, prepared.roles.map((role) => ({
+      ...role,
+      navigationSequence: 0,
+      tabId
+    })));
+    const terminal = subject.coordinator.commit(effect(commit), commit);
+    await subject.waitForSubmission(1);
+    subject.roles.get("role-1")!.documentInstanceId = "document:role-1:unobserved";
+    subject.emitRetained("role-1");
+    await expect(terminal).resolves.toMatchObject({
+      roles: [{
+        failureCode: "ELECTRON_ROLE_RELOAD_INPUT_READY_FAILED",
+        nativeInputResumed: false,
+        restartRequired: true
+      }],
+      status: "indeterminate"
+    });
+    expect(subject.trustedFences.has("role-1")).toBe(true);
+    subject.emitRetired("role-1");
+    subject.coordinator.dispose();
+  });
+
+  it("ignores a retained stop once the reload has committed its document", async () => {
+    const subject = harness();
+    const action = prepareAction("reload-committed-then-stop");
+    const prepared = await prepare(subject, action);
+    const commit = commitAction(action, prepared.roles.map((role) => ({
+      ...role,
+      navigationSequence: 0,
+      tabId
+    })));
+    const terminal = subject.coordinator.commit(effect(commit), commit);
+    await subject.waitForSubmission(1);
+    subject.emitNavigationStart("role-1");
+    subject.emitCommit("role-1");
+    subject.emitRetained("role-1");
+    subject.emitFinish("role-1");
+    await expect(terminal).resolves.toMatchObject({
+      roles: [{ afterDocumentInstanceId: "document:role-1:1", status: "applied" }],
+      status: "applied"
+    });
     subject.coordinator.dispose();
   });
 

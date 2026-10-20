@@ -15,6 +15,10 @@ export type ChromiumRoleNavigationLifecycleEvent =
       type: "navigation-started";
     }>
   | ChromiumRoleNavigationLifecycleIdentity & Readonly<{
+      documentInstanceId: string;
+      type: "navigation-retained";
+    }>
+  | ChromiumRoleNavigationLifecycleIdentity & Readonly<{
       previousDocumentInstanceId: string;
       type: "document-started";
     }>
@@ -97,6 +101,7 @@ export class ChromiumRoleNavigationLifecycleOwner {
   #documentInstanceId = randomUUID();
   #navigationSequence = 0;
   #retired = false;
+  #uncommittedNavigation = false;
 
   constructor(input: Readonly<{
     generation: number;
@@ -127,6 +132,7 @@ export class ChromiumRoleNavigationLifecycleOwner {
    */
   navigationStarted(): void {
     if (this.#retired) return;
+    this.#uncommittedNavigation = true;
     this.#hub.emit(Object.freeze({
       documentInstanceId: this.#documentInstanceId,
       generation: this.#generation,
@@ -140,6 +146,7 @@ export class ChromiumRoleNavigationLifecycleOwner {
   /** Rotates identity only once a new main-frame document has committed. */
   documentCommitted(): void {
     if (this.#retired) return;
+    this.#uncommittedNavigation = false;
     const previousDocumentInstanceId = this.#documentInstanceId;
     this.#navigationSequence += 1;
     this.#documentInstanceId = randomUUID();
@@ -150,6 +157,26 @@ export class ChromiumRoleNavigationLifecycleOwner {
       roleId: this.#roleId,
       tabId: this.#tabId,
       type: "document-started" as const
+    }));
+  }
+
+  /**
+   * Chromium stops loading only once no main-frame navigation remains, and a
+   * commit always precedes that stop. A navigation that started since the last
+   * commit and then stopped without one (a 204/205 response, a download, a
+   * cancelled redirect, a stop, or a beforeunload cancellation) replaced
+   * nothing: the running document, with its identity, is retained.
+   */
+  loadingStopped(): void {
+    if (this.#retired || !this.#uncommittedNavigation) return;
+    this.#uncommittedNavigation = false;
+    this.#hub.emit(Object.freeze({
+      documentInstanceId: this.#documentInstanceId,
+      generation: this.#generation,
+      navigationSequence: this.#navigationSequence,
+      roleId: this.#roleId,
+      tabId: this.#tabId,
+      type: "navigation-retained" as const
     }));
   }
 
@@ -238,6 +265,9 @@ export class ChromiumRoleNavigationLifecycleOwner {
         "The controlled reload lost its exact role document preparation."
       );
     }
+    // A beforeunload handler can cancel the reload before Chromium reports
+    // its start, so the submission itself opens the uncommitted navigation.
+    this.#uncommittedNavigation = true;
     // EventBound: only permanent WebContents lifecycle events terminalize this.
     this.#reload();
   }

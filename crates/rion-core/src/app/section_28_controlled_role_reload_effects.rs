@@ -363,7 +363,8 @@ impl AppCore {
                             && (!native.native_input_resumed || native.restart_required))
                         || (native.submission_state != "notSubmitted"
                             && native.native_input_resumed
-                            && native.status != crate::model::SystemRuntimeOperationStatus::Applied)
+                            && native.status != crate::model::SystemRuntimeOperationStatus::Applied
+                            && !controlled_role_reload_native_document_retained(native))
                         || (native.status == crate::model::SystemRuntimeOperationStatus::Applied
                             && (native.submission_state != "submitted"
                                 || !native.native_input_resumed

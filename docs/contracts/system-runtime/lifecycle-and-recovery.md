@@ -16,7 +16,7 @@ This document is part of [System WebView Runtime Contract version 22](../../syst
   instance was observed, and the native input epoch resumed.
 - Main-frame navigation is the only implicit input-fence transaction boundary.
   Subframe, iframe, document-resource, and other resource requests never create, advance, extend, or release a role input fence on either platform.
-  On the Chromium runtime that boundary is the main-frame document commit (`did-navigate`, or a committed error page's `did-fail-provisional-load`): a started navigation that never commits (a 204/205 response, a download, a cancelled redirect or external-scheme link, or a stop) leaves the live document, its identity, compatible-input sequence, overlay readiness and CDP session untouched, and a second start before a controlled reload commits makes that reload indeterminate.
+  On the Chromium runtime that boundary is the main-frame document commit (`did-navigate`, or a committed error page's `did-fail-provisional-load`): a started navigation that never commits (a 204/205 response, a download, a cancelled redirect or external-scheme link, or a stop) leaves the live document, its identity, compatible-input sequence, overlay readiness and CDP session untouched, and a second start before a controlled reload commits makes that reload indeterminate. Chromium stops loading (`did-stop-loading`) only after any commit and once no main-frame navigation remains, so a stop after such a start, or after a controlled reload submission that a page `beforeunload` handler cancelled without reporting a start, with no commit in between, proves the live document was retained.
 - On macOS the native navigation delegate requires a non-null
   `targetFrame.isMainFrame` and excludes new-window, same-URL, and fragment-only
   actions. Tauri's generic macOS navigation callback enforces URL-scheme policy
@@ -37,12 +37,7 @@ This document is part of [System WebView Runtime Contract version 22](../../syst
   identity, and generation. They isolate automatic input and publish a
   non-blocking restart-required warning; direct player keyboard and pointer
   input remain available. Only role stop followed by relaunch clears this state.
-- Reload is a navigation operation rather than a bare native command. Every role
-  fences and drains macro input before reload, reaches a new HTTP(S) document,
-  and resumes only when its generation is still current. Overlapping controlled
-  navigations are reference-counted per WebView, so a superseded reload cannot
-  release the newer reload's policy fence. A tab-level receipt is `degraded` when
-  role outcomes differ.
+- Reload is a navigation operation rather than a bare native command. Every role fences and drains macro input before reload, reaches a new HTTP(S) document, and resumes only when its generation is still current. A submitted reload whose navigation is retained before committing replaced nothing: the role is `failed` with `ELECTRON_ROLE_RELOAD_DOCUMENT_RETAINED`, releases its local fences, and resumes native and Core input on the exact fenced document, which it reports as both its before and after document. Losing that exact identity, local fence release or native resume keeps the role restart-required. Overlapping controlled navigations are reference-counted per WebView, so a superseded reload cannot release the newer reload's policy fence. A tab-level receipt is `degraded` when role outcomes differ.
 - Native reload menu actions wait in the background for the aggregate `inputReady`
   receipt. Menu submission never reports success before the new document and
   matching input epoch are ready.

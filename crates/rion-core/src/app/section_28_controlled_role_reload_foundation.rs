@@ -102,6 +102,20 @@ fn controlled_role_reload_error_is_indeterminate(error: &CoreError) -> bool {
         || code.contains("RECEIPT_MISSING")
 }
 
+/// A submitted reload whose navigation stopped before any main-frame commit
+/// left the fenced, drained document running; Chromium proves it by reporting
+/// that exact document as the one after the operation and resuming its input.
+fn controlled_role_reload_native_document_retained(
+    role: &crate::model::EmbeddedRoleReloadNativeReceiptRecord,
+) -> bool {
+    role.submission_state == "submitted"
+        && role.status == crate::model::SystemRuntimeOperationStatus::Failed
+        && role.native_input_resumed
+        && !role.restart_required
+        && role.navigation_sequence.is_none()
+        && role.after_document_instance_id.as_ref() == Some(&role.before_document_instance_id)
+}
+
 fn controlled_role_reload_native_aggregate(
     roles: &[crate::model::BrowserRoleReloadReceiptRecord],
 ) -> crate::model::SystemRuntimeOperationStatus {

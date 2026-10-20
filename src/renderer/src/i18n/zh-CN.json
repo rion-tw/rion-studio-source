@@ -410,7 +410,7 @@
   "macros.status.unassigned": "未指定",
   "macros.status.automationUnavailable": "尚未就绪",
   "macros.status.runtimeNotActive": "恢复中",
-  "macros.status.roleRestartRequired": "需重新启动角色",
+  "macros.status.roleRestartRequired": "需重新启动",
   "macros.status.unassignedDependency": "调用的宏未指定角色",
   "macros.launchRoleFirst": "请先启动至少一个分配角色再执行宏。",
   "macros.partialStartNotice": "宏已在 {started} 个角色启动，略过 {skipped} 个未启动或无法控制的角色。",

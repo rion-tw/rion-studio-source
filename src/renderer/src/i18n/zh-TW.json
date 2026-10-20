@@ -410,7 +410,7 @@
   "macros.status.unassigned": "未指派",
   "macros.status.automationUnavailable": "尚未就緒",
   "macros.status.runtimeNotActive": "恢復中",
-  "macros.status.roleRestartRequired": "需重新啟動角色",
+  "macros.status.roleRestartRequired": "需重新啟動",
   "macros.status.unassignedDependency": "呼叫的巨集未指定角色",
   "macros.launchRoleFirst": "請先啟動至少一個指派角色再執行巨集。",
   "macros.partialStartNotice": "巨集已在 {started} 個角色啟動，略過 {skipped} 個未啟動或無法控制的角色。",

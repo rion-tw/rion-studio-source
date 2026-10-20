@@ -410,7 +410,7 @@
   "macros.status.unassigned": "未割り当て",
   "macros.status.automationUnavailable": "準備未完了",
   "macros.status.runtimeNotActive": "復旧中",
-  "macros.status.roleRestartRequired": "ロール再起動が必要",
+  "macros.status.roleRestartRequired": "再起動が必要",
   "macros.status.unassignedDependency": "呼び出し先のロール未割り当て",
   "macros.launchRoleFirst": "マクロを実行する前に、割り当てられたロールを1つ以上起動してください。",
   "macros.partialStartNotice": "マクロを {started} 件のロールで開始し、未起動または利用できない {skipped} 件のロールをスキップしました。",

@@ -410,7 +410,7 @@
   "macros.status.unassigned": "Unassigned",
   "macros.status.automationUnavailable": "Not ready",
   "macros.status.runtimeNotActive": "Restoring",
-  "macros.status.roleRestartRequired": "Restart role",
+  "macros.status.roleRestartRequired": "Restart required",
   "macros.status.unassignedDependency": "Called macro unassigned",
   "macros.launchRoleFirst": "Launch at least one assigned role before running a macro.",
   "macros.partialStartNotice": "Macro started for {started} role(s); skipped {skipped} role(s) that are not running or unavailable.",

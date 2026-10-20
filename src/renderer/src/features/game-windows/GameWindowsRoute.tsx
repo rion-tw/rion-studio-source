@@ -186,7 +186,9 @@ export default function GameWindowsRoute({
   });
   const selectedGameWindows = gameWindows.filter((gameWindow) => selection.selectedIds.has(gameWindow.id));
   const selectedLiveWindows = selectedGameWindows.filter((gameWindow) => liveWindowById.has(gameWindow.id));
-  const selectedStoppableWindows = selectedGameWindows.filter((gameWindow) => gameWindow.tabs.length > 0);
+  // Stopping only acts on an open runtime window; Electron reports a window that
+  // is not open as already stopped, so only open windows with tabs count.
+  const selectedStoppableWindows = selectedLiveWindows.filter((gameWindow) => gameWindow.tabs.length > 0);
   const isSelectionBusy = selectedGameWindows.some((gameWindow) =>
     busyIds.has(windowBusyKey(gameWindow.id))
       || stateByWindowId.get(gameWindow.id)?.kind === "restoring"
@@ -529,7 +531,7 @@ export default function GameWindowsRoute({
                                   {t("gameWindows.hide")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  disabled={windowIsBusy || gameWindow.tabs.length === 0}
+                                  disabled={windowIsBusy || !liveWindow || gameWindow.tabs.length === 0}
                                   onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.stopGameWindow(gameWindow.id))}
                                 >
                                   {t("gameWindows.stopAll")}
@@ -574,7 +576,7 @@ export default function GameWindowsRoute({
                             {t("gameWindows.hide")}
                           </ContextMenuItem>
                           <ContextMenuItem
-                            disabled={windowIsBusy || gameWindow.tabs.length === 0}
+                            disabled={windowIsBusy || !liveWindow || gameWindow.tabs.length === 0}
                             onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.stopGameWindow(gameWindow.id))}
                           >
                             {t("gameWindows.stopAll")}

@@ -254,6 +254,54 @@ describe("Game Window management", () => {
     expect(screen.queryByRole("toolbar")).toBeNull();
   });
 
+  it("offers Stop only for open windows from row menus and bulk actions", async () => {
+    const user = userEvent.setup();
+    const stopGameWindow = vi.fn(() => Promise.resolve());
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        createGameWindow: vi.fn(() => Promise.resolve(gameWindow)),
+        stopGameWindow
+      }
+    });
+    const dormantWindow = { ...gameWindow, id: "window-2", name: "Dormant window" };
+
+    renderRoute({
+      gameWindows: [gameWindow, dormantWindow],
+      runtime: { ...runtime, savedWindows: [savedWindowSummary("window-2", "dormant")] }
+    });
+
+    const dormantRow = screen.getByText("Dormant window").closest("tr");
+    const liveRow = screen.getByText("Raid window").closest("tr");
+    if (!dormantRow || !liveRow) throw new Error("Expected game window rows.");
+    expect(windowStatus("Dormant window").textContent).toBe("Not open");
+
+    await user.click(within(dormantRow).getByRole("button", { name: "Game window actions" }));
+    expect(screen.getByRole("menuitem", { name: "Stop and close window" }).hasAttribute("data-disabled"))
+      .toBe(true);
+    await user.keyboard("{Escape}");
+
+    fireEvent.contextMenu(dormantRow, { clientX: 240, clientY: 160 });
+    const contextStop = screen.getByRole("menuitem", { name: "Stop and close window" });
+    expect(contextStop.hasAttribute("data-disabled")).toBe(true);
+    fireEvent.click(contextStop);
+    expect(stopGameWindow).not.toHaveBeenCalled();
+    await user.keyboard("{Escape}");
+
+    await user.click(within(liveRow).getByRole("button", { name: "Game window actions" }));
+    expect(screen.getByRole("menuitem", { name: "Stop and close window" }).hasAttribute("data-disabled"))
+      .toBe(false);
+    await user.keyboard("{Escape}");
+
+    fireEvent.click(liveRow, { ctrlKey: true });
+    fireEvent.click(dormantRow, { ctrlKey: true });
+    expect(screen.getByText("2 selected")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Stop 1" }));
+
+    await waitFor(() => expect(stopGameWindow).toHaveBeenCalledWith("window-1"));
+    expect(stopGameWindow).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps window management in the list and changes displays from the action submenu", async () => {
     const user = userEvent.setup();
     const showGameWindow = vi.fn(() => Promise.resolve());

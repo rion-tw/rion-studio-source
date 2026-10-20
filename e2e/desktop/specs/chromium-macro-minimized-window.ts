@@ -1,7 +1,7 @@
 import { browser, expect } from "@wdio/globals";
 import type { GameWindow, Macro, Role } from "../../../src/shared/types";
 import {
-  electronDesktopE2eGameWindowRuntime, electronDesktopE2eTrustedInputRuntime,
+  electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eGameWindowRuntime, electronDesktopE2eTrustedInputRuntime,
   type ElectronDesktopE2eTrustedInputObservation
 } from "../support/electron-driver";
 import { fixtureCursor, fixtureState, waitFixtureEvent, type FixtureEvent } from "../support/fixture";
@@ -104,8 +104,10 @@ export async function exerciseWindowsMinimizedHeldMacro(input: Readonly<{
   await show.click();
   await waitMinimized(false);
   await browser.waitUntil(async () =>
-    (await electronDesktopE2eGameWindowRuntime(input.window.id)).currentRuntime?.visible === true, {
-    timeout: 30_000, timeoutMsg: "The minimized game window did not restore from the visible Show action"
+    (await electronDesktopE2eGameWindowRuntime(input.window.id)).currentRuntime?.visible === true &&
+    (await electronDesktopE2eFullscreenToolbarRuntime(input.window.id)).surfaces.some(surface =>
+      surface.kind === "role" && surface.id === input.role.id && surface.visible), {
+    timeout: 30_000, timeoutMsg: "The minimized game window did not restore its Role content from Show"
   });
   await writeChromiumMacroEvidence("chromium-macro-minimized-window.json", {
     cleanup, hold, keyup, minimizedStatuses, observations, roleStatus

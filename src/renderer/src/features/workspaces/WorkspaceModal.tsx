@@ -592,7 +592,7 @@ function WorkspaceLayoutFormEditor({
           <div className="flex shrink-0 items-start justify-between gap-3 p-4 pb-3">
             <FieldHeader
               title={t("workspaces.contentPicker")}
-              description={t("workspaces.contentPickerDescription").replace("{slot}", selectedSlotLabel)}
+              description={t("workspaces.contentPickerDescription").replace("{slot}", () => selectedSlotLabel)}
             />
             <Button
               type="button"

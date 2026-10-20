@@ -72,7 +72,7 @@ export function useWorkspaceWorkflow({
     const isSingle = selectedWorkspaces.length === 1;
     const confirmed = await confirm({
       title: isSingle
-        ? t("confirm.deleteWorkspace.title").replace("{name}", selectedWorkspaces[0].name)
+        ? t("confirm.deleteWorkspace.title").replace("{name}", () => selectedWorkspaces[0].name)
         : t("bulkDelete.workspaces.title").replace("{count}", String(selectedWorkspaces.length)),
       description: isSingle
         ? t("confirm.deleteWorkspace.description")

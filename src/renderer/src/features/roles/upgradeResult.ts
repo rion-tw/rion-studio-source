@@ -8,7 +8,7 @@ export function upgradeDataStatus(status: string, t: Translator): string {
   return t("recovery.upgradeUnavailable");
 }
 export function formatUpgradeResult(name: string, result: RoleSessionUpgradeResult, t: Translator): string {
-  return t("recovery.upgradeNotice").replace("{name}", name)
+  return t("recovery.upgradeNotice").replace("{name}", () => name)
     .replace("{cookies}", upgradeDataStatus(result.cookies, t))
     .replace("{localStorage}", upgradeDataStatus(result.localStorage, t));
 }

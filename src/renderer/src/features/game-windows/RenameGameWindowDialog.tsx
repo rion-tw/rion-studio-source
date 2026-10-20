@@ -84,7 +84,7 @@ export function RenameGameWindowDialog({
         <Surface className="grid gap-4 p-5" radius="lg" variant="modal">
           <div className="grid gap-1.5">
             <h2 id="rename-game-window-dialog-title" className="text-title font-semibold">
-              {t("gameWindows.rename.title").replace("{name}", gameWindow.name)}
+              {t("gameWindows.rename.title").replace("{name}", () => gameWindow.name)}
             </h2>
             <p id="rename-game-window-dialog-description" className="text-control font-medium text-muted-foreground">
               {t("gameWindows.rename.description")}

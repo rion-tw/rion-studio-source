@@ -346,7 +346,7 @@ export function translateErrorMessage(message: string, t: Translator): string {
   const normalizedMessage = normalizeIpcErrorMessage(message);
   const alreadyRunningMatch = /^Already running in another game window: (.+)\.$/.exec(normalizedMessage);
   if (alreadyRunningMatch) {
-    return t("error.rolesAlreadyRunning").replace("{names}", alreadyRunningMatch[1]);
+    return t("error.rolesAlreadyRunning").replace("{names}", () => alreadyRunningMatch[1]);
   }
 
   const dynamicMacroErrors: Array<[RegExp, TranslationKey, string]> = [

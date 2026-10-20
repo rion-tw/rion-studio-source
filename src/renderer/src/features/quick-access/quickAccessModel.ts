@@ -157,8 +157,8 @@ export function createQuickAccessCatalog(input: QuickAccessCatalogInput): QuickA
       searchText: createSafeSearchText(role.name, input.t("quickAccess.type.role"), gameName, ownerName),
       subtitle: owner
         ? input.t("quickAccess.location")
-          .replace("{window}", ownerName)
-          .replace("{tab}", owner.tab.name)
+          .replace("{window}", () => ownerName)
+          .replace("{tab}", () => owner.tab.name)
         : gameName
     };
   });
@@ -187,8 +187,8 @@ export function createQuickAccessCatalog(input: QuickAccessCatalogInput): QuickA
       ),
       subtitle: owner
         ? input.t("quickAccess.location")
-          .replace("{window}", ownerName)
-          .replace("{tab}", owner.tab.name)
+          .replace("{window}", () => ownerName)
+          .replace("{tab}", () => owner.tab.name)
         : formatWorkspaceContentSummary(content, input.t),
       workspace
     };

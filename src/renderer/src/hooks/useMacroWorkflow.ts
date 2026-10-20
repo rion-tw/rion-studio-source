@@ -121,7 +121,7 @@ export function useMacroWorkflow({
     const isSingle = selectedMacros.length === 1;
     const confirmed = await confirm({
       title: isSingle
-        ? t("confirm.deleteMacro.title").replace("{name}", selectedMacros[0].name)
+        ? t("confirm.deleteMacro.title").replace("{name}", () => selectedMacros[0].name)
         : t("bulkDelete.macros.title").replace("{count}", String(selectedMacros.length)),
       description: isSingle ? t("confirm.deleteMacro.description") : t("bulkDelete.macros.description"),
       cancelLabel: t("confirm.cancel"),

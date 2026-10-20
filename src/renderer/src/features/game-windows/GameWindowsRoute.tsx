@@ -258,7 +258,7 @@ export default function GameWindowsRoute({
 
   async function remove(gameWindow: GameWindow): Promise<void> {
     const accepted = await confirm({
-      title: t("gameWindows.delete.title").replace("{name}", gameWindow.name),
+      title: t("gameWindows.delete.title").replace("{name}", () => gameWindow.name),
       description: t("gameWindows.delete.description"),
       cancelLabel: t("confirm.cancel"),
       confirmLabel: t("confirm.delete"),

@@ -123,7 +123,7 @@ function MacroEditor({
         macroShortcutSourcesOverlap(macro, form)
     );
     return conflictingMacro
-      ? t("macroForm.shortcutConflict").replace("{name}", conflictingMacro.name)
+      ? t("macroForm.shortcutConflict").replace("{name}", () => conflictingMacro.name)
       : undefined;
   }, [form, macros, t]);
   const macroStepError = useMemo(() => {

@@ -44,7 +44,7 @@ export function useRoleWorkflow({
     if (record.phase === "freshReady" && record.upgradeResult) {
       setNotice?.(formatUpgradeResult(role.name, record.upgradeResult, t));
     } else if (record.phase === "reading" || record.phase === "isolatedImport") {
-      setNotice?.(t("recovery.upgradeProgress").replace("{name}", role.name));
+      setNotice?.(t("recovery.upgradeProgress").replace("{name}", () => role.name));
     }
   }), [roles, setNotice, t]);
 
@@ -150,7 +150,7 @@ export function useRoleWorkflow({
     const isSingle = selectedRoles.length === 1;
     const confirmed = await confirm({
       title: isSingle
-        ? t("confirm.deleteRole.title").replace("{name}", selectedRoles[0].name)
+        ? t("confirm.deleteRole.title").replace("{name}", () => selectedRoles[0].name)
         : t("bulkDelete.roles.title").replace("{count}", String(selectedRoles.length)),
       description: isSingle ? t("confirm.deleteRole.description") : t("bulkDelete.roles.description"),
       cancelLabel: t("confirm.cancel"),
@@ -190,7 +190,7 @@ export function useRoleWorkflow({
 
   async function handleClearBrowserData(role: Role): Promise<boolean> {
     const confirmed = await confirm({
-      title: t("confirm.clearRoleData.title").replace("{name}", role.name),
+      title: t("confirm.clearRoleData.title").replace("{name}", () => role.name),
       description: t("confirm.clearRoleData.description"),
       details: [
         t("confirm.clearRoleData.target"),
@@ -217,7 +217,7 @@ export function useRoleWorkflow({
 
     try {
       await window.rionStudio.clearRoleBrowserData(role.id);
-      setNotice?.(t("notice.roleBrowserDataCleared").replace("{name}", role.name));
+      setNotice?.(t("notice.roleBrowserDataCleared").replace("{name}", () => role.name));
       return true;
     } catch (clearError) {
       reportError(clearError);

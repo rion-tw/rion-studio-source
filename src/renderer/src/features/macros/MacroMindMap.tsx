@@ -359,8 +359,8 @@ function MindMapCanvas({
     connectable: false,
     data: {
       ...node.data,
-      collapseLabel: t("mindMap.collapseMacro").replace("{name}", getNodeMacroName(node.data)),
-      expandLabel: t("mindMap.expandMacro").replace("{name}", getNodeMacroName(node.data)),
+      collapseLabel: t("mindMap.collapseMacro").replace("{name}", () => getNodeMacroName(node.data)),
+      expandLabel: t("mindMap.expandMacro").replace("{name}", () => getNodeMacroName(node.data)),
       onToggleOccurrence
     } as MacroMindMapCanvasNodeData,
     deletable: false,

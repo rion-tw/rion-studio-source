@@ -449,7 +449,7 @@ export function ChromeProfileImportFlow({
                           <option value="copy">{t("settings.chromeImportCreateCopy")}</option>
                           {matchingRoles.map((role) => (
                             <option key={role.id} value={`replace:${role.id}`}>
-                              {t("settings.chromeImportReplace").replace("{name}", role.name)}
+                              {t("settings.chromeImportReplace").replace("{name}", () => role.name)}
                             </option>
                           ))}
                         </select>

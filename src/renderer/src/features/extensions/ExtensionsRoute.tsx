@@ -243,7 +243,7 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
   const remove = async (packageRecord: ExtensionPackageRecord) => {
     if (commandBusy.current) return false;
     const confirmed = await confirm({
-      title: t("extensions.removeTitle").replace("{name}", packageRecord.name), description: t("extensions.removeDescription"),
+      title: t("extensions.removeTitle").replace("{name}", () => packageRecord.name), description: t("extensions.removeDescription"),
       cancelLabel: t("extensions.cancel"), confirmLabel: t("extensions.confirmRemove"), tone: "destructive"
     });
     return confirmed && alive.current ? save(packageRecord, [], false, true, null) : false;

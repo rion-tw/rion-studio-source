@@ -286,12 +286,12 @@ export function BrowserFontsSettingsRows({
       setCustomFontFamily("");
       setCustomFontNotice({
         tone: "success",
-        text: t("settings.browserFontsCustomDownloadSuccess").replace("{family}", family)
+        text: t("settings.browserFontsCustomDownloadSuccess").replace("{family}", () => family)
       });
     } catch (error) {
       setCustomFontNotice({
         tone: "destructive",
-        text: t("settings.browserFontsCustomDownloadFailed").replace("{family}", family)
+        text: t("settings.browserFontsCustomDownloadFailed").replace("{family}", () => family)
       });
       onError(error);
     } finally {
@@ -318,7 +318,7 @@ export function BrowserFontsSettingsRows({
         setBusyCatalogId(catalogId);
         setDownloadProgress(
           t("settings.browserFontsDownloading")
-            .replace("{family}", font?.family ?? selection.family ?? catalogId)
+            .replace("{family}", () => font?.family ?? selection.family ?? catalogId)
             .replace("{current}", String(index + 1))
             .replace("{total}", String(downloads.length))
         );

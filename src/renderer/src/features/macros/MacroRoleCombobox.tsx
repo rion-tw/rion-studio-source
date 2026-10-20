@@ -79,7 +79,7 @@ export function MacroRoleCombobox({
               {selected.map((option) => (
                 <ComboboxChip
                   key={option.value}
-                  removeLabel={t("macroForm.removeRole").replace("{name}", option.label)}
+                  removeLabel={t("macroForm.removeRole").replace("{name}", () => option.label)}
                 >
                   {option.label}
                 </ComboboxChip>

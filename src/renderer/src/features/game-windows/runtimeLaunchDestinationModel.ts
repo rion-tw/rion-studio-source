@@ -31,11 +31,11 @@ export function automaticRuntimeLaunchTitle(
   source: RuntimeLaunchSource,
   t: Translator
 ): string {
-  const model = createRuntimeLaunchDestinationModel(gameWindows, runtime, source, t);
-  if (model.sourceOwnerWindowId) {
+  const { sourceOwnerWindowId } = createRuntimeLaunchDestinationModel(gameWindows, runtime, source, t);
+  if (sourceOwnerWindowId) {
     return t("launchDestination.primary.existing").replace(
       "{window}",
-      runtimeWindowLabel(model.sourceOwnerWindowId, gameWindows, runtime, t)
+      () => runtimeWindowLabel(sourceOwnerWindowId, gameWindows, runtime, t)
     );
   }
   if (runtime.windows.length === 0) {
@@ -44,7 +44,7 @@ export function automaticRuntimeLaunchTitle(
   if (runtime.windows.length === 1) {
     return t("launchDestination.primary.only").replace(
       "{window}",
-      runtimeWindowLabel(runtime.windows[0].windowId, gameWindows, runtime, t)
+      () => runtimeWindowLabel(runtime.windows[0].windowId, gameWindows, runtime, t)
     );
   }
   return t("launchDestination.primary.recent");
@@ -111,7 +111,7 @@ function runtimeWindowLabel(
   const liveWindow = runtime.windows.find((window) => window.windowId === windowId);
   const activeTab = runtime.tabs.find((tab) => tab.id === liveWindow?.activeTabId);
   if (activeTab?.name.trim()) {
-    return t("launchDestination.temporaryWindow.named").replace("{name}", activeTab.name);
+    return t("launchDestination.temporaryWindow.named").replace("{name}", () => activeTab.name);
   }
   return t("launchDestination.temporaryWindow");
 }

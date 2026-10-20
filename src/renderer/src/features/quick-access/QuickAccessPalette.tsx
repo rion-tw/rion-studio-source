@@ -319,10 +319,10 @@ function QuickAccessResultRow({
 
       {item.kind !== "route" ? (
         <Button
-          aria-label={t(item.pinned ? "quickAccess.unpin" : "quickAccess.pin").replace("{name}", item.label)}
+          aria-label={t(item.pinned ? "quickAccess.unpin" : "quickAccess.pin").replace("{name}", () => item.label)}
           disabled={isExecuting}
           size="icon"
-          title={t(item.pinned ? "quickAccess.unpin" : "quickAccess.pin").replace("{name}", item.label)}
+          title={t(item.pinned ? "quickAccess.unpin" : "quickAccess.pin").replace("{name}", () => item.label)}
           type="button"
           variant="ghost"
           onClick={() => onSetPinned(!item.pinned)}

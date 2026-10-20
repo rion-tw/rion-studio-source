@@ -306,7 +306,7 @@ export function BrowserFontSelectionPicker({
               <Input
                 ref={searchInputRef}
                 className="pl-8"
-                aria-label={t("settings.browserFontsSearchForSlot").replace("{slot}", label)}
+                aria-label={t("settings.browserFontsSearchForSlot").replace("{slot}", () => label)}
                 placeholder={t("settings.browserFontsSearchPlaceholder")}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}

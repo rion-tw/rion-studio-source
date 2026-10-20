@@ -199,7 +199,7 @@ export function PortableImportDialog({
                       {conflict.candidates.map((candidate) => (
                         <option key={candidate.id} value={`update:${candidate.id}`}>
                           {t("settings.importConflictOverwrite")
-                            .replace("{name}", candidate.name)
+                            .replace("{name}", () => candidate.name)
                             .replace("{steps}", String(candidate.stepCount))
                             .replace("{date}", new Date(candidate.updatedAt).toLocaleString())}
                         </option>
@@ -499,7 +499,7 @@ function formatPortableResultSummary(
 
 function formatPortableCountSummary(label: string, count: number, t: Translator): string {
   return t("settings.portableCountSummary")
-    .replace("{label}", label)
+    .replace("{label}", () => label)
     .replace("{count}", String(count));
 }
 
@@ -519,39 +519,39 @@ function formatPortableWarning(warning: PortableImportWarning, t: Translator): s
 
   switch (warning.code) {
     case "GAME_NAME_RENAMED":
-      return t("settings.warningGameRenamed").replace("{name}", itemName).replace("{next}", replacementName);
+      return t("settings.warningGameRenamed").replace("{name}", () => itemName).replace("{next}", () => replacementName);
     case "BUILTIN_GAME_DEFAULTS_REPLACED":
-      return t("settings.warningBuiltinGameReplaced").replace("{name}", itemName);
+      return t("settings.warningBuiltinGameReplaced").replace("{name}", () => itemName);
     case "ROLE_GAME_RECOVERED":
-      return t("settings.warningRoleGameRecovered").replace("{name}", itemName);
+      return t("settings.warningRoleGameRecovered").replace("{name}", () => itemName);
     case "ROLE_NAME_RENAMED":
-      return t("settings.warningRoleRenamed").replace("{name}", itemName).replace("{next}", replacementName);
+      return t("settings.warningRoleRenamed").replace("{name}", () => itemName).replace("{next}", () => replacementName);
     case "LOCAL_STORAGE_SYNC_IGNORED":
       return t("settings.warningLocalStorageSyncIgnored");
     case "WORKSPACE_NAME_RENAMED":
-      return t("settings.warningWorkspaceRenamed").replace("{name}", itemName).replace("{next}", replacementName);
+      return t("settings.warningWorkspaceRenamed").replace("{name}", () => itemName).replace("{next}", () => replacementName);
     case "WORKSPACE_ROLE_MISSING":
-      return t("settings.warningWorkspaceRoleMissing").replace("{name}", itemName).replace("{count}", count);
+      return t("settings.warningWorkspaceRoleMissing").replace("{name}", () => itemName).replace("{count}", count);
     case "GAME_WINDOW_NAME_RENAMED":
-      return t("settings.warningGameWindowRenamed").replace("{name}", itemName).replace("{next}", replacementName);
+      return t("settings.warningGameWindowRenamed").replace("{name}", () => itemName).replace("{next}", () => replacementName);
     case "GAME_WINDOW_TAB_DEPENDENCY_MISSING":
-      return t("settings.warningGameWindowTabDependencyMissing").replace("{name}", itemName);
+      return t("settings.warningGameWindowTabDependencyMissing").replace("{name}", () => itemName);
     case "GAME_WINDOW_TAB_ROLE_CONFLICT":
-      return t("settings.warningGameWindowTabRoleConflict").replace("{name}", itemName);
+      return t("settings.warningGameWindowTabRoleConflict").replace("{name}", () => itemName);
     case "MACRO_NAME_RENAMED":
-      return t("settings.warningMacroRenamed").replace("{name}", itemName).replace("{next}", replacementName);
+      return t("settings.warningMacroRenamed").replace("{name}", () => itemName).replace("{next}", () => replacementName);
     case "MACRO_ROLE_MISSING":
-      return t("settings.warningMacroRoleMissing").replace("{name}", itemName).replace("{count}", count);
+      return t("settings.warningMacroRoleMissing").replace("{name}", () => itemName).replace("{count}", count);
     case "MACRO_SHORTCUT_CLEARED_CONFLICT":
-      return t("settings.warningMacroShortcutConflict").replace("{name}", itemName);
+      return t("settings.warningMacroShortcutConflict").replace("{name}", () => itemName);
     case "MACRO_SHORTCUT_CLEARED_RESERVED":
-      return t("settings.warningMacroShortcutReserved").replace("{name}", itemName);
+      return t("settings.warningMacroShortcutReserved").replace("{name}", () => itemName);
     case "MACRO_SHORTCUT_CLEARED_NO_SOURCE_ROLES":
-      return t("settings.warningMacroShortcutNoSourceRoles").replace("{name}", itemName);
+      return t("settings.warningMacroShortcutNoSourceRoles").replace("{name}", () => itemName);
     case "MACRO_SKIPPED_NO_ROLES":
-      return t("settings.warningMacroSkipped").replace("{name}", itemName);
+      return t("settings.warningMacroSkipped").replace("{name}", () => itemName);
     case "MACRO_SKIPPED_MISSING_DEPENDENCY":
-      return t("settings.warningMacroDependencySkipped").replace("{name}", itemName);
+      return t("settings.warningMacroDependencySkipped").replace("{name}", () => itemName);
     default:
       return t("settings.warningUnknown");
   }
@@ -579,13 +579,13 @@ export function formatUpdateStatus(status: AppUpdateStatus | null, t: Translator
   }
 
   if (status.state === "error") {
-    return t("settings.updateError").replace("{error}", status.error ?? t("settings.updateErrorUnknown"));
+    return t("settings.updateError").replace("{error}", () => status.error ?? t("settings.updateErrorUnknown"));
   }
 
   if (status.state === "install_failed") {
     return t("settings.updateInstallFailed").replace(
       "{error}",
-      status.errorCode ?? status.error ?? t("settings.updateErrorUnknown")
+      () => status.errorCode ?? status.error ?? t("settings.updateErrorUnknown")
     );
   }
 

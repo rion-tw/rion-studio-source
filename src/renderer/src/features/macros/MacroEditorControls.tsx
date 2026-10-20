@@ -204,27 +204,27 @@ export function MacroCommandImportDialog({
 function formatMacroCommandIssue(issue: MacroCommandIssue, t: Translator): string {
   switch (issue.code) {
     case "callBehavior":
-      return t("macroForm.commandImport.warning.callBehavior").replace("{name}", issue.detail ?? issue.token);
+      return t("macroForm.commandImport.warning.callBehavior").replace("{name}", () => issue.detail ?? issue.token);
     case "invalidClick":
-      return t("macroForm.commandImport.warning.invalidClick").replace("{token}", issue.token);
+      return t("macroForm.commandImport.warning.invalidClick").replace("{token}", () => issue.token);
     case "invalidKeyCombination":
-      return t("macroForm.commandImport.warning.invalidKeyCombination").replace("{token}", issue.token);
+      return t("macroForm.commandImport.warning.invalidKeyCombination").replace("{token}", () => issue.token);
     case "invalidWait":
-      return t("macroForm.commandImport.warning.invalidWait").replace("{token}", issue.token);
+      return t("macroForm.commandImport.warning.invalidWait").replace("{token}", () => issue.token);
     case "missingMacro":
-      return t("macroForm.commandImport.warning.missingMacro").replace("{name}", issue.detail ?? issue.token);
+      return t("macroForm.commandImport.warning.missingMacro").replace("{name}", () => issue.detail ?? issue.token);
     case "stepLimit":
       return t("macroForm.commandImport.warning.stepLimit").replace("{limit}", issue.detail ?? "0");
     case "unclosedQuote":
       return t("macroForm.commandImport.warning.unclosedQuote");
     case "unavailableMacro":
-      return t("macroForm.commandImport.warning.unavailableMacro").replace("{name}", issue.detail ?? issue.token);
+      return t("macroForm.commandImport.warning.unavailableMacro").replace("{name}", () => issue.detail ?? issue.token);
     case "unknownCommand":
-      return t("macroForm.commandImport.warning.unknownCommand").replace("{token}", issue.token);
+      return t("macroForm.commandImport.warning.unknownCommand").replace("{token}", () => issue.token);
     case "unknownKey":
-      return t("macroForm.commandImport.warning.unknownKey").replace("{token}", issue.token);
+      return t("macroForm.commandImport.warning.unknownKey").replace("{token}", () => issue.token);
     case "unsupported":
-      return t("macroForm.commandImport.warning.unsupported").replace("{token}", issue.token);
+      return t("macroForm.commandImport.warning.unsupported").replace("{token}", () => issue.token);
   }
 }
 

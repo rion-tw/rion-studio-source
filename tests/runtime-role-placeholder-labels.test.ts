@@ -44,3 +44,14 @@ describe("runtime Role placeholder labels", () => {
     })).not.toBeNull();
   });
 });
+
+describe("native file dialog titles", () => {
+  it("follow the application language and keep the English titles", async () => {
+    const { nativeDialogTitle } = await import("../src/electron/main/workspaceWebStatus");
+    updateWorkspaceStartAppearance({ language: "en" });
+    expect(nativeDialogTitle("diagnosticsExport")).toBe("Export Rion Studio Diagnostics");
+    updateWorkspaceStartAppearance({ language: "zh-TW" });
+    expect(nativeDialogTitle("portableExport")).toBe("匯出 JSON");
+    expect(nativeDialogTitle("chromeProfile")).not.toMatch(/Chrome User Data/);
+  });
+});

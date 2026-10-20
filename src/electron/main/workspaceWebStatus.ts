@@ -50,3 +50,25 @@ export function workspaceWebStatus(state: { loading: boolean; errorCode?: number
   return state.errorCode !== undefined ? messages["workspaces.webNavigationFailed"]
     : state.loading ? messages["workspaces.webNavigationLoading"] : "";
 }
+
+const englishNativeDialogTitles = {
+  chromeProfile: "Choose Chrome User Data",
+  diagnosticsExport: "Export Rion Studio Diagnostics",
+  portableExport: "Export Rion Studio JSON",
+  portableImport: "Import Rion Studio JSON"
+} as const;
+
+const nativeDialogTitleKeys = {
+  chromeProfile: "settings.chromeImportChooseFolder",
+  diagnosticsExport: "settings.logsExport",
+  portableExport: "settings.exportJson",
+  portableImport: "settings.importJson"
+} as const;
+
+/** Windows shows a native file dialog's title, so it follows the app language. */
+export function nativeDialogTitle(kind: keyof typeof englishNativeDialogTitles): string {
+  const language = readWorkspaceWebLanguage();
+  return language === "en"
+    ? englishNativeDialogTitles[kind]
+    : translations[language][nativeDialogTitleKeys[kind]];
+}

@@ -9,6 +9,7 @@ import type {
 } from "../../shared/types";
 import type { CoreCommand, CoreCommandResult } from "../../shared/generated";
 import { RionBridgeError } from "../ipc/errors";
+import { nativeDialogTitle } from "./workspaceWebStatus";
 
 const DEFAULT_PORTABLE_SELECTION = Object.freeze({
   games: true,
@@ -75,7 +76,7 @@ export class ElectronNativeShellActions {
     input?: PortableExportInput
   ): Promise<PortableExportResult | null> {
     const path = await this.#input.saveFile({
-      title: "Export Rion Studio JSON",
+      title: nativeDialogTitle("portableExport"),
       defaultName: "rion-studio-export.json",
       extension: "json"
     });
@@ -92,7 +93,7 @@ export class ElectronNativeShellActions {
 
   async previewPortableImport(): Promise<PortableImportPreview | null> {
     const path = await this.#input.chooseFile({
-      title: "Import Rion Studio JSON",
+      title: nativeDialogTitle("portableImport"),
       extension: "json"
     });
     if (path === null) return null;
@@ -107,7 +108,7 @@ export class ElectronNativeShellActions {
       type: "chromeProfileDefaultPath"
     });
     const path = await this.#input.chooseDirectory({
-      title: "Choose Chrome User Data",
+      title: nativeDialogTitle("chromeProfile"),
       ...(defaultPath === null
         ? {}
         : { defaultPath: requireAbsolutePath(defaultPath, "default Chrome profile") })

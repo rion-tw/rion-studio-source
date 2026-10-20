@@ -11,6 +11,7 @@ import type {
 } from "../../shared/generated";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
 import type { RendererIdentity } from "./rendererIdentity";
+import { nativeDialogTitle } from "./workspaceWebStatus";
 
 type MaybePromise<Value> = Value | Promise<Value>;
 
@@ -174,7 +175,7 @@ export class ElectronDiagnosticsExport<
   ): Promise<DiagnosticExportResultRecord | null> {
     const window = this.#resolveExactMainWindow(identity);
     const path = await this.#input.showNativeSaveDialog(window, {
-      title: "Export Rion Studio Diagnostics",
+      title: nativeDialogTitle("diagnosticsExport"),
       defaultName: "Rion-Studio-Diagnostics.zip",
       extension: "zip"
     });

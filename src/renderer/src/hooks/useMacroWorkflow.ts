@@ -9,6 +9,7 @@ import type { Translator } from "../i18n";
 import type { Macro, Role, RoleStatus } from "../../../shared/types";
 import {
   DEFAULT_MACRO_LIST_SORT,
+  getMacroListItems,
   type MacroListSortState,
   type MacroListViewMode
 } from "../features/macros/macroListUtils";
@@ -169,7 +170,7 @@ export function useMacroWorkflow({
     const reportError = beginErrorOperation();
 
     try {
-      await window.rionStudio.createMacro({
+      const copy = await window.rionStudio.createMacro({
         executionMode: macro.executionMode,
         enabled: macro.enabled,
         activationMode: "press",
@@ -183,8 +184,12 @@ export function useMacroWorkflow({
         })),
         trigger: null
       });
-      // The copy keeps the source's roles and steps, so it stays inside the
-      // current search and role filter; keep the user's list context.
+      // Keep the user's role filter and sort: the copy has the same roles. A
+      // search on the dropped shortcut or Hold mode would hide it, so clear only
+      // a search the copy no longer matches.
+      if (query.trim() && !getMacroListItems({ macros: [copy], query, roleFilterId: "", roles, sort, t }).length) {
+        setQuery("");
+      }
     } catch (copyError) {
       reportError(copyError);
     } finally {

@@ -171,6 +171,37 @@ describe("useMacroWorkflow", () => {
     expect(result.current.sort).toEqual({ direction: "desc", key: "repeat" });
   });
 
+  it("clears only a search that the shortcut-free copy no longer matches", async () => {
+    const source: Macro = {
+      id: "macro-1",
+      enabled: true,
+      name: "Buff",
+      roleIds: ["role-1"],
+      shortcutSourceScope: { type: "all_execution_roles" as const },
+      trigger: { code: "F7", ctrl: false, alt: false, shift: false, meta: false },
+      repeat: { type: "once" },
+      steps: [{ id: "step-1", type: "key", code: "F2" }],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    };
+    const createMacro = vi.fn().mockResolvedValue({ ...source, id: "macro-2", name: "Buff copy", trigger: undefined });
+    Object.defineProperty(window, "rionStudio", { configurable: true, value: { createMacro } });
+    const { result } = renderHook(() => useMacroWorkflow({
+      beginErrorOperation: () => vi.fn(),
+      macros: [source],
+      t: ((key: string) => key === "copyName.suffix" ? "copy" : (en as Record<string, string>)[key] ?? key) as Translator
+    }), { wrapper: ConfirmationWrapper });
+
+    act(() => {
+      result.current.setQuery("F7");
+      result.current.setRoleFilterId("role-1");
+    });
+    await act(async () => result.current.handleCopyMacro(source));
+
+    expect(result.current.query).toBe("");
+    expect(result.current.roleFilterId).toBe("role-1");
+  });
+
   it("groups batch starts under one busy lease and blocks overlapping starts", async () => {
     const first = macro("macro-1");
     const second = macro("macro-2");

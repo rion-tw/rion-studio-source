@@ -292,8 +292,12 @@ const extensionPackage = (value: unknown): boolean => check.closed(value, {
   description: check.text, iconDataUrl: check.text, sizeBytes: check.nonnegativeInteger,
   requiredApiPermissions: check.arrayOf(check.text)
 });
+const extensionOutcome = (value: unknown): boolean => check.closed(value, {
+  extensionId: check.identity, status: check.oneOf("loaded", "degraded", "failed", "indeterminate")
+});
 const extensionRole = (value: unknown): boolean => check.closed(value, {
-  roleId: check.identity, leaseId: check.identity, extensionIds: check.arrayOf(check.identity), status: check.oneOf("loading", "loaded", "degraded", "failed", "indeterminate")
+  roleId: check.identity, leaseId: check.identity, extensionIds: check.arrayOf(check.identity), status: check.oneOf("loading", "loaded", "degraded", "failed", "indeterminate"),
+  outcomes: check.arrayOf(extensionOutcome)
 });
 const extensionSnapshot = (value: unknown): boolean => check.closed(value, {
   revision: check.nonnegativeInteger, installed: check.arrayOf(extensionPackage), roles: check.arrayOf(extensionRole)

@@ -310,7 +310,13 @@ fn build_import_plan(
                     })
                     .collect::<Vec<_>>();
                 let source_key = format!("{}:{source_id}", tab.tab_type);
-                if role_slots.is_empty() || claimed_sources.contains(&source_key) {
+                // A Workspace tab may hold only Web slots; the domain accepts it.
+                let has_content = !role_slots.is_empty()
+                    || tab.tab_type == "workspace"
+                        && workspace_slots
+                            .iter()
+                            .any(|slot| slot.role_id.is_some() || slot.web.is_some());
+                if !has_content || claimed_sources.contains(&source_key) {
                     warnings.push(warning(
                         "GAME_WINDOW_TAB_ROLE_CONFLICT",
                         Some(tab.name.clone()),

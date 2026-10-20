@@ -1,6 +1,7 @@
 import { browser, expect } from "@wdio/globals";
 import { exerciseWindowsHeldCanvasBlur } from "./chromium-macro-canvas-blur";
 import { exerciseHeldKeyOverlap } from "./chromium-macro-key-overlap";
+import { exerciseWindowsMinimizedHeldMacro } from "./chromium-macro-minimized-window";
 import { Key } from "webdriverio";
 
 import type { GameWindow, Macro, Role } from "../../../src/shared/types";
@@ -630,5 +631,25 @@ describe("Chromium Macro background-tab exact replacement", () => {
         tabB: tabB.tabId
       }
     );
+
+    if (context.platform === "windows") {
+      await exerciseWindowsMinimizedHeldMacro({
+        context,
+        fixtureId: ROLE_A_FIXTURE,
+        macro: scenario.macro,
+        role: scenario.roles[0],
+        start: async () => startFromShortcut({
+          fixtureAfter: await fixtureCursor(),
+          macro: scenario.macro,
+          mainWindowHandle: context.mainWindowHandle,
+          platform: context.platform,
+          processId: probe.processId,
+          source: scenario.roles[0],
+          sourceFixtureId: ROLE_A_FIXTURE
+        }),
+        tab: tabA,
+        window: scenario.window
+      });
+    }
   });
 });

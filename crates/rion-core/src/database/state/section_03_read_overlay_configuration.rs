@@ -96,7 +96,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
         })
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
 
-    if (19..=30).contains(&current_version) {
+    if (19..SCHEMA_VERSION).contains(&current_version) {
         connection
             .execute_batch("BEGIN IMMEDIATE;")
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -184,10 +184,19 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                     )
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
             }
-            migrate_macro_activation_modes(connection)?;
+            if current_version <= 30 {
+                migrate_macro_activation_modes(connection)?;
+                connection
+                    .execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (31, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                        [],
+                    )
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            }
+            migrate_dangling_game_window_sources(connection)?;
             connection
                 .execute(
-                    "INSERT INTO schema_migrations(version, applied_at) VALUES (31, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES (32, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                     [],
                 )
                 .map(|_| ())
@@ -305,7 +314,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                  CREATE INDEX operation_journal_kind_phase_idx ON operation_journal(kind, phase);
                  {}
                  INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (31, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                 VALUES (32, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
                  COMMIT;",
                 crate::session_migration::ROLE_SESSION_MIGRATION_SCHEMA_SQL
             );

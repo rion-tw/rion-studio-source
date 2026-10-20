@@ -43,7 +43,7 @@ use crate::session_migration::{
     V23RoleInitializationEvidence,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 31;
+pub(crate) const SCHEMA_VERSION: u32 = 32;
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 // A WAL checkpoint can exceed three seconds under concurrent Windows load.
 // Preserve an indeterminate terminal, with the same bound as the log worker.

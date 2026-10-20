@@ -174,6 +174,7 @@ fn schema_twenty_three_adds_the_default_macro_shortcut_source_scope() {
 fn schema_twenty_four_migrates_game_window_role_slots_with_stable_fallbacks() {
     let connection = Connection::open_in_memory().unwrap();
     create_schema(&connection, false).unwrap();
+    insert_legacy_fixture_roles(&connection, &["role-1", "role-2", "role-3"]);
     let workspace_id = "10000000-0000-4000-8000-000000000001";
     let first_slot_id = "20000000-0000-4000-8000-000000000001";
     let second_slot_id = "20000000-0000-4000-8000-000000000002";
@@ -313,6 +314,7 @@ fn schema_twenty_four_migrates_game_window_role_slots_with_stable_fallbacks() {
 fn schema_twenty_seven_adds_complete_workspace_slots_and_resets_legacy_web_content() {
     let connection = Connection::open_in_memory().unwrap();
     create_schema(&connection, false).unwrap();
+    insert_legacy_fixture_roles(&connection, &["role-a"]);
     let workspace_id = "10000000-0000-4000-8000-000000000010";
     let workspace = json!({
         "id": workspace_id,

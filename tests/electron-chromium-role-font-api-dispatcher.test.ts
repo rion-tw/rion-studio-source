@@ -52,6 +52,23 @@ describe("Chromium role browser-font API dispatcher", () => {
     )).rejects.toThrow("font refresh rejected");
   });
 
+  it.each([
+    "ELECTRON_ROLE_FONT_DOCUMENT_SUPERSEDED",
+    "ELECTRON_ROLE_FONT_SURFACE_RETIRED"
+  ])("reports a committed mutation as saved when a role document ends with %s", async (code) => {
+    const invoke = vi.fn(async () => ({ committed: true }));
+    const refreshRoleFonts = vi.fn(async () => {
+      throw Object.assign(new Error("document ended"), { code });
+    });
+    const subject = createChromiumRoleFontApiDispatcher(
+      { invoke } as never,
+      { refreshRoleFonts }
+    );
+
+    await expect(subject.invoke(IDENTITY, "patchGameBrowserSettings", [{}] as never))
+      .resolves.toEqual({ committed: true });
+  });
+
   it("does not refresh after a failed Core mutation or an unrelated API call", async () => {
     const refreshRoleFonts = vi.fn(async () => undefined);
     const failed = createChromiumRoleFontApiDispatcher({

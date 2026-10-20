@@ -234,7 +234,7 @@ function RoleForm({
                       onChange((current) => ({
                         ...current,
                         gameId,
-                        launchUrl: game.defaultLaunchUrl
+                        launchUrl: launchUrlAfterGameChange(current, game, games, selectedRole)
                       }));
                     }}
                     required
@@ -338,6 +338,23 @@ function RoleForm({
           </Surface>
     </>
   );
+}
+
+// A launch URL follows the selected game only while it is still the previous
+// game's default (or blank); a URL the user typed is never replaced. Returning
+// to the role's saved game restores the role's saved URL instead of that game's
+// default, so a round trip cannot silently drop a custom URL.
+function launchUrlAfterGameChange(
+  current: RoleFormState,
+  nextGame: Game,
+  games: readonly Game[],
+  savedRole: Role | undefined
+): string {
+  if (current.gameId === nextGame.id) return current.launchUrl;
+  const previousDefault = games.find((game) => game.id === current.gameId)?.defaultLaunchUrl;
+  const followsPreviousGame = current.launchUrl.trim() === "" || current.launchUrl === previousDefault;
+  if (!followsPreviousGame) return current.launchUrl;
+  return savedRole?.gameId === nextGame.id ? savedRole.launchUrl : nextGame.defaultLaunchUrl;
 }
 
 export default RoleEditorRoute;

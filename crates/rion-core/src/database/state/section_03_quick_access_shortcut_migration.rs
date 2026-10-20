@@ -21,10 +21,52 @@ fn migrate_reserved_quick_access_shortcuts(connection: &Connection) -> CoreResul
         }
         payload["trigger"] = Value::Null;
         // A hold macro needs a shortcut; without one it falls back to a press,
-        // as when its last shortcut source role is deleted.
-        if payload.get("activationMode").and_then(Value::as_str) == Some("hold") {
+        // as when its last shortcut source role is deleted. Schema 25 stored
+        // the hold activation as `while_held`; schema 31 renames it later.
+        if matches!(
+            payload.get("activationMode").and_then(Value::as_str),
+            Some("hold" | "while_held")
+        ) {
             payload["activationMode"] = Value::String("press".to_owned());
         }
+        connection
+            .execute(
+                "UPDATE macros SET payload_json=?1 WHERE id=?2",
+                params![serialize_payload(&payload)?, macro_id],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
+    Ok(())
+}
+
+/// Turns every hold Macro without a trigger into a press Macro. Until schema
+/// 32, the schema 26 step missed hold Macros stored as `while_held`, so their
+/// cleared Ctrl/Cmd+K trigger left a hold Macro that every later update
+/// rejected with `MACRO_HOLD_TRIGGER_REQUIRED`. Idempotent, and a payload that
+/// does not decode is left unchanged rather than blocking startup.
+fn repair_triggerless_hold_macros(connection: &Connection) -> CoreResult<()> {
+    let rows = {
+        let mut statement = connection
+            .prepare("SELECT id, payload_json FROM macros ORDER BY ordinal")
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+    };
+    for (macro_id, payload_json) in rows {
+        let Ok(mut payload) = serde_json::from_str::<Value>(&payload_json) else {
+            continue;
+        };
+        if payload.get("activationMode").and_then(Value::as_str) != Some("hold")
+            || !payload.get("trigger").is_none_or(Value::is_null)
+        {
+            continue;
+        }
+        payload["activationMode"] = Value::String("press".to_owned());
         connection
             .execute(
                 "UPDATE macros SET payload_json=?1 WHERE id=?2",

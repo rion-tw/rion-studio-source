@@ -194,6 +194,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
             }
             migrate_dangling_game_window_sources(connection)?;
+            repair_triggerless_hold_macros(connection)?;
             connection
                 .execute(
                     "INSERT INTO schema_migrations(version, applied_at) VALUES (32, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",

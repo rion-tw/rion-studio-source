@@ -218,3 +218,70 @@ fn schema_twenty_five_turns_a_hold_quick_access_macro_into_a_press_macro() {
     assert_eq!(payload["activationMode"], "press");
 }
 
+fn read_schema_twenty_five_macro(connection: &Connection, id: &str) -> Value {
+    serde_json::from_str(
+        &connection
+            .query_row("SELECT payload_json FROM macros WHERE id=?1", [id], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+    )
+    .unwrap()
+}
+
+fn set_schema_twenty_five_activation_mode(connection: &Connection, id: &str, mode: &str) {
+    let mut payload = read_schema_twenty_five_macro(connection, id);
+    payload["activationMode"] = json!(mode);
+    connection
+        .execute(
+            "UPDATE macros SET payload_json=?1 WHERE id=?2",
+            params![serde_json::to_string(&payload).unwrap(), id],
+        )
+        .unwrap();
+}
+
+#[test]
+fn schema_twenty_five_turns_a_while_held_quick_access_macro_into_a_press_macro() {
+    let connection = Connection::open_in_memory().unwrap();
+    create_schema(&connection, false).unwrap();
+    prepare_schema_twenty_five(&connection);
+    insert_schema_twenty_five_macro(
+        &connection,
+        "held-k",
+        "Held K",
+        json!({"code":"KeyK","ctrl":true,"alt":false,"shift":false,"meta":false}),
+    );
+    // Schema 25 stored the hold activation as `while_held`; `hold` is the
+    // schema 31 name.
+    set_schema_twenty_five_activation_mode(&connection, "held-k", "while_held");
+
+    create_schema(&connection, false).unwrap();
+
+    let payload = read_schema_twenty_five_macro(&connection, "held-k");
+    assert!(payload["trigger"].is_null());
+    assert_eq!(payload["activationMode"], "press");
+}
+
+#[test]
+fn schema_twenty_six_quick_access_migration_turns_a_while_held_macro_into_a_press_macro() {
+    let connection = Connection::open_in_memory().unwrap();
+    create_schema(&connection, false).unwrap();
+    prepare_schema_twenty_five(&connection);
+    insert_schema_twenty_five_macro(
+        &connection,
+        "held-k",
+        "Held K",
+        json!({"code":"KeyK","ctrl":false,"alt":false,"shift":false,"meta":true}),
+    );
+    set_schema_twenty_five_activation_mode(&connection, "held-k", "while_held");
+
+    migrate_reserved_quick_access_shortcuts(&connection).unwrap();
+
+    let payload = read_schema_twenty_five_macro(&connection, "held-k");
+    assert!(payload["trigger"].is_null());
+    assert_eq!(
+        payload["activationMode"], "press",
+        "the schema 26 step sees the activation name schema 25 stored"
+    );
+}
+

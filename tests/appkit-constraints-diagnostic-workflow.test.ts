@@ -18,7 +18,7 @@ describe("isolated AppKit constraint evidence workflow", () => {
     const shell = step("Run macOS AppKit Chromium shell E2E");
     expect(shell).toContain('if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF" == "' + branch + '" ]]; then');
     expect(shell).toContain("pnpm run test:e2e:desktop:chromium:macos-appkit -- --phase=chromium-workspace-gap-dividers-seed");
-    expect(shell).toContain("else\n            pnpm run test:e2e:desktop:chromium:macos-appkit\n          fi");
+    expect(shell).toContain("else\n            pnpm run test:e2e:desktop:chromium:macos-appkit -- --shard=${{ matrix.shard }}\n          fi");
     expect(shell).toContain(`RION_STUDIO_E2E_NATIVE_CONSTRAINT_DIAGNOSTIC: \${{ ${diagnostic} && '1' || '0' }}`);
     expect(shell).toContain("if: runner.os == 'macOS'");
     expect(shell).toContain("timeout-minutes: 90");

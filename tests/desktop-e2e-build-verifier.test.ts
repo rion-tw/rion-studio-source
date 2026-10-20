@@ -107,7 +107,8 @@ describe("desktop E2E build verifier", () => {
   });
 
   it("fails closed in the runner before starting the fixture", async () => {
-    const source = await readFile("scripts/runDesktopE2e.mjs", "utf8");
+    const source = [await readFile("scripts/runDesktopE2e.mjs", "utf8"),
+      await readFile("scripts/desktopE2ePhaseTopology.mjs", "utf8")].join("\n");
     const verify = source.indexOf("await verifyDesktopE2eBuild({");
     const fixture = source.indexOf("fixture = await startFixture();");
 

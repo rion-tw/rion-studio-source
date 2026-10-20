@@ -156,7 +156,8 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     const [manifestSource, phases, runner, aggregator, evidence] = await Promise.all([
       source("docs/e2e-coverage.json"),
       source("e2e/desktop/phaseSpecs.ts"),
-      source("scripts/runDesktopE2e.mjs"),
+      Promise.all([source("scripts/runDesktopE2e.mjs"), source("scripts/desktopE2ePhaseTopology.mjs")])
+        .then(parts => parts.join("\n")),
       source("scripts/desktopE2eChromiumJourneyEvidence.mjs"),
       source("scripts/desktopE2eChromiumWorkspaceWebEvidence.mjs")
     ]);

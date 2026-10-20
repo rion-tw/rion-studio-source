@@ -28,6 +28,17 @@ not a runnable second shell or an additional passing journey count.
 | `chromium-macos-appkit-smoke` | Pull requests on hosted macOS | Chromium main-shell/preload/Core readiness, Electron native non-client drag regions, real Command+N/fullscreen/zoom application shortcuts through the retained NSMenu, visible Game/entity persistence, retained AppKit fullscreen-toolbar auto-hide/reveal/pin/restart parity, live Workspace gap projection plus real two-axis NSSplitter CGEvent dragging, real CoreGraphics tab reorder plus retained NSMenu move/detach/hide/reveal/reload and restart persistence, cross-entity CRUD/reorder/cleanup parity, managed-page Quick Access interception, visible Settings persistence, visible Macro authoring/list/scheduler plus foreground and hidden native-effect parity through the retained AppKit trusted-input adapter, exact-Session permission/download deny parity and OS-native file-upload parity from visible remote controls, system Settings boundaries including exact-PID native diagnostics-export cancellation, and a retained-v22 Role whose blocked launch, visible explicit reset, AppKit-hosted Chromium launch, and restart continuity are verified. |
 | `chromium-windows-smoke` | Pull requests on hosted Windows | Chromium shell/preload/Core readiness bound to the Windows Electron target, real Ctrl+N/zoom shortcuts and visible toolbar fullscreen, visible Game/entity persistence, local-shell fullscreen-toolbar auto-hide/reveal/pin/restart parity, live Workspace gap projection plus two-axis WebDriver splitter dragging, visible context-menu controlled Role reload, paired cross-entity CRUD/reorder/cleanup parity, managed-page Quick Access and function-key Macro passthrough, visible Settings persistence, visible Macro authoring/list/scheduler parity, exact foreground and hidden native trusted-input effects plus the exact direct-View physical input gate, exact-Session permission/download deny parity and exact-PID native file-upload parity from visible remote controls, system Settings boundaries including exact-PID native diagnostics-export cancellation, and the retained-v22 Role explicit-reset and restart journey. |
 
+Hosted CI runs each platform profile as two shards on separate runners
+(`runDesktopE2e.mjs --shard=1/2` and `2/2`), beside a separate distribution
+job that builds and verifies the release packages. `desktopE2eShards.mjs`
+keeps every focused-run prerequisite chain, Windows physical-input
+prerequisite, and shared user-data namespace on one shard in profile order, so
+each phase sees exactly the state it would in an unsharded run. A shard skips
+the profile-wide journey check; the `desktop-e2e-journeys` job instead requires
+one passing report per shard from the same commit, every profile phase run
+exactly once, and every journey PASS across their union. Local runs without
+`--shard` keep the original single-runner gate.
+
 The paired `chromium-chrome-profile-import-seed` / `restart` phases exercise
 visible consent, cancellation, the native Chrome-folder picker, game/profile
 selection and final confirmation. A separate bundled-Chromium fixture process

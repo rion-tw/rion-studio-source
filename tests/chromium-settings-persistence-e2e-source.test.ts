@@ -79,7 +79,8 @@ describe("Chromium Settings persistence exact replacement source", () => {
 
   it("binds restart and exact persisted evidence to the shared entity namespace", async () => {
     const [runner, journeyEvidence, evidence] = await Promise.all([
-      source("scripts/runDesktopE2e.mjs"),
+      Promise.all([source("scripts/runDesktopE2e.mjs"), source("scripts/desktopE2ePhaseTopology.mjs")])
+        .then(parts => parts.join("\n")),
       source("scripts/desktopE2eChromiumJourneyEvidence.mjs"),
       source("scripts/desktopE2eChromiumSettingsPersistenceEvidence.mjs")
     ]);

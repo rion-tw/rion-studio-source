@@ -17,13 +17,19 @@ describe("manual desktop CI scope", () => {
     ["workflow_call", "macos", ["macos-latest", "windows-latest"]],
     ["workflow_call", "windows", ["macos-latest", "windows-latest"]]
   ])("selects the complete native/package/E2E matrix for %s / %s", (event, scope, expected) => {
-    expect(matrices).toHaveLength(2);
+    // Native validation, desktop E2E, and distribution validation share one scope.
+    expect(matrices).toHaveLength(3);
     for (const match of matrices) {
       const index = event === "workflow_dispatch"
         ? scope === "macos" ? 1 : scope === "windows" ? 2 : 3
         : 3;
       const selected = match[index]!;
-      expect((JSON.parse(selected) as { os: string }[]).map(row => row.os)).toEqual(expected);
+      // The desktop E2E matrix repeats each platform once per shard.
+      const rows = JSON.parse(selected) as { os: string; shard?: string }[];
+      expect([...new Set(rows.map(row => row.os))]).toEqual(expected);
+      if (rows.some(row => row.shard)) {
+        for (const os of expected) expect(rows.filter(row => row.os === os).map(row => row.shard)).toEqual(["1/2", "2/2"]);
+      }
     }
   });
 

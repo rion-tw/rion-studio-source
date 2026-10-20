@@ -357,7 +357,8 @@ export function translateErrorMessage(message: string, t: Translator): string {
   for (const [pattern, key, placeholder] of dynamicMacroErrors) {
     const match = pattern.exec(normalizedMessage);
     if (match) {
-      return t(key).replace(placeholder, match[1]);
+      // A function replacement keeps user-chosen names such as "$&" literal.
+      return t(key).replace(placeholder, () => match[1]);
     }
   }
 

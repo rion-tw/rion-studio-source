@@ -305,6 +305,17 @@ describe("renderer error localization", () => {
     }
   });
 
+  it("inserts macro names containing replacement patterns literally", async () => {
+    await Promise.all([loadTranslations("zh-TW"), loadTranslations("ja")]);
+
+    expect(localizeErrorMessage('Called macro "Loot $& Sell $$ Repeat $1" is already running.', "zh-TW"))
+      .toBe("被呼叫的巨集「Loot $& Sell $$ Repeat $1」已在執行。");
+    expect(localizeErrorMessage("Macro is used by: $` Parent, $$ Child.", "ja"))
+      .toBe("このマクロは次のマクロから呼び出されています: $` Parent, $$ Child。");
+    expect(localizeErrorMessage("Macro dependency cycle: A $& -> B $$ -> A $&.", "en"))
+      .toBe("Macro dependency cycle: A $& -> B $$ -> A $&.");
+  });
+
   it("localizes the unassigned macro workflow error", async () => {
     const message = "Assign a role to this macro and every called macro before running it.";
     await Promise.all([loadTranslations("zh-TW"), loadTranslations("zh-CN"), loadTranslations("ja")]);

@@ -43,6 +43,8 @@ import { MacroStepEditor, createStep, duplicateStepState } from "./MacroStepEdit
 
 import { MacroCommandImportDialog, MacroHelpSection, MacroIntervalControl, ShortcutRecorder } from "./MacroEditorControls";
 
+import { MACRO_COMMAND_MAX_STEPS as MACRO_MAX_STEPS } from "./macroCommandParser";
+
 import { MacroMindMapPanel } from "./MacroMindMap";
 
 import { MacroExecutionFields } from "./MacroExecutionFields";
@@ -150,17 +152,25 @@ function MacroEditor({
     form.shortcutSourceScope.roleIds.length === 0
     ? t(form.executionMode === "source_role" ? "macroForm.execution.sourceRequired" : "macroForm.saveHint.needsShortcutSourceRole")
     : undefined;
+  const nameError = form.name.trim().length === 0
+    ? t("macroForm.saveHint.needsName")
+    : undefined;
+  // Core rejects more than MACRO_MAX_STEPS steps (MACRO_STEPS_TOO_MANY).
+  const stepCountError = form.steps.length > MACRO_MAX_STEPS
+    ? t("macroForm.saveHint.tooManySteps").replace("{count}", String(MACRO_MAX_STEPS))
+    : undefined;
   const canSubmit =
-    form.name.trim().length > 0 &&
+    !nameError &&
     (form.executionMode === "source_role" || form.roleIds.length > 0 || Boolean(form.id)) &&
     form.steps.length > 0 &&
+    !stepCountError &&
     (form.repeat.type === "once" || isValidMacroInterval(form.repeat.intervalMs)) &&
     !activationError &&
     !shortcutSourceError &&
     !holdDurationError &&
     !macroStepError &&
     !shortcutConflict;
-  const saveHint = shortcutConflict ?? shortcutSourceError ?? activationError ?? holdDurationError ?? macroStepError ?? (
+  const saveHint = shortcutConflict ?? shortcutSourceError ?? activationError ?? holdDurationError ?? macroStepError ?? nameError ?? stepCountError ?? (
     form.executionMode !== "source_role" && form.roleIds.length === 0
       ? t(form.id ? "macroForm.saveHint.unassigned" : "macroForm.saveHint.needsRole")
       : form.steps.length === 0
@@ -282,6 +292,7 @@ function MacroForm({
   ];
   const [isCommandImportOpen, setIsCommandImportOpen] = useState(false);
   const [mindMapStepId, setMindMapStepId] = useState<string>();
+  const isAtStepLimit = form.steps.length >= MACRO_MAX_STEPS;
   const stepDrag = usePointerDrag<string>({
     disabled: isSaving,
     getScrollContainer: () => document.querySelector<HTMLElement>("#app-editor-form"),
@@ -304,7 +315,9 @@ function MacroForm({
 
   function addStep(type: MacroStep["type"], keyAction?: MacroKeyAction): void {
     const step = createStep(type, undefined, firstCallableMacroTargetId, form.activationMode, keyAction);
-    update((current) => ({ ...current, steps: [...current.steps, step] }));
+    update((current) => current.steps.length >= MACRO_MAX_STEPS
+      ? current
+      : { ...current, steps: [...current.steps, step] });
   }
 
   function updateStep(stepId: string, nextStep: MacroStep): void {
@@ -324,7 +337,7 @@ function MacroForm({
   function duplicateStep(stepId: string): void {
     update((current) => {
       const index = current.steps.findIndex((step) => step.id === stepId);
-      if (index === -1) {
+      if (index === -1 || current.steps.length >= MACRO_MAX_STEPS) {
         return current;
       }
 
@@ -530,6 +543,7 @@ function MacroForm({
                           isDragging={stepDrag.activePayload === step.id}
                           isDropTarget={stepDrag.targetId === step.id && stepDrag.activePayload !== step.id}
                           isMindMapTarget={mindMapStepId === step.id}
+                          canDuplicate={!isAtStepLimit}
                           isSaving={isSaving}
                           macroTargetOptions={macroTargetOptions}
                           step={step}
@@ -544,13 +558,18 @@ function MacroForm({
                   )}
 
                   <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/50 pt-3">
+                    {isAtStepLimit ? (
+                      <p className="mr-auto text-caption font-medium text-muted-foreground">
+                        {t("macroForm.stepLimitReached").replace("{count}", String(MACRO_MAX_STEPS))}
+                      </p>
+                    ) : null}
                     {addStepOptions.map((option) => (
                       <Button
                         key={`${option.type}-${option.label}-${option.action ?? "default"}`}
                         type="button"
                         variant="outline"
                         onClick={() => addStep(option.type, option.action)}
-                        disabled={isSaving}
+                        disabled={isSaving || isAtStepLimit}
                       >
                         <Plus size={14} />
                         {option.label}
@@ -560,7 +579,7 @@ function MacroForm({
                       type="button"
                       variant="outline"
                       onClick={() => setIsCommandImportOpen(true)}
-                      disabled={isSaving}
+                      disabled={isSaving || isAtStepLimit}
                     >
                       <Plus size={14} />
                       {t("macroForm.addCommand")}

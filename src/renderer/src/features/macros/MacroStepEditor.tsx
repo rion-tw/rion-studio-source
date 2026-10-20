@@ -30,6 +30,7 @@ import type { TimeUnit } from "./MacroEditorControls";
 import { useExclusiveRecording } from "./useExclusiveRecording";
 
 interface MacroStepEditorProps {
+  canDuplicate?: boolean;
   index: number;
   isDragging: boolean;
   isDropTarget: boolean;
@@ -45,6 +46,7 @@ interface MacroStepEditorProps {
 }
 
 export function MacroStepEditor({
+  canDuplicate = true,
   index,
   isDragging,
   isDropTarget,
@@ -125,7 +127,7 @@ export function MacroStepEditor({
           size="icon"
           title={t("macros.copy")}
           onClick={onDuplicate}
-          disabled={isSaving}
+          disabled={isSaving || !canDuplicate}
         >
           <Copy size={14} />
         </Button>

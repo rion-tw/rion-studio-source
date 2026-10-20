@@ -710,7 +710,87 @@ it("shows the nine anchor choices and keeps offsets when changing the anchor", a
       steps: [{ id: "click", type: "click", anchor: "bottom-right", xPercent: -10, yPercent: -20 }]
     })));
   });
+
+it("explains that a blank name blocks saving", () => {
+    renderMacroEditor(macro());
+    const save = screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    expect(screen.getByText(en["macroForm.saveHint.ready"])).toBeTruthy();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "   " } });
+
+    expect(save.disabled).toBe(true);
+    expect(screen.getByText(en["macroForm.saveHint.needsName"])).toBeTruthy();
+    expect(screen.queryByText(en["macroForm.saveHint.ready"])).toBeNull();
+  });
+
+it("stops adding steps at the Core step limit", () => {
+    renderMacroEditor(macro({ steps: delaySteps(MAX_STEPS - 1) }));
+    fireEvent.click(screen.getByRole("button", { name: en["macroForm.addDelay"] }));
+
+    expect(document.querySelectorAll("[data-macro-step-id]")).toHaveLength(MAX_STEPS);
+    for (const label of [
+      en["macroForm.addKey"],
+      en["macroForm.addTimedHold"],
+      en["macroForm.addHold"],
+      en["macroForm.addClick"],
+      en["macroForm.addDelay"],
+      en["macroForm.addMacro"],
+      en["macroForm.addCommand"]
+    ]) {
+      expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(true);
+    }
+    for (const duplicate of screen.getAllByRole("button", { name: en["macros.copy"] })) {
+      expect((duplicate as HTMLButtonElement).disabled).toBe(true);
+    }
+    expect(screen.getByText(
+      en["macroForm.stepLimitReached"].replace("{count}", String(MAX_STEPS))
+    )).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled)
+      .toBe(false);
+    expect(screen.getByText(en["macroForm.saveHint.ready"])).toBeTruthy();
+  });
+
+it("blocks saving a macro that exceeds the Core step limit", () => {
+    renderMacroEditor(macro({ steps: delaySteps(MAX_STEPS + 1) }));
+
+    expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled)
+      .toBe(true);
+    expect(screen.getByText(
+      en["macroForm.saveHint.tooManySteps"].replace("{count}", String(MAX_STEPS))
+    )).toBeTruthy();
+    expect(screen.queryByText(en["macroForm.saveHint.ready"])).toBeNull();
+  });
 });
+
+// Core rejects macros with more than 100 steps (MACRO_STEPS_TOO_MANY).
+const MAX_STEPS = 100;
+
+function delaySteps(count: number): Macro["steps"] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `delay-${index}`,
+    type: "delay" as const,
+    ms: 10
+  }));
+}
+
+function renderMacroEditor(selectedMacro: Macro): void {
+  const router = createMemoryRouter([
+    {
+      path: "/macros/:id/edit",
+      element: <MacroEditorRoute
+        games={[game()]}
+        isSaving={false}
+        macros={[selectedMacro]}
+        roles={[role()]}
+        t={t}
+        onSave={vi.fn(async () => undefined)}
+      />
+    },
+    { path: "/macros", element: <div>Macro list</div> }
+  ], { initialEntries: [`/macros/${selectedMacro.id}/edit`] });
+  render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+}
 
 const t: Translator = (key) => en[key];
 

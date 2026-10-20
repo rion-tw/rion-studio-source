@@ -671,7 +671,8 @@ function WorkspaceLayoutFormEditor({
                         </p>
                         <p className="mt-0.5 truncate text-micro font-medium text-muted-foreground">
                           {launchGameName}
-                          {status ? ` · ${t("status.running")}` : ""}
+                          {status ? ` · ${t(status.state === "launching" ? "status.launching"
+                            : status.state === "stopping" ? "status.stopping" : "status.running")}` : ""}
                         </p>
                       </div>
                       {isAssigned ? (

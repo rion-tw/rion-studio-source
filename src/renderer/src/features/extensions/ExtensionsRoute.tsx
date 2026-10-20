@@ -270,7 +270,7 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
       : snapshot.installed.length === 0 ? <EmptyState icon={Puzzle} title={t("extensions.empty")} actionLabel={t("extensions.add")} onAction={() => navigate(storePath)} />
       : visible.length === 0 ? <EmptyState icon={Search} title={t("extensions.noMatches")} actionLabel={t("extensions.clearSearch")} onAction={() => setQuery("")} />
       : <ul className="collection-grid collection-grid-extensions auto-rows-fr gap-3" aria-label={t("extensions.installed")}>
-        {visible.map(p => <ExtensionCard key={p.id} language={language} packageRecord={p} runtimeRoles={snapshot.roles} t={t}
+        {visible.map(p => <ExtensionCard key={p.id} language={language} packageRecord={p} roles={roles} runtimeRoles={snapshot.roles} t={t}
           onManage={() => { setError(""); returnFocus.current = p.id; navigate(editPath(p.id)); }} />)}
       </ul>}
   </PageFrame>;

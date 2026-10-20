@@ -470,3 +470,13 @@ it("keeps the store usable when a preparation is superseded after the store hide
   await user.click(back);
   expect(screen.getByText("No extensions installed yet.")).toBeTruthy();
 });
+
+it("counts only current roles on an installed extension card", async () => {
+  const deleted = ["deleted-1", "deleted-2"];
+  const snapshot = { ...original, installed: [{ ...original.installed[0], enabledRoleIds: [role.id, ...deleted] }] };
+  window.rionStudio = { extensions: vi.fn(async () => ({ snapshot, lease: null, prepared: null })), extensionStore: vi.fn(async () => ({})), onExtensionsChanged: () => () => undefined, onExtensionStoreChanged: () => () => undefined } as unknown as RionStudioApi;
+  const { update } = mount({ language: "en", roles: [role], t });
+  expect(await screen.findByText("1.0 · 1 role")).toBeTruthy();
+  await update({ roles: [role, { ...role, id: deleted[0], name: "Role B" }] });
+  expect(screen.getByText("1.0 · 2 roles")).toBeTruthy();
+});

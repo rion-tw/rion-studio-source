@@ -1,7 +1,7 @@
 import { Puzzle } from "lucide-react";
 
 import type { ExtensionPackageRecord, ExtensionRoleRecord } from "../../../../shared/generated";
-import type { AppLanguage } from "../../../../shared/types";
+import type { AppLanguage, Role } from "../../../../shared/types";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { Surface } from "../../components/ui/patterns";
@@ -11,12 +11,13 @@ import { formatExtensionBytes } from "./extensionSize";
 interface ExtensionCardProps {
   language: AppLanguage;
   packageRecord: ExtensionPackageRecord;
+  roles: readonly Role[];
   runtimeRoles: ExtensionRoleRecord[];
   t: Translator;
   onManage: () => void;
 }
 
-export function ExtensionCard({ language, packageRecord, runtimeRoles, t, onManage }: ExtensionCardProps) {
+export function ExtensionCard({ language, packageRecord, roles, runtimeRoles, t, onManage }: ExtensionCardProps) {
   const hasLoadFailure = runtimeRoles.some((role) =>
     role.extensionIds.includes(packageRecord.id) &&
     (role.status === "failed" || role.status === "indeterminate")
@@ -24,9 +25,11 @@ export function ExtensionCard({ language, packageRecord, runtimeRoles, t, onMana
   const hasCompatibilityDegradation = runtimeRoles.some((role) =>
     role.extensionIds.includes(packageRecord.id) && role.status === "degraded"
   );
+  // Deleting a Role does not rewrite stored rules, so count only current Roles.
+  const roleCount = packageRecord.enabledRoleIds.filter((id) => roles.some((role) => role.id === id)).length;
   const roleSummary = packageRecord.applyToAllRoles
     ? t("extensions.allRoles")
-    : `${packageRecord.enabledRoleIds.length} ${t("extensions.roles")}`;
+    : t(roleCount === 1 ? "extensions.roleCountOne" : "extensions.roleCountMany").replace("{count}", String(roleCount));
   const description = packageRecord.description?.trim() || t("extensions.noDescription");
   const size = packageRecord.sizeBytes === undefined
     ? t("extensions.sizeUnavailable")

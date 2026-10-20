@@ -267,6 +267,24 @@ describe("renderer error localization", () => {
     }
   });
 
+  it("replaces thrown native updater codes with grouped localized reasons", async () => {
+    const reasons = {
+      UPDATE_NETWORK_REQUEST_FAILED: "settings.updateErrorNetwork",
+      UPDATE_SIGNATURE_INVALID: "settings.updateErrorInvalid",
+      UPDATE_INSTALL_ATTEMPT_INVALID: "settings.updateErrorInstall",
+      UPDATE_NOT_READY: "settings.updateErrorUnknown"
+    } as const;
+
+    for (const language of languages) {
+      const translations = await loadTranslations(language);
+      const t = (key: TranslationKey) => translations[key];
+      for (const [code, key] of Object.entries(reasons) as Array<[string, TranslationKey]>) {
+        // The native updater bridge uses the code itself as the message.
+        expect(toMessage({ code, message: code }, language, t)).toBe(translations[key]);
+      }
+    }
+  });
+
   it("localizes the unassigned macro workflow error", async () => {
     const message = "Assign a role to this macro and every called macro before running it.";
     await Promise.all([loadTranslations("zh-TW"), loadTranslations("zh-CN"), loadTranslations("ja")]);

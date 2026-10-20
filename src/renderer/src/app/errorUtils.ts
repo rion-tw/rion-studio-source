@@ -1,10 +1,14 @@
-import { localizeErrorMessage, type Language, type Translator } from "../i18n";
+import { localizeErrorMessage, type Language, type TranslationKey, type Translator } from "../i18n";
 
 export function toMessage(error: unknown, language: Language, t: Translator): string {
   if (isSessionMigrationRequired(error)) return t("recovery.launchBlocked");
   if (isErrorLike(error)) {
     const errorKey = localizedErrorKey(error.code);
     if (errorKey) return t(errorKey);
+    // The native updater bridge uses its stable code as the message.
+    if (typeof error.code === "string" && error.code.startsWith("UPDATE_")) {
+      return t(updateErrorReasonKey(error.code));
+    }
     return localizeErrorMessage(error.message, language);
   }
 
@@ -13,6 +17,28 @@ export function toMessage(error: unknown, language: Language, t: Translator): st
   }
 
   return t("error.unexpected");
+}
+
+const updateErrorReasons: ReadonlyArray<readonly [readonly string[], TranslationKey]> = [
+  [["UPDATE_NETWORK_", "UPDATE_TRANSPORT_"], "settings.updateErrorNetwork"],
+  [
+    ["UPDATE_MANIFEST_", "UPDATE_SIGNATURE_", "UPDATE_ARTIFACT_", "UPDATE_VERIFICATION_", "UPDATE_PENDING_"],
+    "settings.updateErrorInvalid"
+  ],
+  [["UPDATE_INSTALL_", "UPDATE_PLATFORM_INSTALL_", "UPDATE_RELAUNCH_"], "settings.updateErrorInstall"]
+];
+
+/**
+ * Groups a stable rion-updater code into a localized reason. The exact code
+ * stays in the operational log, not in user-facing text.
+ */
+export function updateErrorReasonKey(code: string | null | undefined): TranslationKey {
+  if (code) {
+    for (const [prefixes, key] of updateErrorReasons) {
+      if (prefixes.some((prefix) => code.startsWith(prefix))) return key;
+    }
+  }
+  return "settings.updateErrorUnknown";
 }
 
 export function isSessionMigrationRequired(error: unknown): boolean {

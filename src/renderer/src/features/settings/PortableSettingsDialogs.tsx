@@ -3,6 +3,8 @@ import { FileJson, Upload } from "lucide-react";
 
 import { type JSX } from "react";
 
+import { updateErrorReasonKey } from "../../app/errorUtils";
+
 import { Button } from "../../components/ui/button";
 
 import { Checkbox } from "../../components/ui/checkbox";
@@ -578,15 +580,10 @@ export function formatUpdateStatus(status: AppUpdateStatus | null, t: Translator
     return t("settings.updateAvailable").replace("{version}", status.availableVersion);
   }
 
-  if (status.state === "error") {
-    return t("settings.updateError").replace("{error}", () => status.error ?? t("settings.updateErrorUnknown"));
-  }
-
-  if (status.state === "install_failed") {
-    return t("settings.updateInstallFailed").replace(
-      "{error}",
-      () => status.errorCode ?? status.error ?? t("settings.updateErrorUnknown")
-    );
+  if (status.state === "error" || status.state === "install_failed") {
+    const reason = t(updateErrorReasonKey(status.errorCode ?? status.error));
+    const template = status.state === "error" ? "settings.updateError" : "settings.updateInstallFailed";
+    return t(template).replace("{error}", () => reason);
   }
 
   return t(`settings.updateState.${status.state}`);

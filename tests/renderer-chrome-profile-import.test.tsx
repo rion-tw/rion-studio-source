@@ -47,6 +47,47 @@ afterEach(() => {
 });
 
 describe("Chrome profile import flow", () => {
+  it("keeps manual profile choices across role snapshots and a Chrome quit refresh", async () => {
+    const user = userEvent.setup();
+    const game = { id: "game-1", source: "custom", name: "Example", defaultLaunchUrl: "https://e.test",
+      createdAt: "", updatedAt: "" } as Game;
+    const role = { id: "role-1", gameId: "game-1", name: "Main", launchUrl: "https://e.test", notes: "",
+      createdAt: "", updatedAt: "" } as Role;
+    const profiles = [{ id: "Default", directoryName: "Default", name: "Main" },
+      { id: "P1", directoryName: "Profile 1", name: "Alt" }];
+    installApi({
+      previewChromeProfileImport: vi.fn().mockResolvedValue({ importId: "i1", sourceLabel: "x", sourceInUse: true, profiles }),
+      requestChromeQuitForImport: vi.fn().mockResolvedValue({ importId: "i1", sourceLabel: "x", sourceInUse: false, profiles }),
+      discardChromeProfileImport: vi.fn().mockResolvedValue(undefined)
+    });
+    const ui = (roles: Role[]) => (
+      <ConfirmationProvider>
+        <ChromeProfileImportFlow games={[game]} roles={roles} t={t} onError={vi.fn()} />
+      </ConfirmationProvider>
+    );
+    const choices = () => ({
+      main: screen.getByRole("checkbox", { name: /Main/ }).getAttribute("aria-checked"),
+      alt: screen.getByRole("checkbox", { name: /Alt/ }).getAttribute("aria-checked")
+    });
+    const { rerender } = render(ui([role]));
+    await user.click(screen.getByRole("button", { name: "Import from Chrome" }));
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "Choose Chrome folder" }));
+    await user.click(screen.getByRole("combobox", { name: "Game" }));
+    await user.click(screen.getByRole("option", { name: "Example" }));
+    expect(choices()).toEqual({ main: "true", alt: "false" });
+    await user.click(screen.getByRole("checkbox", { name: /Main/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Alt/ }));
+
+    rerender(ui([{ ...role }]));
+    expect(choices()).toEqual({ main: "false", alt: "true" });
+    await user.click(screen.getByRole("button", { name: "Close all Chrome" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Close all Chrome windows?" }))
+      .getByRole("button", { name: "Close all Chrome" }));
+    await vi.waitFor(() => expect(screen.queryByRole("button", { name: "Close all Chrome" })).toBeNull());
+    expect(choices()).toEqual({ main: "false", alt: "true" });
+  });
+
   it("requires fresh explicit consent and handles directory cancellation", async () => {
     const user = userEvent.setup();
     const previewChromeProfileImport = vi.fn().mockResolvedValue(null);

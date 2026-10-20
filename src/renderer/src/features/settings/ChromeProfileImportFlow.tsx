@@ -1,6 +1,6 @@
 import { Loader2, LogIn, Upload } from "lucide-react";
 import { createPortal } from "react-dom";
-import { type JSX, type ReactNode, useEffect, useId, useMemo, useState } from "react";
+import { type JSX, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type {
   ChromeProfileImportPreview,
@@ -49,6 +49,7 @@ export function ChromeProfileImportFlow({
   const [applyInProgress, setApplyInProgress] = useState(false);
   const [cancelRequested, setCancelRequested] = useState(false);
   const [launchingRoleId, setLaunchingRoleId] = useState<string | null>(null);
+  const preselectedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!preview || !window.rionStudio) return;
@@ -87,6 +88,27 @@ export function ChromeProfileImportFlow({
 
   useEffect(() => {
     if (!preview || !selectedGameId) return;
+    const preselectionKey = `${preview.importId}:${selectedGameId}`;
+    if (preselectedKeyRef.current === preselectionKey) {
+      // Role snapshots arrive with every status event. They must not undo the
+      // user's choices; only drop profiles or replacements that disappeared.
+      const roleIds = new Set(roles.map((role) => role.id));
+      setSelectedProfiles((current) => {
+        const next = current.filter((id) => preview.profiles.some((profile) => profile.id === id));
+        return next.length === current.length ? current : next;
+      });
+      setDecisions((current) => {
+        const stale = Object.entries(current).filter(([profileId, decision]) =>
+          !preview.profiles.some((profile) => profile.id === profileId) ||
+          (decision.startsWith("replace:") && !roleIds.has(decision.slice("replace:".length))));
+        if (stale.length === 0) return current;
+        const next = { ...current };
+        for (const [profileId] of stale) delete next[profileId];
+        return next;
+      });
+      return;
+    }
+    preselectedKeyRef.current = preselectionKey;
     const profileNameCounts = new Map<string, number>();
     for (const profile of preview.profiles) {
       const name = normalizedImportName(profile.name);
@@ -102,7 +124,7 @@ export function ChromeProfileImportFlow({
     }
     setSelectedProfiles(nextSelected);
     setDecisions(nextDecisions);
-  }, [conflicts, preview, selectedGameId]);
+  }, [conflicts, preview, roles, selectedGameId]);
 
   async function chooseChromeFolder(): Promise<void> {
     if (!window.rionStudio || !consentAccepted) return;

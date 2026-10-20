@@ -35,7 +35,9 @@ impl AppCore {
         );
         let identity_match = roles
             .iter()
-            .find(|role| role.game_id == game.id && role.name.eq_ignore_ascii_case(&base_name));
+            .find(|role| {
+                role.game_id == game.id && role.name.to_lowercase() == base_name.to_lowercase()
+            });
         let (role_name, existing_role, replace_existing) = match &resolution {
             ChromeProfileImportResolutionRecord::Create { .. } => {
                 if identity_match.is_some() {

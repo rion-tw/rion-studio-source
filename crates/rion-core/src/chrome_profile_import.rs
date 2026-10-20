@@ -215,21 +215,35 @@ pub(crate) fn normalized_profile_name(name: &str, directory_name: &str) -> Strin
     } else {
         value
     };
-    value.chars().take(80).collect()
+    value
+        .chars()
+        .take(MAX_ROLE_NAME_CHARS)
+        .collect::<String>()
+        .trim_end()
+        .to_owned()
 }
 
+const MAX_ROLE_NAME_CHARS: usize = 80;
+
 pub(crate) fn copy_role_name(base: &str, used: &std::collections::HashSet<String>) -> String {
-    let first = format!("{base} (Chrome)");
+    let first = copy_role_candidate(base, " (Chrome)");
     if !used.contains(&first.to_lowercase()) {
         return first;
     }
     for index in 2..=9999 {
-        let candidate = format!("{base} (Chrome {index})");
+        let candidate = copy_role_candidate(base, &format!(" (Chrome {index})"));
         if !used.contains(&candidate.to_lowercase()) {
             return candidate;
         }
     }
-    format!("{base} (Chrome {})", Uuid::new_v4())
+    copy_role_candidate(base, &format!(" (Chrome {})", Uuid::new_v4().simple()))
+}
+
+// The copy suffix must fit the Role name limit, so a long base yields first.
+fn copy_role_candidate(base: &str, suffix: &str) -> String {
+    let max_base = MAX_ROLE_NAME_CHARS.saturating_sub(suffix.chars().count());
+    let base = base.chars().take(max_base).collect::<String>();
+    format!("{}{suffix}", base.trim_end())
 }
 
 fn preview_record(
@@ -285,6 +299,24 @@ mod tests {
         assert_eq!(copy_role_name("Player", &used), "Player (Chrome)");
         used.insert("player (chrome)".to_owned());
         assert_eq!(copy_role_name("Player", &used), "Player (Chrome 2)");
+    }
+
+    #[test]
+    fn copy_names_fit_the_role_name_limit() {
+        let base = normalized_profile_name(&"É".repeat(100), "Default");
+        assert_eq!(base.chars().count(), 80);
+        let mut used = HashSet::new();
+        let first = copy_role_name(&base, &used);
+        assert_eq!(first.chars().count(), 80);
+        assert!(first.ends_with(" (Chrome)"));
+        used.insert(first.to_lowercase());
+        let second = copy_role_name(&base, &used);
+        assert_eq!(second.chars().count(), 80);
+        assert!(second.ends_with(" (Chrome 2)"));
+        assert_eq!(
+            normalized_profile_name(&format!("{} x", "a".repeat(79)), "Default"),
+            "a".repeat(79)
+        );
     }
 
     #[test]

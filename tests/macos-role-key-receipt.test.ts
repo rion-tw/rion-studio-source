@@ -15,9 +15,9 @@ import { withVisibleMacosRoleKeyReceipt, type VisibleMacosRoleReceiptKey } from
   "../e2e/desktop/support/native-application-actions";
 
 const target = { processId: 123, runtimeTabName: "Exact Role", runtimeWindowId: "exact-window" };
-const allowed: VisibleMacosRoleReceiptKey[] = ["KeyY", "Digit2", "Digit3", ...Array.from({ length: 12 }, (_, index) =>
+const allowed: VisibleMacosRoleReceiptKey[] = ["KeyY", "Digit2", "Digit3", "ShiftUp", ...Array.from({ length: 12 }, (_, index) =>
   [`F${index + 1}`, `Ctrl+F${index + 1}`] as VisibleMacosRoleReceiptKey[]).flat()];
-const forbidden = ["KeyX", "KeyF", "Ctrl+KeyY", "Shift+KeyY", "Digit1", "Digit4", "Ctrl+Digit2", "Shift+Digit3", "F0", "F13", "Alt+F1", "toggleFullscreen"];
+const forbidden = ["KeyX", "KeyF", "Ctrl+KeyY", "Shift+KeyY", "Digit1", "Digit4", "Ctrl+Digit2", "Shift+Digit3", "F0", "F13", "Alt+F1", "toggleFullscreen", "ShiftDown", "AltUp"];
 
 beforeEach(() => {
   vi.stubGlobal("process", { ...process, platform: "darwin" });

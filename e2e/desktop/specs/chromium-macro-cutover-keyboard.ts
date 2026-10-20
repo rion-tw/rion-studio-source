@@ -32,8 +32,11 @@ import {
   rendererEventCursor,
   waitForMacroProjection
 } from "../support/renderer-events";
-import { pressVisibleMacosRoleKey, pressVisibleWindowsApplicationShortcut } from
-  "../support/native-application-actions";
+import {
+  pressVisibleMacosRoleKey,
+  pressVisibleWindowsApplicationShortcut,
+  withVisibleMacosRoleKeyReceipt
+} from "../support/native-application-actions";
 import {
   installRuntimeTabShellErrorJournal,
   runtimeTabShellErrors
@@ -161,12 +164,22 @@ async function exerciseRapidShiftShortcuts(input: Readonly<{
         input.roleId,
         await readVisibleElectronCanvasPoint(input.launchUrl, input.mainWindowHandle)
       );
-      releaseNativeShift = () => pressVisibleMacosRoleKey({
-        code: "ShiftUp",
-        processId,
-        runtimeTabName: input.roleName,
-        runtimeWindowId: WINDOW_ID
-      });
+      // A one-shot sender can exit before Chromium consumes its keyup; retain
+      // it until the Role page observes the physical Shift release.
+      releaseNativeShift = async () => {
+        await withVisibleMacosRoleKeyReceipt({
+          code: "ShiftUp",
+          processId,
+          runtimeTabName: input.roleName,
+          runtimeWindowId: WINDOW_ID
+        }, (signal) => browser.waitUntil(async () => {
+          signal.throwIfAborted();
+          return !(await fixtureState())[ROLE_A_FIXTURE]?.pressedCodes.includes("ShiftLeft");
+        }, {
+          timeout: 10_000,
+          timeoutMsg: "The native Shift release did not reach the Role page"
+        }));
+      };
       await pressVisibleMacosRoleKey({
         code: input.order === "Digit2ThenDigit3"
           ? "Shift+Digit2ThenDigit3Hold"

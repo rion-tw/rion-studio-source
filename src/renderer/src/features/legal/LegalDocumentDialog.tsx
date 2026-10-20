@@ -25,6 +25,7 @@ const titleKeys = {
 export function LegalDocumentDialog({ kind, language, onClose, t }: LegalDocumentDialogProps): JSX.Element {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const scrollRegionRef = useRef<HTMLDivElement>(null);
+  const pressedBackdropRef = useRef(false);
 
   // A native modal makes the consent controls behind it inert and keeps focus
   // inside; the opener regains focus before the dialog leaves the DOM.
@@ -49,8 +50,13 @@ export function LegalDocumentDialog({ kind, language, onClose, t }: LegalDocumen
         event.preventDefault();
         onClose();
       }}
+      onPointerDown={(event) => {
+        pressedBackdropRef.current = event.target === event.currentTarget;
+      }}
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        // A text selection that ends outside the document is not a backdrop click.
+        if (event.target === event.currentTarget && pressedBackdropRef.current) onClose();
+        pressedBackdropRef.current = false;
       }}
     >
       <Surface

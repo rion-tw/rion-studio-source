@@ -54,6 +54,11 @@ describe("legal document dialog", () => {
 
     fireEvent.click(screen.getByRole("region", { name: "Terms of Use" }));
     expect(onClose).not.toHaveBeenCalled();
+    // Selecting text inside the document and releasing over the backdrop.
+    fireEvent.pointerDown(screen.getByRole("region", { name: "Terms of Use" }));
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.pointerDown(dialog);
     fireEvent.click(dialog);
     expect(onClose).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Close legal document" }));

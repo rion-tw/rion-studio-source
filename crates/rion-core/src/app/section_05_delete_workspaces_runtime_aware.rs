@@ -125,12 +125,11 @@ impl AppCore {
                 message: "Macro role IDs must reference existing roles.".to_owned(),
             });
         }
-        let stop_active = input.enabled == Some(false);
-        self.mutate_macros_with_mode(
-            vec![id.clone()],
-            stop_active,
-            StateMutation::MacroUpdate { id, input },
-        )
+        if input.enabled == Some(false) {
+            let lease = self.macro_runtime.acquire_disable_mutation(vec![id.clone()])?;
+            return self.finish_macro_mutation(lease, StateMutation::MacroUpdate { id, input });
+        }
+        self.mutate_macros_with_mode(vec![id.clone()], false, StateMutation::MacroUpdate { id, input })
     }
 
     fn mutate_macros_runtime_aware(
@@ -148,6 +147,10 @@ impl AppCore {
         mutation: StateMutation,
     ) -> CoreResult<Value> {
         let lease = self.macro_runtime.acquire_mutation(ids, stop_active)?;
+        self.finish_macro_mutation(lease, mutation)
+    }
+
+    fn finish_macro_mutation(&self, lease: String, mutation: StateMutation) -> CoreResult<Value> {
         let result = self.mutate_state(mutation);
         let release = self.macro_runtime.release_mutation(&lease);
         match (result, release) {

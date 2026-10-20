@@ -753,6 +753,22 @@ impl MacroRuntime {
         macro_ids: Vec<String>,
         stop_active: bool,
     ) -> CoreResult<String> {
+        self.acquire_mutation_with_callers(macro_ids, stop_active, false)
+    }
+
+    /// Disabling a Macro also stops invocations that would call it from their
+    /// start snapshot. Other mutations keep those callers: a referenced Macro
+    /// cannot be deleted, and edits only fence the Macro itself.
+    pub fn acquire_disable_mutation(&self, macro_ids: Vec<String>) -> CoreResult<String> {
+        self.acquire_mutation_with_callers(macro_ids, true, true)
+    }
+
+    fn acquire_mutation_with_callers(
+        &self,
+        macro_ids: Vec<String>,
+        stop_active: bool,
+        stop_callers: bool,
+    ) -> CoreResult<String> {
         let macro_ids = macro_ids
             .into_iter()
             .map(|id| id.trim().to_owned())
@@ -797,10 +813,11 @@ impl MacroRuntime {
                         .macro_ids
                         .lock()
                         .is_ok_and(|ids| !ids.is_disjoint(&macro_ids))
-                        || control
-                            .referenced_macro_ids
-                            .lock()
-                            .is_ok_and(|ids| !ids.is_disjoint(&macro_ids))
+                        || stop_callers
+                            && control
+                                .referenced_macro_ids
+                                .lock()
+                                .is_ok_and(|ids| !ids.is_disjoint(&macro_ids))
                 })
                 .cloned()
                 .collect::<Vec<_>>();

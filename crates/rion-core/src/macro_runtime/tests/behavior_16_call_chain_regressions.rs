@@ -89,7 +89,7 @@
     }
 
     #[test]
-    fn changing_a_called_macro_stops_the_parent_that_would_run_its_old_steps() {
+    fn disabling_a_called_macro_stops_the_parent_that_would_still_call_it() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -115,8 +115,8 @@
         runtime.dispatch_results(success_results(focus)).unwrap();
         handle.join().unwrap().unwrap();
 
-        // Disabling or editing x takes the same stop-active mutation lease.
-        let lease = runtime.acquire_mutation(vec!["x".to_owned()], true).unwrap();
+        // Disabling x stops callers whose start snapshot would run it again.
+        let lease = runtime.acquire_disable_mutation(vec!["x".to_owned()]).unwrap();
         runtime.release_mutation(&lease).unwrap();
 
         assert!(runtime.shared.inner.lock().unwrap().invocations.is_empty());
@@ -132,6 +132,44 @@
                 .any(|attempt| attempt.macro_id == "x")
         });
         assert!(!x_started, "the stopped parent started the changed Macro again");
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn a_refused_delete_or_an_edit_of_a_called_macro_keeps_its_caller_running() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let parent = chain_definition(
+            "m1",
+            vec![
+                MacroStepDefinition::Delay { id: "d".to_owned(), ms: 60_000 },
+                chain_call("call", "x", "wait"),
+            ],
+            MacroRepeat::Once,
+        );
+        let child = chain_definition(
+            "x",
+            vec![MacroStepDefinition::Delay { id: "xd".to_owned(), ms: 1 }],
+            MacroRepeat::Once,
+        );
+        let mut start = request(Vec::new());
+        start.macros = vec![parent, child];
+        let starting = runtime.clone();
+        let handle = thread::spawn(move || starting.start(start));
+        let focus = next_browser_actions(&receiver);
+        runtime.dispatch_results(success_results(focus)).unwrap();
+        handle.join().unwrap().unwrap();
+
+        // Delete takes a stop-active lease before the domain refuses to delete a
+        // referenced Macro; that refusal must not cost the caller its run.
+        let lease = runtime.acquire_mutation(vec!["x".to_owned()], true).unwrap();
+        runtime.release_mutation(&lease).unwrap();
+
+        assert_eq!(runtime.shared.inner.lock().unwrap().invocations.len(), 1);
+        assert!(runtime.statuses().unwrap().iter().any(|status| status.macro_id == "m1"));
+        runtime.stop_macro("m1").unwrap();
         runtime.shutdown();
     }
 

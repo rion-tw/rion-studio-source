@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import DashboardRoute from "../src/renderer/src/features/dashboard/DashboardRoute";
@@ -16,9 +16,12 @@ const t: Translator = (key) => en[key] ?? key;
 afterEach(cleanup);
 
 describe("Game Window recovery dashboard", () => {
-  it("offers recovery, one-window restore, show-all, stop, and discard actions", () => {
-    const onDiscard = vi.fn<(input: DiscardSavedGameWindowsInput) => void>();
-    const onRestore = vi.fn<(input: RestoreSavedGameWindowsInput) => void>();
+  it("offers recovery, one-window restore, show-all, stop, and discard actions", async () => {
+    let finishRestore: () => void = () => undefined;
+    const onDiscard = vi.fn<(input: DiscardSavedGameWindowsInput) => Promise<void>>().mockResolvedValue(undefined);
+    const onRestore = vi.fn<(input: RestoreSavedGameWindowsInput) => Promise<void>>(
+      () => new Promise<void>((resolve) => { finishRestore = resolve; })
+    );
     const onNavigateGameWindows = vi.fn();
 
     render(
@@ -93,6 +96,9 @@ describe("Game Window recovery dashboard", () => {
 
     expect(screen.getByText("Rion Studio did not close normally")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Restore session" }));
+    // One recovery action at a time; the banner stays until Core settles it.
+    expect((screen.getByRole("button", { name: "Discard" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => finishRestore());
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Show all" })[0]);
 

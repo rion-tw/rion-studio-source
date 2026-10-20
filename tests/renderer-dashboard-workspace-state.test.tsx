@@ -171,7 +171,7 @@ function renderDashboard({
       t={t}
       workspaces={workspace ? [workspace] : []}
       onCreateWorkspace={vi.fn()}
-      onDiscardSavedGameWindows={vi.fn()}
+      onDiscardSavedGameWindows={vi.fn().mockResolvedValue(undefined)}
       onLaunchRole={onLaunchRole}
       onLaunchWorkspace={onLaunchWorkspace}
       onNavigateGames={vi.fn()}
@@ -181,7 +181,7 @@ function renderDashboard({
       onNavigateWorkspaces={vi.fn()}
       onNewMacro={vi.fn()}
       onNewRole={vi.fn()}
-      onRestoreSavedGameWindows={vi.fn()}
+      onRestoreSavedGameWindows={vi.fn().mockResolvedValue(undefined)}
       onStartMacro={vi.fn()}
       onStopMacro={vi.fn()}
     />

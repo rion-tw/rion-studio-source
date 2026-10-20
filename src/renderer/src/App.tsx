@@ -736,12 +736,14 @@ export function App(): JSX.Element {
                     t={preferences.t}
                     workspaces={data.workspaces}
                     onCreateWorkspace={navigateToNewWorkspace}
-                    onRestoreSavedGameWindows={(input) =>
-                      void window.rionStudio.restoreSavedGameWindows(input)
-                    }
-                    onDiscardSavedGameWindows={(input) =>
-                      void window.rionStudio.discardSavedGameWindows(input)
-                    }
+                    onRestoreSavedGameWindows={(input) => {
+                      const reportError = beginErrorOperation();
+                      return window.rionStudio.restoreSavedGameWindows(input).then(() => undefined, reportError);
+                    }}
+                    onDiscardSavedGameWindows={(input) => {
+                      const reportError = beginErrorOperation();
+                      return window.rionStudio.discardSavedGameWindows(input).then(() => undefined, reportError);
+                    }}
                     onLaunchRole={(roleId) => void roleWorkflow.handleLaunch(roleId)}
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
                     onNavigateMacros={navigateToMacros}

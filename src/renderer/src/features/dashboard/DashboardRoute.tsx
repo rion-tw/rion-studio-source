@@ -11,7 +11,7 @@ import {
   RotateCcw,
   Users
 } from "lucide-react";
-import { type JSX, useMemo } from "react";
+import { type JSX, useMemo, useState } from "react";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -59,8 +59,8 @@ interface DashboardRouteProps {
   t: Translator;
   workspaces: LaunchWorkspace[];
   onCreateWorkspace: () => void;
-  onRestoreSavedGameWindows: (input: RestoreSavedGameWindowsInput) => void;
-  onDiscardSavedGameWindows: (input: DiscardSavedGameWindowsInput) => void;
+  onRestoreSavedGameWindows: (input: RestoreSavedGameWindowsInput) => Promise<void>;
+  onDiscardSavedGameWindows: (input: DiscardSavedGameWindowsInput) => Promise<void>;
   onLaunchRole: (roleId: string) => void;
   onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
   onNavigateMacros: () => void;
@@ -105,6 +105,12 @@ function DashboardRoute({
   onStartMacro,
   onStopMacro
 }: DashboardRouteProps): JSX.Element {
+  const [isRecoveryBusy, setIsRecoveryBusy] = useState(false);
+  function runRecoveryAction(action: () => Promise<void>): void {
+    if (isRecoveryBusy) return;
+    setIsRecoveryBusy(true);
+    void action().finally(() => setIsRecoveryBusy(false));
+  }
   const summary = useMemo(
     () => createDashboardSummary({ macroStatuses, macros, roleStatuses, roles, workspaces }),
     [macroStatuses, macros, roleStatuses, roles, workspaces]
@@ -173,13 +179,15 @@ function DashboardRoute({
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => onDiscardSavedGameWindows({ scope: "all" })}
+              disabled={isRecoveryBusy}
+              onClick={() => runRecoveryAction(() => onDiscardSavedGameWindows({ scope: "all" }))}
             >
               {t("dashboard.gameWindows.discard")}
             </Button>
             <Button
               size="sm"
-              onClick={() => onRestoreSavedGameWindows({ scope: "last-visible" })}
+              disabled={isRecoveryBusy}
+              onClick={() => runRecoveryAction(() => onRestoreSavedGameWindows({ scope: "last-visible" }))}
             >
               <RotateCcw aria-hidden="true" size={14} />
               {t("dashboard.gameWindows.restore")}

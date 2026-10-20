@@ -168,6 +168,11 @@ export class RuntimeTabDragController {
     if (session.terminal || session.abort.signal.aborted) return;
     const source = core.logicalWindows.find(w => w.windowId === receipt.currentWindowId);
     if (!source) fail("The dragged tab no longer has a live owner.");
+    // A reorder or any other publish retires the owner's painted tab strip.
+    // Hit-test only once that host reports geometry for its current projection.
+    const owner = this.#input.native().windows.find(w => w.windowId === source.windowId);
+    if (owner) await this.#host(session, owner.windowId, owner.windowGeneration).ready?.(session.start.tabId, session.abort.signal);
+    if (session.terminal || session.abort.signal.aborted) return;
     const natives = this.#input.native().windows;
     const findTarget = () => natives.filter(w => w.visible && w.windowId !== receipt.floatingWindowId)
       .find(w => this.#host(session, w.windowId, w.windowGeneration).contains(point) &&

@@ -84,16 +84,18 @@ export function useGameWorkflow({
     const singleAssignedNames = assignedRoleNamesByGameId.get(games[0]?.id ?? "") ?? [];
     const description = isSingle && protectedCount === 0 && inUseGames.length === 0
       ? t("games.delete.description")
-      : isSingle && singleAssignedNames.length > 0
-        ? t("games.delete.inUse").replace("{names}", singleAssignedNames.join(", "))
-        : t("bulkDelete.games.description")
-            .replace("{deletable}", String(deletableCount))
-            .replace("{skipped}", String(skippedCount))
-            .replace("{protected}", String(protectedCount))
-            .replace("{inUse}", String(inUseGames.length));
+      : isSingle && protectedCount === 1
+        ? t("games.delete.builtin")
+        : isSingle
+          ? t("games.delete.inUse").replace("{names}", () => singleAssignedNames.join(", "))
+          : t("bulkDelete.games.description")
+              .replace("{deletable}", String(deletableCount))
+              .replace("{skipped}", String(skippedCount))
+              .replace("{protected}", String(protectedCount))
+              .replace("{inUse}", String(inUseGames.length));
     const confirmed = await confirm({
       title: isSingle
-        ? t("games.delete.title").replace("{name}", games[0].name)
+        ? t("games.delete.title").replace("{name}", () => games[0].name)
         : t("bulkDelete.games.title").replace("{count}", String(games.length)),
       description,
       cancelLabel: t("confirm.cancel"),

@@ -1244,6 +1244,7 @@
   "games.reset.action": "重置默认值",
   "games.delete.title": "删除 {name}？",
   "games.delete.description": "仍有角色的游戏无法删除，也不会自动删除任何角色数据。",
+  "games.delete.builtin": "内置游戏无法删除。可使用“重置默认值”恢复内置的启动设置。",
   "games.delete.inUse": "请先改派或删除以下关联角色：{names}。",
   "settings.warningGameRenamed": "游戏“{name}”将以“{next}”导入。",
   "settings.warningBuiltinGameReplaced": "内置游戏“{name}”将使用导入的可编辑默认值。",

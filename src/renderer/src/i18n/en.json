@@ -1248,6 +1248,7 @@
   "games.reset.action": "Reset defaults",
   "games.delete.title": "Delete {name}?",
   "games.delete.description": "Games with assigned roles cannot be deleted. No role data is deleted automatically.",
+  "games.delete.builtin": "Built-in games cannot be deleted. Use Reset defaults to restore their packaged launch settings.",
   "games.delete.inUse": "Move or delete these assigned roles first: {names}.",
   "error.gameNotFound": "Game not found.",
   "error.gameDataInvalid": "The game data file is invalid.",

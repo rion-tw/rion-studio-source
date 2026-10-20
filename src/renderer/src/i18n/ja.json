@@ -1244,6 +1244,7 @@
   "games.reset.action": "既定値をリセット",
   "games.delete.title": "{name} を削除しますか？",
   "games.delete.description": "ロールが割り当てられたゲームは削除できません。ロールデータは自動削除されません。",
+  "games.delete.builtin": "内蔵ゲームは削除できません。パッケージの起動設定に戻すには「既定値をリセット」を使用してください。",
   "games.delete.inUse": "先に次の割り当て済みロールを移動または削除してください：{names}。",
   "settings.warningGameRenamed": "ゲーム「{name}」は「{next}」としてインポートされます。",
   "settings.warningBuiltinGameReplaced": "内蔵ゲーム「{name}」にはインポートした編集可能な既定値が適用されます。",

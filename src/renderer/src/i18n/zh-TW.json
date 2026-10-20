@@ -1244,6 +1244,7 @@
   "games.reset.action": "重設預設值",
   "games.delete.title": "刪除 {name}？",
   "games.delete.description": "仍有角色的遊戲無法刪除，也不會自動刪除任何角色資料。",
+  "games.delete.builtin": "內建遊戲無法刪除。可使用「重設預設值」還原內建的啟動設定。",
   "games.delete.inUse": "請先改派或刪除以下關聯角色：{names}。",
   "settings.warningGameRenamed": "遊戲「{name}」將以「{next}」匯入。",
   "settings.warningBuiltinGameReplaced": "內建遊戲「{name}」將套用匯入的可編輯預設值。",

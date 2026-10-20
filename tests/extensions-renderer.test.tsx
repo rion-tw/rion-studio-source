@@ -13,7 +13,7 @@ import zhCN from "../src/renderer/src/i18n/zh-CN.json";
 import zhTW from "../src/renderer/src/i18n/zh-TW.json";
 import type { Translator } from "../src/renderer/src/i18n";
 import type { RionStudioApi } from "../src/shared/api";
-import type { ExtensionSnapshotRecord } from "../src/shared/generated";
+import type { ExtensionLoadOutcomeRecord, ExtensionSnapshotRecord } from "../src/shared/generated";
 import type { Role } from "../src/shared/types";
 
 const t: Translator = key => en[key];
@@ -35,7 +35,7 @@ const original: ExtensionSnapshotRecord = {
     applyToAllRoles: false,
     removed: false
   }],
-  roles: [{ roleId: role.id, leaseId: "lease", extensionIds: [id], status: "loaded" }]
+  roles: [{ roleId: role.id, leaseId: "lease", extensionIds: [id], status: "loaded", outcomes: [{ extensionId: id, status: "loaded" }] }]
 };
 afterEach(cleanup);
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -141,7 +141,7 @@ it("renders installed metadata in equal-height three-column cards with graceful 
   const fallbackId = "b".repeat(32);
   const snapshot: ExtensionSnapshotRecord = {
     ...original,
-    roles: [{ ...original.roles[0], status: "failed" }],
+    roles: [{ ...original.roles[0], status: "failed", outcomes: [{ extensionId: id, status: "failed" }] }],
     installed: [
       original.installed[0],
       { ...original.installed[0], id: fallbackId, name: "Legacy fixture", description: undefined, iconDataUrl: undefined, sizeBytes: undefined },
@@ -177,6 +177,48 @@ it("renders installed metadata in equal-height three-column cards with graceful 
   expect(longContentCard.querySelector("h2")?.className).toContain("truncate");
   expect(longContentCard.querySelector("[data-extension-description]")?.className).toContain("line-clamp-2");
   expect(longContentCard.querySelector("[data-extension-record-id]")?.className).toContain("truncate");
+});
+
+it("labels each extension on a shared Role with its own outcome, never a neighbour's", async () => {
+  const blocked = "b".repeat(32);
+  const skipped = "c".repeat(32);
+  const lease = (revision: number, status: string, outcomes: ExtensionLoadOutcomeRecord[]): ExtensionSnapshotRecord => ({
+    revision,
+    installed: [[id, "Healthy"], [blocked, "Blocked"], [skipped, "Skipped"]].map(([extensionId, name]) =>
+      ({ ...original.installed[0], id: extensionId, name })),
+    roles: [{ roleId: role.id, leaseId: "lease", extensionIds: [id, blocked, skipped], status, outcomes }]
+  });
+  const f = fixture(lease(3, "degraded", [
+    { extensionId: id, status: "loaded" },
+    { extensionId: blocked, status: "degraded" },
+    { extensionId: skipped, status: "loaded" }
+  ]));
+  const { router } = mount({ language: "en", roles: [role], t });
+  const list = await screen.findByRole("list", { name: "Installed" });
+  const card = (extensionId: string) => within(list.querySelector(`[data-extension-id="${extensionId}"]`) as HTMLElement);
+  expect(card(id).queryByText("Limited compatibility")).toBeNull();
+  expect(card(blocked).getByText("Limited compatibility")).toBeTruthy();
+  expect(card(skipped).queryByText("Limited compatibility")).toBeNull();
+
+  // An attributed stop fails only that package; one never attempted gets no terminal.
+  await act(async () => f.publish(lease(4, "indeterminate", [
+    { extensionId: id, status: "loaded" },
+    { extensionId: blocked, status: "indeterminate" }
+  ])));
+  expect(card(id).queryByText("Load failed")).toBeNull();
+  expect(card(blocked).getByText("Load failed")).toBeTruthy();
+  expect(card(skipped).queryByText("Load failed")).toBeNull();
+
+  await act(async () => { await router.navigate(`/extensions/${id}/edit`); });
+  expect(await screen.findByText("Loaded")).toBeTruthy();
+  expect(screen.queryByText("Load failed")).toBeNull();
+  await act(async () => { await router.navigate(`/extensions/${blocked}/edit`); });
+  expect(await screen.findAllByText("Load failed")).toHaveLength(2);
+  expect(screen.queryByText("Loaded")).toBeNull();
+  await act(async () => { await router.navigate(`/extensions/${skipped}/edit`); });
+  expect(await screen.findByRole("heading", { level: 1, name: "Manage extension" })).toBeTruthy();
+  expect(screen.queryByText("Loaded")).toBeNull();
+  expect(screen.queryByText("Load failed")).toBeNull();
 });
 
 it("formats installed bytes as localized tabular B, KB, and MB values", () => {

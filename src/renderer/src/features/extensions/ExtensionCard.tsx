@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
+import { extensionRuntimeStatus, isExtensionLoadFailure } from "./extensionRuntimeStatus";
 import { formatExtensionBytes } from "./extensionSize";
 
 interface ExtensionCardProps {
@@ -18,13 +19,9 @@ interface ExtensionCardProps {
 }
 
 export function ExtensionCard({ language, packageRecord, roles, runtimeRoles, t, onManage }: ExtensionCardProps) {
-  const hasLoadFailure = runtimeRoles.some((role) =>
-    role.extensionIds.includes(packageRecord.id) &&
-    (role.status === "failed" || role.status === "indeterminate")
-  );
-  const hasCompatibilityDegradation = runtimeRoles.some((role) =>
-    role.extensionIds.includes(packageRecord.id) && role.status === "degraded"
-  );
+  const statuses = runtimeRoles.map((role) => extensionRuntimeStatus(role, packageRecord.id));
+  const hasLoadFailure = statuses.some(isExtensionLoadFailure);
+  const hasCompatibilityDegradation = statuses.includes("degraded");
   // Deleting a Role does not rewrite stored rules, so count only current Roles.
   const roleCount = packageRecord.enabledRoleIds.filter((id) => roles.some((role) => role.id === id)).length;
   const roleSummary = packageRecord.applyToAllRoles

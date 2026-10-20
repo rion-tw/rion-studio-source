@@ -56,7 +56,8 @@ describe.each(["darwin", "win32"])("Extension session lifecycle (%s)", platform 
     const { native, core, handle, sessions } = fixture();
     native.loadExtension.mockRejectedValueOnce(new Error("failure"));
     await expect(sessions.prepare(handle)).resolves.toBeUndefined();
-    expect(core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: { type: "complete", roleId: "role", leaseId: "lease-1", status: "degraded" } });
+    expect(core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: { type: "complete", roleId: "role", leaseId: "lease-1",
+      status: "degraded", outcomes: [{ extensionId: id, status: "degraded" }] } });
     await expect(sessions.prepare({ ...handle })).rejects.toThrow("EXTENSIONS_STALE_SESSION");
     await sessions.release(handle);
   });
@@ -89,8 +90,82 @@ describe.each(["darwin", "win32"])("Extension session lifecycle (%s)", platform 
     await expect(sessions.prepare(handle)).resolves.toBeUndefined();
     expect(native.loadExtension).not.toHaveBeenCalled();
     expect(core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
-      type: "complete", roleId: "role", leaseId: "lease-blocked", status: "degraded"
+      type: "complete", roleId: "role", leaseId: "lease-blocked", status: "degraded",
+      outcomes: [{ extensionId: id, status: "degraded" }]
     } });
+  });
+});
+
+describe.each(["darwin", "win32"])("Per-package extension outcomes (%s)", platform => {
+  const blocked = "b".repeat(32);
+  const later = "c".repeat(32);
+  function fixture(blockedPermissions: string[] = []) {
+    const directory = (name: string) => platform === "win32" ? `C:\\${name}` : `/${name}`;
+    const installed = [[id, "healthy"], [blocked, "blocked"], [later, "later"]].map(([packageId, name]) => ({
+      id: packageId, removed: false, directory: directory(name),
+      requiredApiPermissions: packageId === blocked ? blockedPermissions : []
+    }));
+    const native = Object.assign(new EventEmitter(), {
+      current: [] as { id: string }[],
+      getAllExtensions: vi.fn(() => native.current),
+      loadExtension: vi.fn(async (path: string): Promise<{ id: string }> => {
+        const loaded = { id: installed.find(record => record.directory === path)?.id ?? "" };
+        native.current.push(loaded);
+        return loaded;
+      }),
+      removeExtension: vi.fn((removedId: string) => {
+        native.current = native.current.filter(e => e.id !== removedId);
+        native.emit("extension-unloaded", {}, { id: removedId });
+      })
+    });
+    const core = { invoke: vi.fn(async (input: { command: { type: string } }) => ({
+      snapshot: { revision: 1, roles: [], installed },
+      lease: input.command.type === "acquire"
+        ? { roleId: "role", leaseId: "lease", extensionIds: [id, blocked, later], status: "loading", outcomes: [] }
+        : null,
+      prepared: null
+    })) };
+    const handle = { roleId: "role", chromiumUserDataDir: directory("role"), session: { extensions: native } };
+    const sessions = new ChromiumExtensionSessions(core as never, { deadlineMs: 1 });
+    return { native, core, handle: handle as unknown as ChromiumRoleSessionHandle, sessions };
+  }
+  const completion = (status: string, outcomes: { extensionId: string; status: string }[]) =>
+    ({ type: "extensions", command: { type: "complete", roleId: "role", leaseId: "lease", status, outcomes } });
+
+  it("keeps a healthy package loaded beside one that requires a fatal permission", async () => {
+    const { native, core, handle, sessions } = fixture(["proxy"]);
+    await expect(sessions.prepare(handle)).resolves.toBeUndefined();
+    expect(native.loadExtension).toHaveBeenCalledTimes(2);
+    expect(core.invoke).toHaveBeenLastCalledWith(completion("degraded", [
+      { extensionId: id, status: "loaded" },
+      { extensionId: blocked, status: "degraded" },
+      { extensionId: later, status: "loaded" }
+    ]));
+  });
+
+  it("charges an indeterminate load only to its own package", async () => {
+    const { native, core, handle, sessions } = fixture();
+    native.loadExtension.mockImplementationOnce(async () => {
+      native.current.push({ id });
+      return { id };
+    }).mockImplementationOnce(() => new Promise(() => undefined));
+    await expect(sessions.prepare(handle)).rejects.toThrow("EXTENSIONS_LOAD_INDETERMINATE");
+    expect(native.loadExtension).toHaveBeenCalledTimes(2);
+    expect(core.invoke).toHaveBeenLastCalledWith(completion("indeterminate", [
+      { extensionId: id, status: "loaded" },
+      { extensionId: blocked, status: "indeterminate" }
+    ]));
+  });
+
+  it("charges a Role-scoped stop to every package without its own terminal", async () => {
+    const { core, handle, sessions } = fixture();
+    (handle.session as { extensions?: unknown }).extensions = undefined;
+    await expect(sessions.prepare(handle)).rejects.toThrow("EXTENSIONS_SESSION_UNSUPPORTED");
+    expect(core.invoke).toHaveBeenLastCalledWith(completion("failed", [
+      { extensionId: id, status: "failed" },
+      { extensionId: blocked, status: "failed" },
+      { extensionId: later, status: "failed" }
+    ]));
   });
 });
 
@@ -347,7 +422,8 @@ it("waits for the exact compatibility receipt and unloads a bootstrap timeout", 
   })).resolves.toBeUndefined();
   expect(native.removeExtension).toHaveBeenCalledWith(id);
   expect(core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
-    type: "complete", roleId: "role", leaseId: "lease-timeout", status: "degraded"
+    type: "complete", roleId: "role", leaseId: "lease-timeout", status: "degraded",
+      outcomes: [{ extensionId: id, status: "degraded" }]
   } });
 });
 
@@ -407,7 +483,8 @@ it("accepts a matching compatibility receipt after static rulesets are enabled",
   const surface = { contents: {}, window: {} };
   await expect(sessions.prepare(handle, surface)).resolves.toBeUndefined();
   expect(core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
-    type: "complete", roleId: "role", leaseId: "lease-ready", status: "loaded"
+    type: "complete", roleId: "role", leaseId: "lease-ready", status: "loaded",
+      outcomes: [{ extensionId: id, status: "loaded" }]
   } });
   sessions.retireSurface(handle, surface, false);
   await sessions.release(handle);

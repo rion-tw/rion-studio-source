@@ -40,6 +40,7 @@ fn export_bindings_index() {
                 "export type { ExtensionSnapshotRecord } from \"./ExtensionSnapshotRecord\";\n",
                 "export type { ExtensionPackageRecord } from \"./ExtensionPackageRecord\";\n",
                 "export type { ExtensionRoleRecord } from \"./ExtensionRoleRecord\";\n",
+                "export type { ExtensionLoadOutcomeRecord } from \"./ExtensionLoadOutcomeRecord\";\n",
                 "export type { ExtensionPreparedRecord } from \"./ExtensionPreparedRecord\";\n",
                 "export type { ExtensionResultRecord } from \"./ExtensionResultRecord\";\n",
                 "export type { BrowserActionRequest } from \"./BrowserActionRequest\";\n",

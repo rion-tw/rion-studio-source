@@ -71,8 +71,9 @@ fn extension_configuration_is_durable_and_active_leases_are_frozen() {
             .unwrap();
         let lease = acquired["lease"]["leaseId"].as_str().unwrap();
         assert_eq!(acquired["lease"]["extensionIds"], json!([id]));
-        assert!(core.invoke(command(json!({"type":"extensions","command":{"type":"complete","roleId":role,"leaseId":"stale","status":"loaded"}}))).is_err());
-        core.invoke(command(json!({"type":"extensions","command":{"type":"complete","roleId":role,"leaseId":lease,"status":"loaded"}}))).unwrap();
+        let loaded = json!([{"extensionId":id,"status":"loaded"}]);
+        assert!(core.invoke(command(json!({"type":"extensions","command":{"type":"complete","roleId":role,"leaseId":"stale","status":"loaded","outcomes":loaded}}))).is_err());
+        core.invoke(command(json!({"type":"extensions","command":{"type":"complete","roleId":role,"leaseId":lease,"status":"loaded","outcomes":loaded}}))).unwrap();
         let configured = core
             .invoke(command(
                 json!({"type":"extensions","command":{"type":"configure","id":id,"roleIds":[]}}),
@@ -120,21 +121,48 @@ fn extensions_are_unavailable_in_the_stable_shell() {
     }
 }
 
+/// Seeds installed packages enabled for `role` without a store download.
+fn seed_extension_packages(core: &AppCore, directory: &std::path::Path, role: &str, ids: &[String]) {
+    let installed: Vec<Value> = ids
+        .iter()
+        .map(|id| {
+            json!({
+                "id": id, "name": "Fixture", "version": "1", "permissions": [],
+                "requiredApiPermissions": [], "sha256": "0".repeat(64),
+                "directory": directory.join("extensions").join(id),
+                "enabledRoleIds": [role], "removed": false
+            })
+        })
+        .collect();
+    core.with_runtime(|r| {
+        r.state.replace_scalar(
+            "extensions".to_owned(),
+            json!({ "revision": 1, "roles": [], "installed": installed }),
+        )
+    })
+    .unwrap();
+}
+
 #[test]
 fn extension_runtime_accepts_only_declared_terminal_statuses() {
     for platform in ["darwin", "win32"] {
-        let (_directory, core) = core_for_platform_contract(platform, 34);
+        let (directory, core) = core_for_platform_contract(platform, 34);
         let role = create_role(&core, &first_game_id(&core), 1);
+        let id = "a".repeat(32);
+        seed_extension_packages(&core, directory.path(), &role, std::slice::from_ref(&id));
         let invoke =
             |input: Value| core.invoke(command(json!({"type":"extensions","command":input})));
         for status in ["loaded", "degraded", "failed", "indeterminate"] {
             let acquired = invoke(json!({"type":"acquire","roleId":role})).unwrap();
             let lease = acquired["lease"]["leaseId"].as_str().unwrap();
+            assert_eq!(acquired["lease"]["outcomes"], json!([]));
+            let outcomes = json!([{"extensionId":id,"status":status}]);
             let completed = invoke(json!({
-                "type":"complete","roleId":role,"leaseId":lease,"status":status
+                "type":"complete","roleId":role,"leaseId":lease,"status":status,"outcomes":outcomes
             }))
             .unwrap();
             assert_eq!(completed["snapshot"]["roles"][0]["status"], status);
+            assert_eq!(completed["snapshot"]["roles"][0]["outcomes"], outcomes);
             invoke(json!({"type":"release","roleId":role,"leaseId":lease})).unwrap();
         }
         let acquired = invoke(json!({"type":"acquire","roleId":role})).unwrap();
@@ -142,9 +170,100 @@ fn extension_runtime_accepts_only_declared_terminal_statuses() {
             "type":"complete",
             "roleId":role,
             "leaseId":acquired["lease"]["leaseId"],
-            "status":"timed-out"
+            "status":"timed-out",
+            "outcomes":[{"extensionId":id,"status":"timed-out"}]
         }))
         .is_err());
+        core.shutdown();
+    }
+}
+
+#[test]
+fn extension_outcomes_keep_a_healthy_package_healthy_beside_a_degraded_one() {
+    for platform in ["darwin", "win32"] {
+        let (directory, core) = core_for_platform_contract(platform, 34);
+        let role = create_role(&core, &first_game_id(&core), 1);
+        let healthy = "a".repeat(32);
+        let blocked = "b".repeat(32);
+        seed_extension_packages(
+            &core,
+            directory.path(),
+            &role,
+            &[healthy.clone(), blocked.clone()],
+        );
+        let invoke =
+            |input: Value| core.invoke(command(json!({"type":"extensions","command":input})));
+        let outcome = |id: &str, status: &str| json!({"extensionId":id,"status":status});
+        let complete = |lease: &Value, status: &str, outcomes: Value| {
+            invoke(json!({
+                "type":"complete","roleId":role,"leaseId":lease,"status":status,"outcomes":outcomes
+            }))
+        };
+
+        // A fatal-permission package degrades only itself.
+        let acquired = invoke(json!({"type":"acquire","roleId":role})).unwrap();
+        let lease = acquired["lease"]["leaseId"].clone();
+        assert_eq!(acquired["lease"]["extensionIds"], json!([healthy, blocked]));
+        let degraded = json!([outcome(&healthy, "loaded"), outcome(&blocked, "degraded")]);
+        let completed = complete(&lease, "degraded", degraded.clone()).unwrap();
+        assert_eq!(completed["snapshot"]["roles"][0]["status"], "degraded");
+        assert_eq!(completed["snapshot"]["roles"][0]["outcomes"], degraded);
+        invoke(json!({"type":"release","roleId":role,"leaseId":lease})).unwrap();
+
+        // An attributed failure stops the Role without relabelling the package that loaded.
+        let acquired = invoke(json!({"type":"acquire","roleId":role})).unwrap();
+        let lease = acquired["lease"]["leaseId"].clone();
+        let stopped = json!([outcome(&healthy, "loaded"), outcome(&blocked, "indeterminate")]);
+        let completed = complete(&lease, "indeterminate", stopped.clone()).unwrap();
+        assert_eq!(completed["snapshot"]["roles"][0]["outcomes"], stopped);
+        invoke(json!({"type":"release","roleId":role,"leaseId":lease})).unwrap();
+
+        let acquired = invoke(json!({"type":"acquire","roleId":role})).unwrap();
+        let lease = acquired["lease"]["leaseId"].clone();
+        for (status, outcomes) in [
+            ("degraded", json!([outcome(&blocked, "degraded")])),
+            ("loaded", json!([outcome(&healthy, "loaded"), outcome(&blocked, "degraded")])),
+            ("degraded", json!([outcome(&healthy, "loaded"), outcome(&blocked, "loaded")])),
+            ("degraded", json!([outcome(&healthy, "loaded"), outcome(&blocked, "failed")])),
+            ("failed", json!([outcome(&healthy, "indeterminate")])),
+            ("failed", json!([outcome(&healthy, "loaded"), outcome(&healthy, "loaded")])),
+            ("failed", json!([outcome(&"c".repeat(32), "failed")])),
+            ("failed", json!([outcome(&healthy, "loaded"), outcome(&blocked, "timed-out")])),
+        ] {
+            assert!(
+                complete(&lease, status, outcomes.clone()).is_err(),
+                "{status} {outcomes}"
+            );
+        }
+        let snapshot = invoke(json!({"type":"snapshot"})).unwrap()["snapshot"].clone();
+        assert_eq!(snapshot["roles"][0]["status"], "loading");
+        assert_eq!(snapshot["roles"][0]["outcomes"], json!([]));
+        invoke(json!({"type":"release","roleId":role,"leaseId":lease})).unwrap();
+        core.shutdown();
+    }
+}
+
+#[test]
+fn extension_snapshot_reads_a_role_record_written_before_per_package_outcomes() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_platform_contract(platform, 34);
+        core.with_runtime(|r| {
+            r.state.replace_scalar(
+                "extensions".to_owned(),
+                json!({ "revision": 4, "installed": [], "roles": [{
+                    "roleId": "legacy", "leaseId": "lease", "extensionIds": [], "status": "loaded"
+                }] }),
+            )
+        })
+        .unwrap();
+        let snapshot = core
+            .invoke(command(
+                json!({"type":"extensions","command":{"type":"snapshot"}}),
+            ))
+            .unwrap()["snapshot"]
+            .clone();
+        assert_eq!(snapshot["revision"], 4);
+        assert_eq!(snapshot["roles"], json!([]));
         core.shutdown();
     }
 }

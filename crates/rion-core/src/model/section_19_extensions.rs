@@ -44,6 +44,19 @@ pub struct ExtensionRoleRecord {
     pub lease_id: String,
     pub extension_ids: Vec<String>,
     pub status: String,
+    /// Each package's own terminal once the lease completes; a package absent
+    /// from a completed lease was never attempted because another package
+    /// stopped the Role's load.
+    #[serde(default)]
+    pub outcomes: Vec<ExtensionLoadOutcomeRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ExtensionLoadOutcomeRecord {
+    pub extension_id: String,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -92,6 +105,7 @@ pub enum ExtensionCommand {
         role_id: String,
         lease_id: String,
         status: String,
+        outcomes: Vec<ExtensionLoadOutcomeRecord>,
     },
     Release {
         role_id: String,

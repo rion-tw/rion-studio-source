@@ -3,6 +3,7 @@ export type { ExtensionCommand } from "./ExtensionCommand";
 export type { ExtensionSnapshotRecord } from "./ExtensionSnapshotRecord";
 export type { ExtensionPackageRecord } from "./ExtensionPackageRecord";
 export type { ExtensionRoleRecord } from "./ExtensionRoleRecord";
+export type { ExtensionLoadOutcomeRecord } from "./ExtensionLoadOutcomeRecord";
 export type { ExtensionPreparedRecord } from "./ExtensionPreparedRecord";
 export type { ExtensionResultRecord } from "./ExtensionResultRecord";
 export type { BrowserActionRequest } from "./BrowserActionRequest";

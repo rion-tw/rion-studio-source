@@ -5,6 +5,41 @@ fn extension_package_core_error(error: crate::extensions::ExtensionPackageError)
     }
 }
 
+fn is_extension_terminal_status(status: &str) -> bool {
+    matches!(status, "loaded" | "degraded" | "failed" | "indeterminate")
+}
+
+/// Rejects a completion whose per-package outcomes cannot describe `status`:
+/// a healthy package must never inherit another package's terminal.
+fn validate_extension_outcomes(
+    extension_ids: &[String],
+    status: &str,
+    outcomes: &[crate::model::ExtensionLoadOutcomeRecord],
+) -> CoreResult<()> {
+    let invalid = |message: &str| Err(CoreError::InvalidInput(message.to_owned()));
+    let mut seen = std::collections::HashSet::new();
+    for outcome in outcomes {
+        if !extension_ids.contains(&outcome.extension_id) || !seen.insert(&outcome.extension_id) {
+            return invalid("Extension outcome is not unique to this lease");
+        }
+        if !is_extension_terminal_status(&outcome.status) {
+            return invalid("Invalid extension outcome status");
+        }
+        if matches!(outcome.status.as_str(), "failed" | "indeterminate") && outcome.status != status
+        {
+            return invalid("Extension outcome contradicts the lease status");
+        }
+    }
+    if matches!(status, "loaded" | "degraded") {
+        // A Role that finished loading has a terminal for every package it leased.
+        let degraded = outcomes.iter().any(|outcome| outcome.status == "degraded");
+        if outcomes.len() != extension_ids.len() || degraded != (status == "degraded") {
+            return invalid("Extension outcomes contradict the lease status");
+        }
+    }
+    Ok(())
+}
+
 impl AppCore {
     fn migrate_extension_package_metadata(&self) -> CoreResult<Vec<Value>> {
         let value =
@@ -265,6 +300,7 @@ impl AppCore {
                         .map(|p| p.id.clone())
                         .collect(),
                     status: "loading".to_owned(),
+                    outcomes: Vec::new(),
                 };
                 runtime.roles.insert(role_id, record.clone());
                 lease = Some(record);
@@ -274,11 +310,9 @@ impl AppCore {
                 role_id,
                 lease_id,
                 status,
+                outcomes,
             } => {
-                if !matches!(
-                    status.as_str(),
-                    "loaded" | "degraded" | "failed" | "indeterminate"
-                ) {
+                if !is_extension_terminal_status(&status) {
                     return Err(CoreError::InvalidInput(
                         "Invalid extension status".to_owned(),
                     ));
@@ -288,8 +322,10 @@ impl AppCore {
                     .get_mut(&role_id)
                     .filter(|r| r.lease_id == lease_id)
                     .ok_or_else(|| CoreError::InvalidInput("Stale extension lease".to_owned()))?;
+                validate_extension_outcomes(&record.extension_ids, &status, &outcomes)?;
                 if record.status == "loading" {
                     record.status = status;
+                    record.outcomes = outcomes;
                     changed = true;
                 }
             }

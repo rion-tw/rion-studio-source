@@ -65,7 +65,8 @@ describe.each(["darwin", "win32"])("bootstrap lease lifecycle (%s)", platform =>
     f.load.resolve({ id }); f.status("starting"); f.ready(); f.status("running");
     await f.prepared;
     expect(f.core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
-      type: "complete", roleId: "role", leaseId: "lease", status: "loaded"
+      type: "complete", roleId: "role", leaseId: "lease", status: "loaded",
+      outcomes: [{ extensionId: id, status: "loaded" }]
     } });
   });
 
@@ -78,7 +79,8 @@ describe.each(["darwin", "win32"])("bootstrap lease lifecycle (%s)", platform =>
     f.status("running");
     await f.prepared;
     expect(f.core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
-      type: "complete", roleId: "role", leaseId: "lease", status: "loaded"
+      type: "complete", roleId: "role", leaseId: "lease", status: "loaded",
+      outcomes: [{ extensionId: id, status: "loaded" }]
     } });
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -98,7 +100,8 @@ describe.each(["darwin", "win32"])("bootstrap lease lifecycle (%s)", platform =>
     f.unloaded();
     await f.prepared;
     expect(f.core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
-      type: "complete", roleId: "role", leaseId: "lease", status: "degraded"
+      type: "complete", roleId: "role", leaseId: "lease", status: "degraded",
+      outcomes: [{ extensionId: id, status: "degraded" }]
     } });
     expect(recentChromiumExtensionRuntimeDiagnostics()).toEqual([expect.objectContaining({
       code: "ELECTRON_EXTENSION_SERVICE_WORKER_RUNTIME_ERROR", relativeFile: "abp-background.js", line: 8808
@@ -182,7 +185,8 @@ describe.each(["darwin", "win32"])("bootstrap lease lifecycle (%s)", platform =>
     await f.started.promise; f.status("starting"); f.error();
     await vi.advanceTimersByTimeAsync(15_000); await failure;
     expect(f.core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
-      type: "complete", roleId: "role", leaseId: "lease", status: "indeterminate"
+      type: "complete", roleId: "role", leaseId: "lease", status: "indeterminate",
+      outcomes: [{ extensionId: id, status: "indeterminate" }]
     } });
     f.load.resolve({ id }); await f.removing.promise; f.unloaded();
     expect(f.workers.eventNames()).toEqual([]);

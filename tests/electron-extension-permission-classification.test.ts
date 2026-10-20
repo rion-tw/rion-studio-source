@@ -52,7 +52,8 @@ describe.each(["darwin", "win32"])("Required permission classification (%s)", pl
       api: permission, code: "ELECTRON_EXTENSION_PERMISSION_BLOCKED", stage: "classification"
     }));
     expect(core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
-      type: "complete", roleId: "role", leaseId: "lease", status: "degraded"
+      type: "complete", roleId: "role", leaseId: "lease", status: "degraded",
+      outcomes: [{ extensionId: id, status: "degraded" }]
     } });
   });
 

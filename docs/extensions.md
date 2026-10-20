@@ -206,6 +206,15 @@ load is `indeterminate` and blocks Role navigation until its exact extension is
 observed and unloaded. Normal release remains `EventBound` on the exact
 `extension-unloaded` event.
 
+The completed lease also carries each package's own `outcomes` entry, which
+Core validates against the lease and its Role status. The Extensions UI labels
+a package only from its own entry, so a degraded or failed neighbour never marks
+a healthy package. A stop attributed to one package charges only that package;
+packages after it were never attempted and have no entry. A Role-scoped stop,
+such as Session release, compatibility-host retirement, an abandoned native
+unload, or a failure outside any package, charges every package without its own
+terminal.
+
 The exact Session's native extension registry authorizes compatibility event
 listeners. Fire-and-forget listener IPC from an unregistered extension or a
 foreign origin is rejected without throwing through Electron's main-process

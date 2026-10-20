@@ -2,6 +2,7 @@ import { verifyTemporaryWindowTitle } from "../support/temporary-window-title";
 import { assertNoExtensionMainProcessException, extensionTerminalIds, expectExtensionPassedClassification, verifyExtensionPermissionsAfterRestart } from "../support/extensions-permissions";
 import { storeDetailLinkSelector, verifyBusterStoreNavigation } from "../support/extensions-store-navigation";
 import { join } from "node:path";
+import type { ExtensionRoleRecord } from "../../../src/shared/generated";
 import { $, browser, expect } from "@wdio/globals";
 import { captureNativeApplicationObservation } from "../support/native-application-observation";
 import { compactExtensionsWindow } from "../support/extensions-layout";
@@ -24,6 +25,14 @@ const EXTENSION_ID = "gighmmpiobklfepjocnamgkkbiglidom";
 
 function hasTerminalCompatibilityStatus(status: string): boolean {
   return status === "loaded" || status === "degraded";
+}
+
+/** The Role lease and this extension's own outcome are both terminal; a neighbour's never counts. */
+function hasExtensionTerminal(role: ExtensionRoleRecord, roleId: string): boolean {
+  return role.roleId === roleId && hasTerminalCompatibilityStatus(role.status) &&
+    role.outcomes.some((outcome) =>
+      outcome.extensionId === EXTENSION_ID && hasTerminalCompatibilityStatus(outcome.status)
+    );
 }
 
 describe("Extensions store and per-role configuration", () => {
@@ -126,11 +135,7 @@ describe("Extensions store and per-role configuration", () => {
       try {
         await browser.waitUntil(async () => (await rendererCall("extensions", {
           type: "snapshot"
-        })).snapshot.roles.some((role) =>
-          role.roleId === future.id &&
-          hasTerminalCompatibilityStatus(role.status) &&
-          role.extensionIds.includes(EXTENSION_ID)
-        ), { timeout: 120_000, timeoutMsg: "The extension Role did not reach compatibility readiness within its Core load deadline" });
+        })).snapshot.roles.some((role) => hasExtensionTerminal(role, future.id)), { timeout: 120_000, timeoutMsg: "The extension Role did not reach compatibility readiness within its Core load deadline" });
       } finally {
         await captureNativeApplicationObservation("extensions-after-role-open");
       }
@@ -184,10 +189,7 @@ describe("Extensions store and per-role configuration", () => {
         ]);
         return statuses.some((status) =>
           status.roleId === future.id && status.state === "running"
-        ) && extensions.snapshot.roles.some((role) =>
-          role.roleId === future.id && hasTerminalCompatibilityStatus(role.status) &&
-          role.extensionIds.includes(EXTENSION_ID)
-        );
+        ) && extensions.snapshot.roles.some((role) => hasExtensionTerminal(role, future.id));
       }, {
         timeout: 120_000,
         timeoutMsg: "The extension Role did not reopen with compatibility readiness"

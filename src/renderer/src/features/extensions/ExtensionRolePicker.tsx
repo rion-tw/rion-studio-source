@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { SegmentedControl, StatusCallout } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
+import { extensionRuntimeStatus, isExtensionLoadFailure } from "./extensionRuntimeStatus";
 
 interface Props {
   roles: Role[];
@@ -47,10 +48,11 @@ export function ExtensionRolePicker({ roles, runtimeRoles, extensionId, selected
           const enabled = allRoles || selected.has(role.id);
           const included = !!runtime?.extensionIds.includes(extensionId);
           const pending = !!runtime && enabled !== included;
-          const status = included && (runtime?.status === "failed" || runtime?.status === "indeterminate") ? "extensions.loadFailed"
-            : included && runtime?.status === "degraded" ? "extensions.compatibilityDegraded"
-            : pending ? "extensions.pending" : included && runtime?.status === "loaded" ? "extensions.loaded"
-            : included && runtime?.status === "loading" ? "extensions.loading" : null;
+          const own = runtime ? extensionRuntimeStatus(runtime, extensionId) : null;
+          const status = isExtensionLoadFailure(own) ? "extensions.loadFailed"
+            : own === "degraded" ? "extensions.compatibilityDegraded"
+            : pending ? "extensions.pending" : own === "loaded" ? "extensions.loaded"
+            : own === "loading" ? "extensions.loading" : null;
           return <li key={role.id}>
             <label className="flex items-center gap-3 px-3 py-2 text-control">
               <Checkbox aria-label={role.name} checked={enabled} disabled={busy || allRoles}

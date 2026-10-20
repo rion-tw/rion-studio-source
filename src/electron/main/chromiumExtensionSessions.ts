@@ -100,6 +100,9 @@ type DeadlineResult<Value> =
   | Readonly<{ status: "failed"; error: unknown }>
   | Readonly<{ status: "indeterminate" }>;
 
+/** A load stop caused by the Role or its Session, never by the package being loaded. */
+class RoleScopedExtensionError extends Error {}
+
 function stableErrorCode(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : "";
   return /^[A-Z][A-Z0-9_]{2,95}$/u.test(message) ? message : fallback;
@@ -189,7 +192,10 @@ export class ChromiumExtensionSessions {
       command: { type: "acquire", roleId: handle.roleId }
     });
     if (!result.lease) throw new Error("EXTENSIONS_LEASE_MISSING");
-    entry.lease = result.lease;
+    const lease = result.lease;
+    entry.lease = lease;
+    const outcomes = new Map<string, "loaded" | "degraded" | "failed" | "indeterminate">();
+    let loading: string | null = null;
     try {
       if (!native) throw new Error("EXTENSIONS_SESSION_UNSUPPORTED");
       for (const extension of native.getAllExtensions()) {
@@ -204,39 +210,52 @@ export class ChromiumExtensionSessions {
           "ELECTRON_EXTENSION_COMPATIBILITY_HOST_FAILED"
         );
       }
-      let degraded = false;
-      for (const id of result.lease.extensionIds) {
-        if (entry.released) throw new Error("EXTENSIONS_SESSION_RELEASED");
+      for (const id of lease.extensionIds) {
+        if (entry.released) throw new RoleScopedExtensionError("EXTENSIONS_SESSION_RELEASED");
+        loading = id;
         const packageRecord = result.snapshot.installed.find(
           (candidate) => candidate.id === id && !candidate.removed
         );
         if (!packageRecord) throw new Error("EXTENSIONS_PACKAGE_UNAVAILABLE");
-        const outcome = await this.#loadPackage(entry, native, packageRecord);
-        degraded ||= outcome === "degraded";
+        outcomes.set(id, await this.#loadPackage(entry, native, packageRecord));
+        loading = null;
       }
-      if (entry.released) throw new Error("EXTENSIONS_SESSION_RELEASED");
-      await this.core.invoke({
-        type: "extensions",
-        command: {
-          type: "complete",
-          roleId: handle.roleId,
-          leaseId: result.lease.leaseId,
-          status: degraded ? "degraded" : "loaded"
-        }
-      });
+      if (entry.released) throw new RoleScopedExtensionError("EXTENSIONS_SESSION_RELEASED");
+      const degraded = [...outcomes.values()].includes("degraded");
+      await this.#complete(lease, degraded ? "degraded" : "loaded", outcomes);
     } catch (error) {
-      await this.core.invoke({
-        type: "extensions",
-        command: {
-          type: "complete",
-          roleId: handle.roleId,
-          leaseId: result.lease.leaseId,
-          status: stableErrorCode(error, "EXTENSIONS_LOAD_FAILED") ===
-            "EXTENSIONS_LOAD_INDETERMINATE" ? "indeterminate" : "failed"
-        }
-      });
+      const status = stableErrorCode(error, "EXTENSIONS_LOAD_FAILED") ===
+        "EXTENSIONS_LOAD_INDETERMINATE" ? "indeterminate" : "failed";
+      // Only the package whose own load stopped is charged with the terminal;
+      // a Role-scoped stop charges every package that had not reached one.
+      if (loading !== null && !(error instanceof RoleScopedExtensionError)) {
+        outcomes.set(loading, status);
+      } else {
+        for (const id of lease.extensionIds) if (!outcomes.has(id)) outcomes.set(id, status);
+      }
+      await this.#complete(lease, status, outcomes);
       throw error;
     }
+  }
+
+  async #complete(
+    lease: ExtensionRoleRecord,
+    status: string,
+    outcomes: ReadonlyMap<string, string>
+  ): Promise<void> {
+    await this.core.invoke({
+      type: "extensions",
+      command: {
+        type: "complete",
+        roleId: lease.roleId,
+        leaseId: lease.leaseId,
+        status,
+        outcomes: lease.extensionIds.flatMap((extensionId) => {
+          const outcome = outcomes.get(extensionId);
+          return outcome ? [{ extensionId, status: outcome }] : [];
+        })
+      }
+    });
   }
 
   async #loadPackage(
@@ -271,7 +290,7 @@ export class ChromiumExtensionSessions {
         "ELECTRON_EXTENSION_MANIFEST_UNREADABLE");
       return "degraded";
     }
-    if (entry.released) throw new Error("EXTENSIONS_SESSION_RELEASED");
+    if (entry.released) throw new RoleScopedExtensionError("EXTENSIONS_SESSION_RELEASED");
     const readiness = manifest?.hasServiceWorker && entry.host
       ? this.#beginBootstrap(entry.handle.session as Session, packageRecord.id)
       : null;
@@ -324,8 +343,9 @@ export class ChromiumExtensionSessions {
         return "degraded";
       }
       if (bootstrapped.value.status === "cancelled") {
+        // Only Session release or compatibility-host retirement cancels a bootstrap.
         await this.#unload(native, packageRecord.id);
-        throw new Error(bootstrapped.value.code);
+        throw new RoleScopedExtensionError(bootstrapped.value.code);
       }
       if (bootstrapped.value.status === "failed") {
         await this.#unload(native, packageRecord.id);
@@ -613,7 +633,7 @@ export class ChromiumExtensionSessions {
 
   #unload(native: Session["extensions"], id: string): Promise<void> {
     if (this.#abandoned) {
-      return Promise.reject(new Error("EXTENSIONS_RELEASE_ABANDONED"));
+      return Promise.reject(new RoleScopedExtensionError("EXTENSIONS_RELEASE_ABANDONED"));
     }
     // EventBound: the exact extension-unloaded event releases the native
     // resource. Cancellation edge: abandonNativeReleases() terminalizes the
@@ -634,7 +654,7 @@ export class ChromiumExtensionSessions {
       const abandon = (reason: string): void => {
         if (settled) return;
         detach();
-        reject(new Error(reason));
+        reject(new RoleScopedExtensionError(reason));
       };
       this.#pendingUnloads.add(abandon);
       native.on("extension-unloaded", listener);

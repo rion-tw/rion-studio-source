@@ -10,6 +10,7 @@ import { StatusCallout, Surface } from "../../components/ui/patterns";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
 import { ExtensionRolePicker } from "./ExtensionRolePicker";
+import { extensionRuntimeStatus, isExtensionLoadFailure } from "./extensionRuntimeStatus";
 import { formatExtensionBytes } from "./extensionSize";
 
 interface Props {
@@ -55,8 +56,9 @@ export function ExtensionEditor({ packageRecord, installing, missing = false, ro
   };
   const remove = async () => { if (!busy) finish(await onRemove()); };
   const size = packageRecord.sizeBytes === undefined ? t("extensions.sizeUnavailable") : formatExtensionBytes(packageRecord.sizeBytes, language);
-  const loadFailed = runtimeRoles.some(role => role.extensionIds.includes(packageRecord.id) && (role.status === "failed" || role.status === "indeterminate"));
-  const degraded = runtimeRoles.some(role => role.extensionIds.includes(packageRecord.id) && role.status === "degraded");
+  const statuses = runtimeRoles.map(role => extensionRuntimeStatus(role, packageRecord.id));
+  const loadFailed = statuses.some(isExtensionLoadFailure);
+  const degraded = statuses.includes("degraded");
   const title = t(removed ? "extensions.confirmRemove" : installing ? "extensions.installTitle" : "extensions.manageTitle");
   // A clean form has nothing to protect, so a package that left the catalogue
   // reads exactly as it did before. Only unsaved work keeps the editor open.

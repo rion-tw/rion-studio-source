@@ -25,8 +25,12 @@ export function validChromiumViewInputObservation(
     token(value.focusIdentity) && typeof value.physicalInputSequence === "string" &&
     /^(0|[1-9][0-9]*)$/u.test(value.physicalInputSequence) &&
     BigInt(value.physicalInputSequence) <= 18_446_744_073_709_551_615n &&
-    typeof value.parentForeground === "boolean" && value.parentVisible === true &&
-    value.parentMinimized === false && value.viewAttached === true && value.contentsDestroyed === false &&
+    typeof value.parentForeground === "boolean" && typeof value.parentVisible === "boolean" &&
+    typeof value.parentMinimized === "boolean" &&
+    // Trusted input needs an on-screen parent. Canvas compatibility writes to the
+    // fixed document target, so a minimized game window keeps its running macro.
+    (value.parentMinimized ? inputRoute === "compatible" && !value.parentForeground : value.parentVisible) &&
+    value.viewAttached === true && value.contentsDestroyed === false &&
     value.viewVisible === (mode === "foreground") &&
     typeof value.contentsFocused === "boolean" &&
     (value.focusedWebContentsId === null || (Number.isSafeInteger(value.focusedWebContentsId) && value.focusedWebContentsId > 0)) &&

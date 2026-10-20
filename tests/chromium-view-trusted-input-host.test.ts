@@ -42,6 +42,30 @@ describe.each(["macos", "windows"] as const)("%s View trusted-input host bridge"
     expect(f.contents.sendInputEvent).not.toHaveBeenCalled();
   });
 
+  it.each([true, false])(
+    "keeps compatible input on a minimized parent while trusted input stays refused (parentVisible=%s)",
+    parentVisible => {
+      const f = fixture(platform);
+      f.change({ parentForeground: false, parentVisible, parentMinimized: true, viewVisible: true,
+        contentsFocused: false, focusedWebContentsId: null });
+      const { native, identity } = f.host.resolve("role-one", 1)!;
+      expect(native.currentInputDeliveryMode(identity)).toBeNull();
+      expect(() => native.probeExactInputSurface(identity, "foreground")).toThrow();
+      expect(native.currentInputDeliveryMode(identity, "compatible")).toBe("foreground");
+      expect(native.probeExactInputSurface(identity, "foreground", "compatible"))
+        .toMatchObject({ observation: { parentMinimized: true, parentForeground: false } });
+      f.change({ contentsFocused: true, focusedWebContentsId: 4 });
+      expect(native.currentInputDeliveryMode(identity, "compatible")).toBeNull();
+      f.change({ contentsFocused: false, focusedWebContentsId: null, parentForeground: true });
+      expect(native.currentInputDeliveryMode(identity, "compatible")).toBeNull();
+      f.change({ parentForeground: false, parentMinimized: false, parentVisible: false });
+      expect(native.currentInputDeliveryMode(identity, "compatible")).toBeNull();
+      f.retire();
+      expect(() => native.probeExactInputSurface(identity, "foreground", "compatible")).toThrow();
+      expect(f.contents.sendInputEvent).not.toHaveBeenCalled();
+    }
+  );
+
   it("admits a visible sibling through the same exact foreground receipt lane", () => {
     const f = fixture(platform);
     f.change({ viewVisible: true });

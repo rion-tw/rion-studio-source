@@ -14,13 +14,19 @@ export function createCopyName(
     const suffix = copyNumber === 1 ? normalizedCopySuffix : `${normalizedCopySuffix} ${copyNumber}`;
     const tail = ` ${suffix}`;
     const baseLength = Math.max(maxLength - tail.length, 0);
-    const baseName = normalizedName.slice(0, baseLength).trimEnd();
+    const baseName = truncateUtf16(normalizedName, baseLength).trimEnd();
     const candidate = `${baseName}${tail}`.trim();
 
     if (!normalizedExistingNames.has(normalizeNameForComparison(candidate))) {
       return candidate;
     }
   }
+}
+
+// Never split a surrogate pair: a lone surrogate cannot cross the Core JSON boundary.
+function truncateUtf16(value: string, maxLength: number): string {
+  const truncated = value.slice(0, maxLength);
+  return /[\uD800-\uDBFF]$/.test(truncated) ? truncated.slice(0, -1) : truncated;
 }
 
 function normalizeNameForComparison(name: string): string {

@@ -21,4 +21,13 @@ describe("copy name helpers", () => {
     expect(copyName).toHaveLength(MAX_COPY_NAME_LENGTH);
     expect(copyName).toMatch(/ Copy$/);
   });
+
+  it("never splits an emoji when truncating a long name", () => {
+    const name = `${"a".repeat(74)}🎮${"b".repeat(10)}`;
+    const copyName = createCopyName(name, [name], "Copy");
+
+    expect(copyName).toBe(`${"a".repeat(74)} Copy`);
+    expect(copyName).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(createCopyName(`${"a".repeat(73)}🎮x`, [], "Copy")).toBe(`${"a".repeat(73)}🎮 Copy`);
+  });
 });

@@ -254,7 +254,7 @@ export function BrowserFontsSettingsRows({
           fontSmoothingEnabled: savedSettings.fonts.fontSmoothingEnabled
         }
       : { ...savedSettings.fonts, cjkVariant };
-    void saveSettings({ ...savedSettings, fonts });
+    void saveSettings({ ...savedSettings, fonts }, true);
   }
 
   async function reloadCatalog(): Promise<BrowserFontCatalogEntry[]> {
@@ -300,7 +300,7 @@ export function BrowserFontsSettingsRows({
     }
   }
 
-  async function saveSettings(settingsToSave: GameBrowserSettings): Promise<void> {
+  async function saveSettings(settingsToSave: GameBrowserSettings, preserveDraft = false): Promise<void> {
     setIsSaving(true);
     setMessage(null);
 
@@ -331,9 +331,21 @@ export function BrowserFontsSettingsRows({
       }
       if (downloads.length > 0) await reloadCatalog();
       const persistedSettings = normalizeGameBrowserSettings(await onSave(settingsToSave));
+      const previousSavedFonts = savedFontsRef.current;
       savedFontsRef.current = persistedSettings.fonts;
       setSavedSettings(persistedSettings);
-      setDraft(persistedSettings);
+      // A glyph-style change saves on its own; it keeps an unapplied font draft
+      // and re-resolves that draft's preset for the new glyph style.
+      setDraft((current) => {
+        if (!preserveDraft || JSON.stringify(current.fonts) === JSON.stringify(previousSavedFonts) ||
+            JSON.stringify(current.fonts) === JSON.stringify(persistedSettings.fonts)) return persistedSettings;
+        const { cjkVariant, fontSmoothingEnabled } = persistedSettings.fonts;
+        const preset = browserFontPresets.find((candidate) => candidate.id === current.fonts.presetId);
+        const fonts = preset
+          ? resolveBrowserFontPreset(preset.id, resolveEffectiveBrowserFontCjkVariant(cjkVariant, language))
+          : current.fonts;
+        return { ...persistedSettings, fonts: { ...fonts, cjkVariant, fontSmoothingEnabled } };
+      });
       setMessage(t("settings.browserFontsSaved"));
     } catch (error) {
       onError(error);

@@ -334,6 +334,30 @@ describe("browser font settings", () => {
     expect(screen.getByRole("button", { name: /High-legibility reading/u }).getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("keeps an unapplied font draft when the glyph style is saved", async () => {
+    const user = userEvent.setup();
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont: vi.fn(),
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    function Harness(): JSX.Element {
+      const [settings, setSettings] = useState(normalizeGameBrowserSettings(DEFAULT_GAME_BROWSER_SETTINGS));
+      return <SettingsHarness settings={settings} onChange={async (next) => { setSettings(next); return next; }} />;
+    }
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    await user.click(await screen.findByRole("button", { name: /High-legibility reading/u }));
+
+    await user.click(screen.getByRole("combobox", { name: "Chinese and Japanese glyph style" }));
+    await user.click(screen.getByRole("option", { name: "Japanese" }));
+
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Chinese and Japanese glyph style" })
+      .textContent).toContain("Japanese"));
+    expect(screen.getByRole("button", { name: /High-legibility reading/u }).getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("uses larger font samples in presets without changing font selections or options", async () => {
     const user = userEvent.setup();
     window.rionStudio = {

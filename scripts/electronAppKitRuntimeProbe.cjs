@@ -58,13 +58,25 @@ on run argv
     return (radioCount as text) & tab & (matchingRadioCount as text) & tab & (tabGroupCount as text) & tab & (groupCount as text) & tab & (buttonCount as text) & tab & (totalCount as text) & tab & (roleAttributeCount as text)
   end tell
 end run`;
+  const startedAt = performance.now();
   const { stdout } = await executeFile("/usr/bin/osascript", [
     "-e",
     script,
     "--",
     String(processId),
     ...tabNames
-  ], { encoding: "utf8", timeout: DIAGNOSTIC_DEADLINE_MS });
+  ], { encoding: "utf8", timeout: DIAGNOSTIC_DEADLINE_MS }).catch((error) => {
+    writeSync(2, `RION_ELECTRON_APPKIT_PROBE_DIAGNOSTIC=${JSON.stringify({
+      stage: "inspectMacosAccessibilityTabs",
+      elapsedMs: Math.round(performance.now() - startedAt),
+      code: typeof error.code === "number" || typeof error.code === "string" ? error.code : null,
+      killed: typeof error.killed === "boolean" ? error.killed : null,
+      signal: typeof error.signal === "string" ? error.signal : null,
+      stdout: typeof error.stdout === "string" ? error.stdout.slice(-2_000) : "",
+      stderr: typeof error.stderr === "string" ? error.stderr.slice(-2_000) : ""
+    })}\n`);
+    throw error;
+  });
   const values = stdout.trim().split("\t").map(Number);
   if (values.length !== 7 || values.some((value) => !Number.isSafeInteger(value))) {
     throw new Error(`Invalid AppKit AX hierarchy observation: ${stdout.trim()}.`);

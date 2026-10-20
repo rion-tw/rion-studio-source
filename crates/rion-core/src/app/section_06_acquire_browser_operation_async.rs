@@ -1258,7 +1258,7 @@ impl AppCore {
             slot_id: format!("role:{}", role.id),
             role_id: role.id.clone(),
             rect: full_window_rect(),
-            browser_zoom_percent: Some((zoom_factor * 100.0).clamp(25.0, 500.0)),
+            browser_zoom_percent: Some(zoom_factor_percent(zoom_factor).clamp(25.0, 500.0)),
         });
         let role_zoom_factor = role_slot_input
             .browser_zoom_percent

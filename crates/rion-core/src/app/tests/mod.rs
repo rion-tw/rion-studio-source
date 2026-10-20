@@ -93,3 +93,4 @@ include!("behavior_58_workspace_empty_slot_runtime_layout.rs");
 include!("behavior_44_released_role_placeholder.rs");
 
 include!("behavior_58_cleared_workspace_slot_zoom.rs");
+include!("behavior_59_zoom_factor_percent.rs");

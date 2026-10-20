@@ -960,6 +960,13 @@ fn appkit_event_error(code: &'static str, message: &'static str) -> CoreError {
     }
 }
 
+/// Converts a native zoom factor to the stored percent without binary noise:
+/// 1.1 * 100.0 is 110.00000000000001, which no longer equals the 110 percent
+/// recorded for the same slot and made restoring that tab fail.
+fn zoom_factor_percent(zoom_factor: f64) -> f64 {
+    (zoom_factor * 100.0 * 100.0).round() / 100.0
+}
+
 fn runtime_live_tab_from_effect(tab: &EmbeddedTabEffectRecord) -> crate::RuntimeLiveTabRecord {
     crate::RuntimeLiveTabRecord {
         audio_muted: tab.audio_muted,
@@ -982,7 +989,7 @@ fn runtime_live_tab_from_effect(tab: &EmbeddedTabEffectRecord) -> crate::Runtime
                 role_id: slot.role.id.clone(),
                 rect: slot.rect.clone(),
                 browser_zoom_percent: (slot.zoom_mode == "fixed")
-                    .then_some(slot.zoom_factor * 100.0),
+                    .then_some(zoom_factor_percent(slot.zoom_factor)),
             })
             .collect(),
         workspace_slots: tab.workspace_slots.clone(),

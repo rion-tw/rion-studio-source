@@ -597,10 +597,40 @@ export function RecordingButton({
   onRecordingChange,
   t
 }: RecordingButtonProps): JSX.Element {
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const label = t(isRecording ? "macroForm.stopRecording" : "macroForm.recordKey");
+
+  // Recording captures every keydown at the window, so it ends as soon as the
+  // user moves on: a pointer press outside this button (middle click stays a
+  // recordable shortcut input) or the app window losing focus. Ending this way
+  // records nothing.
+  useEffect(() => {
+    if (!isRecording) {
+      return;
+    }
+
+    function stopOnOutsidePointer(event: PointerEvent): void {
+      if (event.button === 1) return;
+      if (event.target instanceof Node && buttonRef.current?.contains(event.target)) return;
+      onRecordingChange(false);
+    }
+
+    function stopOnWindowBlur(): void {
+      onRecordingChange(false);
+    }
+
+    window.addEventListener("pointerdown", stopOnOutsidePointer, true);
+    window.addEventListener("blur", stopOnWindowBlur);
+
+    return () => {
+      window.removeEventListener("pointerdown", stopOnOutsidePointer, true);
+      window.removeEventListener("blur", stopOnWindowBlur);
+    };
+  }, [isRecording, onRecordingChange]);
 
   return (
     <Button
+      ref={buttonRef}
       aria-label={label}
       aria-pressed={isRecording}
       className={cn(

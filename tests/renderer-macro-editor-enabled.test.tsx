@@ -625,6 +625,71 @@ it("keeps only the most recently started recorder listening", () => {
     expect(screen.queryByRole("button", { name: "Stop recording" })).toBeNull();
   });
 
+it("stops shortcut recording when the user clicks elsewhere and keeps later typing", async () => {
+    const user = userEvent.setup();
+    const selectedMacro = macro({
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    renderMacroEditor(selectedMacro, onSave);
+
+    await user.click(screen.getAllByRole("button", { name: "Record" })[0]);
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+    expect(screen.getAllByRole("button", { name: "Record" })).toHaveLength(2);
+
+    await user.click(screen.getAllByRole("button", { name: "Record" })[0]);
+    const name = screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement;
+    await user.click(name);
+    expect(screen.queryByRole("button", { name: "Stop recording" })).toBeNull();
+    await user.keyboard("2");
+
+    expect(name.value).toBe("Auto heal2");
+    expect(screen.getAllByRole("combobox", { name: "Key" })[0].textContent).toContain("F6");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Auto heal2",
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
+    })));
+  });
+
+it("hands recording to the next recorder and keeps middle click as shortcut input", async () => {
+    const user = userEvent.setup();
+    renderMacroEditor(macro({
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
+    }));
+
+    await user.click(screen.getAllByRole("button", { name: "Record" })[0]);
+    await user.click(getKeyStepRecordButton());
+    expect(screen.getAllByRole("button", { name: "Stop recording" })).toHaveLength(1);
+    fireEvent.keyDown(window, { code: "KeyQ", key: "q" });
+
+    const keySelectors = screen.getAllByRole("combobox", { name: "Key" });
+    expect(keySelectors[0].textContent).toContain("F6");
+    expect(keySelectors[1].textContent).toContain("Q");
+
+    await user.click(screen.getAllByRole("button", { name: "Record" })[0]);
+    fireEvent.pointerDown(document.body, { button: 1 });
+    fireEvent.mouseDown(document.body, { button: 1 });
+    expect(screen.getAllByRole("combobox", { name: "Key" })[0].textContent).toContain("Middle click");
+  });
+
+it("stops key step recording without a value when the app window loses focus", async () => {
+    const user = userEvent.setup();
+    renderMacroEditor(macro());
+
+    await user.click(getKeyStepRecordButton());
+    expect(getKeyStepRecordButton().getAttribute("aria-pressed")).toBe("true");
+    fireEvent.blur(window);
+
+    expect(getKeyStepRecordButton().getAttribute("aria-pressed")).toBe("false");
+    fireEvent.keyDown(window, { code: "KeyQ", key: "q" });
+    expect(screen.getAllByRole("combobox", { name: "Key" }).at(-1)?.textContent).toContain("F2");
+  });
+
 it("offers left, middle, and right mouse buttons for click steps", () => {
     const selectedMacro = macro({
       steps: [{ id: "click", type: "click", button: "middle", xPercent: 50, yPercent: 50 }]
@@ -842,8 +907,29 @@ function getModifierOption(name: string): HTMLElement {
   return screen.getByRole("option", { name });
 }
 
+function renderMacroEditor(
+  selectedMacro: Macro,
+  onSave: (form: MacroFormState) => Promise<Macro | undefined> = vi.fn(async () => undefined)
+): void {
+  const router = createMemoryRouter([
+    {
+      path: "/macros/:id/edit",
+      element: <MacroEditorRoute
+        games={[game()]}
+        isSaving={false}
+        macros={[selectedMacro]}
+        roles={[role()]}
+        t={t}
+        onSave={onSave}
+      />
+    },
+    { path: "/macros", element: <div>Macro list</div> }
+  ], { initialEntries: [`/macros/${selectedMacro.id}/edit`] });
+  render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+}
+
 function getKeyStepRecordButton(): HTMLElement {
-  const recordButtons = screen.getAllByRole("button", { name: "Record" });
+  const recordButtons = screen.getAllByRole("button", { name: /^(Record|Stop recording)$/ });
   const button = recordButtons.at(-1);
   if (!button) {
     throw new Error("Key-step record button was not found.");

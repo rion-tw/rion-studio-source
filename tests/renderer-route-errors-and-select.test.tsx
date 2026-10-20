@@ -143,6 +143,56 @@ describe("list select filters", () => {
   });
 });
 
+describe("roles empty filter result", () => {
+  it("clears the search, status, and game filters together", async () => {
+    const user = userEvent.setup();
+    const games = [game({ id: "game-one", name: "Game One" }), game({ id: "game-two", name: "Game Two" })];
+    const roles = [role({ id: "role-one", gameId: "game-one", name: "Role One" })];
+    const onClearQuery = vi.fn();
+    const onFilterChange = vi.fn();
+
+    render(
+      <RolesRoute
+        activeFilter="all"
+        busyRoleIds={new Set()}
+        filteredRoles={roles}
+        games={games}
+        gameWindows={[]}
+        isReordering={false}
+        language="en"
+        roleStats={{ total: 1, running: 0, stopped: 1 }}
+        roles={roles}
+        runtime={emptyRuntime}
+        scrollPositionRef={{ current: 0 }}
+        query=""
+        statusByRole={new Map()}
+        t={t}
+        onClearQuery={onClearQuery}
+        onClearBrowserData={vi.fn()}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onDeleteMany={vi.fn().mockResolvedValue(false)}
+        onEdit={vi.fn()}
+        onError={vi.fn()}
+        onFilterChange={onFilterChange}
+        onLaunch={vi.fn()}
+        onNewRole={vi.fn()}
+        onQueryChange={vi.fn()}
+        onReorder={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("combobox"));
+    await user.click(screen.getByRole("option", { name: "Game Two" }));
+    expect(screen.queryByRole("heading", { name: "Role One" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(onClearQuery).toHaveBeenCalledOnce();
+    expect(onFilterChange).toHaveBeenCalledWith("all");
+    expect(screen.getByRole("heading", { name: "Role One" })).toBeTruthy();
+  });
+});
+
 describe("app route error boundary", () => {
   it("shows a localized recovery page with collapsed technical details", async () => {
     localStorage.setItem(LANGUAGE_STORAGE_KEY, "zh-TW");

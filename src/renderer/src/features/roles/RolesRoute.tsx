@@ -281,7 +281,12 @@ function RolesView({
           title={t("roles.noMatches.title")}
           description={t("roles.noMatches.description")}
           actionLabel={t("roles.noMatches.action")}
-          onAction={onClearQuery}
+          onAction={() => {
+            // The empty result can come from the status or game filter alone.
+            onClearQuery();
+            onFilterChange("all");
+            setGameFilterId("all");
+          }}
         />
       ) : (
         <div className="collection-grid collection-grid-roles auto-rows-fr gap-4">
@@ -343,7 +348,7 @@ interface RoleFilterTabsProps {
 function RoleFilterTabs({ activeFilter, counts, t, onFilterChange }: RoleFilterTabsProps): JSX.Element {
   return (
     <SegmentedControl<SidebarFilter>
-      className="w-full grid-cols-2 sm:w-[420px] sm:shrink-0 sm:grid-cols-4"
+      className="w-full grid-cols-3 sm:w-[420px] sm:shrink-0"
       items={filterOrder.map((filter) => ({
         value: filter,
         label: t(filterLabelKeys[filter]),

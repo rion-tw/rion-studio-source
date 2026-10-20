@@ -219,6 +219,8 @@ function WorkspaceLayoutFormEditor({
   const [activeResize, setActiveResize] = useState<WorkspaceActiveResize | null>(null);
   const [dragSlots, setDragSlots] = useState<LaunchWorkspaceSlot[] | null>(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState(0);
+  // "Role" chosen for an empty slot whose role the user still has to pick.
+  const [pendingRoleSlotIndex, setPendingRoleSlotIndex] = useState<number | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const resizeAbortRef = useRef<AbortController | null>(null);
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
@@ -228,6 +230,8 @@ function WorkspaceLayoutFormEditor({
     slots.flatMap((slot, index) => (slot.roleId ? [[slot.roleId, index] as const] : []))
   );
   const selectedSlot = slots[selectedSlotIndex] ?? slots[0];
+  const selectedSlotPicksRole = !selectedSlot?.web &&
+    (Boolean(selectedSlot?.roleId) || pendingRoleSlotIndex === selectedSlotIndex);
   const selectedSlotLabel = t("workspaces.slot").replace("{index}", String(selectedSlotIndex + 1));
   const workspaceDrag = usePointerDrag<WorkspacePointerDragPayload>({
     disabled: isSaving,
@@ -273,6 +277,7 @@ function WorkspaceLayoutFormEditor({
 
   function handleTemplateChange(template: WorkspaceLayoutTemplate): void {
     const nextSlots = applyWorkspaceTemplate(slots, template);
+    setPendingRoleSlotIndex(null);
 
     onChange({
       ...form,
@@ -283,17 +288,21 @@ function WorkspaceLayoutFormEditor({
   }
 
   function handleRoleSelect(roleId: string): void {
+    setPendingRoleSlotIndex(null);
     updateSlots(assignRoleToWorkspaceSlot(slots, selectedSlotIndex, roleId));
   }
 
   function handleContentTypeChange(contentType: string): void {
+    setPendingRoleSlotIndex(null);
     if (contentType === "role") {
-      const availableRoleId = roles.find((role) => !assignedSlotByRoleId.has(role.id))?.id
-        ?? roles[0]?.id;
+      // Only an unassigned role fills the slot automatically; moving a role
+      // out of another slot stays an explicit choice in the role list.
+      const availableRoleId = roles.find((role) => !assignedSlotByRoleId.has(role.id))?.id;
+      if (!availableRoleId) setPendingRoleSlotIndex(selectedSlotIndex);
       updateSlots(assignRoleToWorkspaceSlot(
         assignWebToWorkspaceSlot(slots, selectedSlotIndex, undefined),
         selectedSlotIndex,
-        availableRoleId
+        availableRoleId ?? selectedSlot?.roleId
       ));
     } else if (contentType === "web") {
       updateSlots(assignWebToWorkspaceSlot(
@@ -311,6 +320,7 @@ function WorkspaceLayoutFormEditor({
   }
 
   function handleClearSelectedSlot(): void {
+    setPendingRoleSlotIndex(null);
     updateSlots(assignRoleToWorkspaceSlot(
       assignWebToWorkspaceSlot(slots, selectedSlotIndex, undefined),
       selectedSlotIndex,
@@ -591,7 +601,8 @@ function WorkspaceLayoutFormEditor({
               title={t("workspaces.clearSelectedSlot")}
               aria-label={t("workspaces.clearSelectedSlot")}
               onClick={handleClearSelectedSlot}
-              disabled={isSaving || (!selectedSlot?.roleId && !selectedSlot?.web)}
+              disabled={isSaving || (!selectedSlot?.roleId && !selectedSlot?.web &&
+                pendingRoleSlotIndex !== selectedSlotIndex)}
             >
               <Eraser size={15} />
             </Button>
@@ -600,7 +611,7 @@ function WorkspaceLayoutFormEditor({
             <FormField htmlFor="workspace-slot-content" label={t("workspaces.contentType")}>
               <Select
                 disabled={isSaving}
-                value={selectedSlot?.web ? "web" : selectedSlot?.roleId ? "role" : "empty"}
+                value={selectedSlot?.web ? "web" : selectedSlotPicksRole ? "role" : "empty"}
                 onValueChange={handleContentTypeChange}
               >
                 <SelectTrigger id="workspace-slot-content" className="w-full">
@@ -614,7 +625,7 @@ function WorkspaceLayoutFormEditor({
               </Select>
             </FormField>
           </div>
-          {selectedSlot?.web || (!selectedSlot?.roleId && !selectedSlot?.web) ? null : (
+          {!selectedSlotPicksRole ? null : (
           <div
             data-workspace-role-scroll
             className="workspace-editor-role-list max-h-[clamp(320px,45vh,440px)] overflow-x-hidden overflow-y-auto"

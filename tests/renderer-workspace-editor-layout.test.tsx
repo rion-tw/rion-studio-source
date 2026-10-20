@@ -105,6 +105,53 @@ describe("workspace editor role picker layout", () => {
     expect(onSave.mock.calls[0][0].slots[0]).not.toHaveProperty("roleId");
   });
 
+  it("fills a Role slot only with an unassigned role and otherwise asks for a choice", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const selectedWorkspace = workspace();
+    selectedWorkspace.template = "three_columns";
+    selectedWorkspace.slots = [
+      { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 1 / 3, height: 1 } },
+      { id: "slot-2", roleId: "role-2", rect: { x: 1 / 3, y: 0, width: 1 / 3, height: 1 } },
+      { id: "slot-3", rect: { x: 2 / 3, y: 0, width: 1 / 3, height: 1 } }
+    ];
+    const router = createMemoryRouter(
+      [{
+        path: "/workspaces/:id/edit",
+        element: (
+          <WorkspaceEditorRoute
+            games={[game()]}
+            isSaving={false}
+            roles={[role(1), role(2)]}
+            statusByRole={new Map()}
+            t={t}
+            workspaces={[selectedWorkspace]}
+            onSave={onSave}
+          />
+        )
+      }],
+      { initialEntries: ["/workspaces/workspace-1/edit"] }
+    );
+    const { container } = render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    fireEvent.click(container.querySelector<HTMLElement>("[data-workspace-slot-index='2']")!);
+    await user.click(screen.getByRole("combobox", { name: "Content type" }));
+    await user.click(screen.getByRole("option", { name: "Role" }));
+    expect(container.querySelector("[data-workspace-role-scroll]")).not.toBeNull();
+    expect(container.querySelector("[data-workspace-slot-index='0']")?.textContent).toContain("Role 1");
+    expect(container.querySelector("[data-workspace-slot-index='2']")?.textContent).not.toContain("Role 1");
+
+    fireEvent.click(container.querySelector<HTMLElement>("[data-workspace-role-id='role-2']")!);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].slots.map((slot: LaunchWorkspace["slots"][number]) => slot.roleId ?? null))
+      .toEqual(["role-1", null, "role-2"]);
+  });
+
   it("shows a saved last hostname as read-only slot state", () => {
     const selectedWorkspace = workspace();
     selectedWorkspace.slots[0] = {

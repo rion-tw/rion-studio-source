@@ -1,5 +1,5 @@
 // Focused implementation extracted from SettingsRoute.tsx.
-import { type JSX, useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { Slider } from "../../components/ui/slider";
 import { Switch } from "../../components/ui/switch";
@@ -81,15 +81,6 @@ export function MacroOverlaySettingsRows({
     setOverlayDraft(nextDraft);
   }, [settings]);
 
-  useEffect(
-    () => () => {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-      }
-    },
-    []
-  );
-
   function scheduleSave(): void {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
@@ -136,6 +127,17 @@ export function MacroOverlaySettingsRows({
       }
     }
   }
+
+  const flushPendingSave = useEffectEvent(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    void flushSave();
+  });
+
+  // Leaving the section inside the coalescing window must still save it.
+  useEffect(() => () => flushPendingSave(), []);
 
   function updateDraft(update: Partial<MacroBadgePositionSettings>): void {
     const nextDraft = {

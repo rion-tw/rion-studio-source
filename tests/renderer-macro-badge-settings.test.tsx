@@ -73,6 +73,22 @@ describe("in-game macro interface settings", () => {
     });
   });
 
+  it("saves a pending position when the section closes inside the debounce", async () => {
+    vi.useFakeTimers();
+    const onGameBrowserSettingsPatch = vi.fn(async () => DEFAULT_GAME_BROWSER_SETTINGS);
+    const view = renderSettings(DEFAULT_GAME_BROWSER_SETTINGS, onGameBrowserSettingsPatch);
+
+    fireEvent.keyDown(screen.getByRole("slider", { name: "Distance from top" }), { key: "ArrowRight" });
+    view.unmount();
+
+    expect(onGameBrowserSettingsPatch).toHaveBeenCalledOnce();
+    expect(onGameBrowserSettingsPatch).toHaveBeenCalledWith({
+      macroBadgePosition: { ...DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition, topPx: 136 }
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(onGameBrowserSettingsPatch).toHaveBeenCalledOnce();
+  });
+
   it("saves visibility fields independently and rolls back a failed change", async () => {
     const onError = vi.fn();
     const hiddenToolSettings: GameBrowserSettings = {
@@ -130,8 +146,8 @@ function renderSettings(
   settings: GameBrowserSettings,
   onGameBrowserSettingsPatch: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>,
   onError = vi.fn()
-): void {
-  render(
+): ReturnType<typeof render> {
+  return render(
     <MemoryRouter initialEntries={["/settings?section=interface"]}>
       <ConfirmationProvider>
         <SettingsView

@@ -255,6 +255,13 @@ describe("workspace editor role picker layout", () => {
       rect: { width: 0.55 },
       web: { lastUrl: "https://new.example.test/resumed" }
     });
+
+    // Status pushes resend unchanged snapshots; the editor keeps its slots
+    // array so an in-progress divider drag is not aborted.
+    expect(mergeWorkspaceRuntimeOverrides(locallyResized, previous, structuredClone(previous)))
+      .toBe(locallyResized);
+    expect(mergeWorkspaceRuntimeOverrides(locallyRenamedForm, previousWeb, structuredClone(previousWeb)))
+      .toBe(locallyRenamedForm);
   });
 
   it("hides role zoom while preserving it through workspace saves", async () => {

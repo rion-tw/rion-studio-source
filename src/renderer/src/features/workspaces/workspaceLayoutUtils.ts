@@ -43,12 +43,13 @@ export function mergeWorkspaceRuntimeOverrides(
   const previousBySlotId = new Map(previousPersistedSlots.map((slot) => [slot.id, slot]));
   const nextBySlotId = new Map(nextPersistedSlots.map((slot) => [slot.id, slot]));
 
-  return currentSlots.map((slot) => {
+  const mergedSlots = currentSlots.map((slot) => {
     let merged = slot;
     if (slot.roleId) {
       const previous = previousByRoleId.get(slot.roleId);
       const next = nextByRoleId.get(slot.roleId);
-      if (previous && next && slot.browserZoomPercent === previous.browserZoomPercent) {
+      if (previous && next && slot.browserZoomPercent === previous.browserZoomPercent &&
+          next.browserZoomPercent !== slot.browserZoomPercent) {
         const { browserZoomPercent: _browserZoomPercent, ...rest } = merged;
         merged = {
           ...rest,
@@ -62,7 +63,8 @@ export function mergeWorkspaceRuntimeOverrides(
     const next = nextBySlotId.get(slot.id);
     if (
       merged.web && previous?.web && next?.web &&
-      merged.web.lastUrl === previous.web.lastUrl
+      merged.web.lastUrl === previous.web.lastUrl &&
+      next.web.lastUrl !== merged.web.lastUrl
     ) {
       merged = {
         ...merged,
@@ -71,6 +73,9 @@ export function mergeWorkspaceRuntimeOverrides(
     }
     return merged;
   });
+  // Unrelated runtime snapshots must keep the slot array identity; the editor
+  // aborts an in-progress divider drag whenever its slots change.
+  return mergedSlots.every((slot, index) => slot === currentSlots[index]) ? currentSlots : mergedSlots;
 }
 
 export function workspaceWebLastLocation(

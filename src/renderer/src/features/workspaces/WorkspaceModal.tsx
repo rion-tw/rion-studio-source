@@ -119,10 +119,10 @@ function WorkspaceEditor({
     }
 
     const previousPersistedSlots = persistedSlotsRef.current;
-    setForm((current) => ({
-      ...current,
-      slots: mergeWorkspaceRuntimeOverrides(current.slots, previousPersistedSlots, persistedSlots)
-    }));
+    setForm((current) => {
+      const slots = mergeWorkspaceRuntimeOverrides(current.slots, previousPersistedSlots, persistedSlots);
+      return slots === current.slots ? current : { ...current, slots };
+    });
     initialFormRef.current = {
       ...initialFormRef.current,
       slots: mergeWorkspaceRuntimeOverrides(

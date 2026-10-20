@@ -126,6 +126,11 @@ function deferred<Value>(): Deferred<Value> {
   return { promise, reject, resolve };
 }
 
+const SUPERSEDED_DOCUMENT_CODES = new Set([
+  "ELECTRON_ROLE_FONT_DOCUMENT_SUPERSEDED",
+  "ELECTRON_ROLE_FONT_SURFACE_RETIRED"
+]);
+
 function fontError(code: string, message: string): RionBridgeError {
   return new RionBridgeError({ code, message });
 }
@@ -540,8 +545,20 @@ export class ChromiumRoleFontsCoordinator {
     } catch (error) {
       return Promise.reject(error);
     }
-    return Promise.all(selected.map((roleId) => this.#enqueueRefresh(roleId)))
-      .then((receipts) => Object.freeze(receipts));
+    // Every selected document terminalizes before the refresh does, and a
+    // superseded document never hides another document's real failure.
+    return Promise.allSettled(selected.map((roleId) => this.#enqueueRefresh(roleId)))
+      .then((outcomes) => {
+        const failures = outcomes.flatMap((outcome) =>
+          outcome.status === "rejected" ? [outcome.reason as unknown] : []);
+        if (failures.length > 0) {
+          throw failures.find((error) => !SUPERSEDED_DOCUMENT_CODES.has(
+            error instanceof RionBridgeError ? error.code : ""
+          )) ?? failures[0];
+        }
+        return Object.freeze(outcomes.map((outcome) =>
+          (outcome as PromiseFulfilledResult<ChromiumRoleFontsAppliedReceipt>).value));
+      });
   }
 
   retire(roleId: string, generation: number): void {

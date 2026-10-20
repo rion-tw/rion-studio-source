@@ -284,6 +284,36 @@ describe("Chromium role browser-font coordinator", () => {
     await expect(second).resolves.toHaveLength(1);
   });
 
+  it("settles a multi-role refresh only after every role document terminalizes", async () => {
+    const state = harness();
+    await installReady(state);
+    let settled = false;
+    // role-2 has no live document and fails at once; role-1 is still applying.
+    const refresh = state.subject.refresh(["role-1", "role-2"]);
+    void refresh.catch(() => undefined).finally(() => { settled = true; });
+    await vi.waitFor(() => expect(state.submitRoleFontsRefresh).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    const control = state.submitRoleFontsRefresh.mock.calls[0]![1];
+    await state.apply(await state.requestPayload(control.refreshId));
+    await expect(refresh).rejects.toMatchObject({ code: "ELECTRON_ROLE_FONT_NOT_READY" });
+  });
+
+  it("reports a role's real refresh failure over another role's superseded document", async () => {
+    const state = harness();
+    await installReady(state);
+    const refresh = state.subject.refresh(["role-1", "role-2"]);
+    await vi.waitFor(() => expect(state.submitRoleFontsRefresh).toHaveBeenCalledOnce());
+    state.emitLifecycle("surface-retired");
+    await expect(refresh).rejects.toMatchObject({ code: "ELECTRON_ROLE_FONT_NOT_READY" });
+    const retiredOnly = harness();
+    await installReady(retiredOnly);
+    const retired = retiredOnly.subject.refresh(["role-1"]);
+    await vi.waitFor(() => expect(retiredOnly.submitRoleFontsRefresh).toHaveBeenCalledOnce());
+    retiredOnly.emitLifecycle("surface-retired");
+    await expect(retired).rejects.toMatchObject({ code: "ELECTRON_ROLE_FONT_SURFACE_RETIRED" });
+  });
+
   it("rejects refresh evidence when a selected available font did not load", async () => {
     const state = harness();
     await installReady(state);

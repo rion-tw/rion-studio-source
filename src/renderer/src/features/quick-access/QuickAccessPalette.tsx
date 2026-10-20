@@ -127,11 +127,12 @@ export function QuickAccessPalette({
   }, [items.length]);
 
   // Focus stays in the search field, so keyboard selection must scroll itself.
+  // Runtime updates rebuild the items; only a changed selection scrolls.
+  const selectedOptionId = items[selectedIndex] ? quickAccessOptionId(items[selectedIndex]) : null;
   useEffect(() => {
-    const item = items[selectedIndex];
-    if (!open || !item) return;
-    document.getElementById(quickAccessOptionId(item))?.scrollIntoView?.({ block: "nearest" });
-  }, [items, open, selectedIndex]);
+    if (!open || !selectedOptionId) return;
+    document.getElementById(selectedOptionId)?.scrollIntoView?.({ block: "nearest" });
+  }, [open, selectedOptionId]);
 
   async function execute(
     item: QuickAccessItem,

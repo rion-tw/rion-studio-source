@@ -375,7 +375,8 @@ function renderTabs(
   if (focused?.tabId) {
     const selector = focused.close ? "[data-runtime-tab-close]" : "[data-runtime-tab-activate]";
     [...tabs!.querySelectorAll<HTMLElement>(selector)]
-      .find((element) => element.dataset.tabId === focused.tabId && !element.hidden)?.focus();
+      .find((element) => element.dataset.tabId === focused.tabId && !element.hidden)
+      ?.focus({ preventScroll: true });
   }
 }
 

@@ -107,7 +107,7 @@ export function createRionStudioPreloadApi(
  * so the page could never localize a failure by code. A plain object keeps
  * both fields when it crosses into the page.
  */
-export function transferableBridgeError(error: unknown): Readonly<{
+function transferableBridgeError(error: unknown): Readonly<{
   name: "RionBridgeError";
   code: string;
   message: string;

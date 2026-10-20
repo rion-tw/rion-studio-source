@@ -199,7 +199,7 @@ describe("renderer visual foundation", () => {
     // An item-aligned Select opens its first option above the trigger, inside the
     // 3.5rem window-drag strip; without no-drag the caption swallows that click.
     expect(styles).toMatch(
-      /\.glass-popover,\s*\[data-radix-popper-content-wrapper\] \{\s*-webkit-app-region: no-drag;/
+      /\.glass-popover,\s*\.app-dialog,\s*\.confirmation-dialog,\s*\[data-radix-popper-content-wrapper\] \{\s*-webkit-app-region: no-drag;/
     );
   });
 

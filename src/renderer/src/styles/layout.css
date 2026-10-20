@@ -17,9 +17,11 @@
     -webkit-app-region: no-drag;
   }
 
-  /* Portaled menus and lists can open over the top window-drag strip. Electron
-     subtracts later no-drag rects from that strip, so their items stay clickable. */
+  /* Portaled menus, lists, and modal dialogs can open over the top window-drag
+     strip. Electron subtracts later no-drag rects from it, so they stay clickable. */
   .glass-popover,
+  .app-dialog,
+  .confirmation-dialog,
   [data-radix-popper-content-wrapper] {
     -webkit-app-region: no-drag;
   }

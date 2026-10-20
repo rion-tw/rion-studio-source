@@ -418,6 +418,9 @@ prove hidden, revealed, pinned, reverse-live-update, and terminal normal states,
 and retain the auto-hide preference across a clean restart. It never mutates
 runtime state or substitutes for any primary action.
 
+The visible-tab seed uses the same receipt for its KeyY press and keeps that
+sender alive through the trusted page keydown and keyup: a one-shot sender exited
+before the WindowServer delivered the key, and neither AppKit nor the page saw it.
 The macOS held-key overlap journey uses the same nonce-bound receipt for Digit2
 followed by Digit3. Both exact senders and their native sources and posted key
 events remain alive through the original trusted Digit3 keyup and Core-held

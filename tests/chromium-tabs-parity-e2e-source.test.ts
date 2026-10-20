@@ -38,6 +38,9 @@ describe("Chromium native tab exact replacements", () => {
       expect(spec).toContain(marker);
     }
     expect(spec).not.toContain("runtimeUiAction(");
+    // The one-shot sender could exit before the WindowServer delivered KeyY.
+    expect(spec).toContain('withVisibleMacosRoleKeyReceipt({ code: "KeyY"');
+    expect(spec).not.toContain("pressVisibleMacosRoleKey");
     expect(spec).not.toContain("controlWindow(");
     expect(spec).not.toContain("browser.execute(");
     expect(helper).toContain("readMacosVisibleRuntimeTabPoint({ tabId, tabName, windowId })");

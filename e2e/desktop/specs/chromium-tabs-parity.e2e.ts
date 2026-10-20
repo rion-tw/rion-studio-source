@@ -41,9 +41,9 @@ import {
 } from "../support/macos-appkit-ui";
 import {
   pressVisibleMacosApplicationShortcut,
-  pressVisibleMacosRoleKey,
   pressVisibleWindowsApplicationShortcut,
-  waitForFocusedMacosAppKitRuntime
+  waitForFocusedMacosAppKitRuntime,
+  withVisibleMacosRoleKeyReceipt
 } from "../support/native-application-actions";
 import {
   clickVisibleRuntimeWindowControl,
@@ -1229,11 +1229,12 @@ async function seedPhase(input: Readonly<{
   expect(await runtimeTabShellErrors()).toEqual([]);
   if (input.platform === "macos") {
     const keyCursor = await fixtureCursor();
-    await pressVisibleMacosRoleKey({ code: "KeyY", processId: input.processId,
-      runtimeTabName: sourceRoles[2]!.name, runtimeWindowId: gameWindow.id });
-    const key = await waitFixtureEvent({ afterSequence: keyCursor, kind: "keydown",
-      roleId: ROLE_DEFINITIONS[2].fixtureId });
-    expect(key).toMatchObject({ code: "KeyY", isTrusted: true });
+    // A one-shot sender exited before delivery; retain it through keyup.
+    await withVisibleMacosRoleKeyReceipt({ code: "KeyY", processId: input.processId,
+      runtimeTabName: sourceRoles[2]!.name, runtimeWindowId: gameWindow.id }, async signal => {
+      for (const kind of ["keydown", "keyup"]) expect(await waitFixtureEvent({ afterSequence: keyCursor,
+        kind, roleId: ROLE_DEFINITIONS[2].fixtureId, signal })).toMatchObject({ code: "KeyY", isTrusted: true });
+    });
   }
 
   await activateAndFocusEveryTab({

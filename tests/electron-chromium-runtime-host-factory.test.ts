@@ -443,6 +443,44 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(window.webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
   });
 
+  it("keeps a taskbar-minimized host shown until it is actually hidden", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const foreground = new FakeRuntimeForegroundProbe();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32",
+      browserWindows: browserWindows.port,
+      displays,
+      runtimeDocumentPath,
+      runtimeForegroundProbe: foreground
+    });
+    const launchTarget = target();
+    const creation = factory.create(launchTarget, tab(launchTarget));
+    const native = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, native);
+    await applyWindowFence(host);
+    native.visible = true;
+    foreground.parentVisible = true;
+    expect(host.isVisible()).toBe(true);
+
+    native.minimized = true;
+    foreground.parentMinimized = true;
+    expect(native.isVisible()).toBe(false);
+    expect(host.isVisible()).toBe(true);
+    expect(host.readRuntimeWindowState?.()).toMatchObject({ visible: true, minimized: true, focused: false });
+
+    native.visible = false;
+    foreground.parentVisible = false;
+    expect(host.isVisible()).toBe(false);
+    expect(host.readRuntimeWindowState?.()).toMatchObject({ visible: false, minimized: true });
+
+    native.visible = true;
+    foreground.parentVisible = true;
+    foreground.readWindowsRuntimeForeground.mockImplementationOnce(() => {
+      throw new Error("transition in progress");
+    });
+    expect(host.isVisible()).toBe(false);
+  });
+
   it("streams exact native state events and retires observers before replacement", async () => {
     const browserWindows = new FakeBrowserWindows();
     const foreground = new FakeRuntimeForegroundProbe();

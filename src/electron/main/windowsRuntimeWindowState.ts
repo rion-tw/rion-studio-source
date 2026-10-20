@@ -232,7 +232,10 @@ export class WindowsRuntimeWindowStateStream {
       );
     }
     this.#parentIdentity = readback.parentIdentity;
-    const visible = this.#input.native.isVisible() && readback.parentVisible;
+    // Electron's isVisible() is false while minimized on Windows. Minimized is
+    // still shown; only WS_VISIBLE decides, so Hide applies to a minimized window.
+    const visible = (this.#input.native.isVisible() || this.#input.native.isMinimized()) &&
+      readback.parentVisible;
     const minimized = this.#input.native.isMinimized() ||
       readback.parentMinimized;
     const foreground = readback.parentWasForeground;

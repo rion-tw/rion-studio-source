@@ -208,7 +208,8 @@ export class FakeWindow {
   }
 
   isVisible(): boolean {
-    return this.visible;
+    // Electron on Windows: WS_VISIBLE && !IsMinimized().
+    return this.visible && !this.minimized;
   }
 
   loadFile(path: string): Promise<void> {

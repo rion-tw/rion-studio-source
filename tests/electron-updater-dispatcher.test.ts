@@ -32,6 +32,7 @@ describe("Electron updater dispatcher", () => {
     const updates = {
       getUpdateStatus: vi.fn(() => status),
       checkForUpdates: vi.fn(async () => status),
+      checkForUpdatesIfDue: vi.fn(),
       setAutoUpdateEnabled: vi.fn(async () => status),
       installDownloadedUpdate: vi.fn(async () => attempt)
     };
@@ -42,6 +43,8 @@ describe("Electron updater dispatcher", () => {
 
     await expect(dispatcher.invoke(identity, "getUpdateStatus", [])).resolves.toBe(status);
     await expect(dispatcher.invoke(identity, "checkForUpdates", [])).resolves.toBe(status);
+    await expect(dispatcher.invoke(identity, "checkForUpdatesIfDue", [])).resolves.toBeUndefined();
+    expect(updates.checkForUpdatesIfDue).toHaveBeenCalledOnce();
     await expect(
       dispatcher.invoke(identity, "setAutoUpdateEnabled", [false])
     ).resolves.toBe(status);

@@ -27,6 +27,8 @@ use crate::{
     },
 };
 
+#[path = "manager/automatic.rs"]
+mod automatic;
 #[path = "manager/check.rs"]
 mod check;
 #[path = "manager/install.rs"]

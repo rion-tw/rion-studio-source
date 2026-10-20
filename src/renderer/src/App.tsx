@@ -78,6 +78,7 @@ export function App(): JSX.Element {
   const notifiedEngineIssues = useRef(new Map<string, string>());
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
   const updates = useAppUpdates({
+    automaticChecks: legal.status?.isAccepted === true,
     enabled: hasBridge,
     onError: data.setError
   });

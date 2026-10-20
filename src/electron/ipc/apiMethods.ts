@@ -145,6 +145,7 @@ export const RION_API_INVOKE_METHODS = {
   getWindowsMicaEnabled: true,
   getUpdateStatus: true,
   checkForUpdates: true,
+  checkForUpdatesIfDue: true,
   setAutoUpdateEnabled: true,
   openUpdateDownload: true,
   installDownloadedUpdate: true

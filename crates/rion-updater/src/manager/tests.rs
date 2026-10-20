@@ -153,6 +153,62 @@ fn check_streams_verifies_persists_and_orders_revision_fenced_statuses() {
 }
 
 #[test]
+fn automatic_checks_run_only_when_enabled_and_due() {
+    let disabled = manager_fixture(b"test", b"test", None);
+    disabled.manager.set_auto_update_enabled(false).unwrap();
+    assert!(
+        disabled
+            .manager
+            .check_for_updates_if_due()
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(disabled.transport.fetches.load(Ordering::Acquire), 0);
+
+    let fixture = manager_fixture(b"test", b"test", None);
+    let terminal = fixture.manager.check_for_updates_if_due().unwrap().unwrap();
+    assert_eq!(terminal.status.state, "downloaded");
+    // A downloaded update waits for installation instead of checking again.
+    assert!(
+        fixture
+            .manager
+            .check_for_updates_if_due()
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(fixture.transport.fetches.load(Ordering::Acquire), 1);
+}
+
+#[test]
+fn automatic_check_interval_backs_off_after_failures() {
+    use super::automatic::automatic_check_due;
+    let now = chrono::DateTime::parse_from_rfc3339("2026-10-20T12:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let attempted = |minutes_ago: i64, failures: u8| crate::persistence::UpdatePreferences {
+        last_attempt_at: Some((now - chrono::Duration::minutes(minutes_ago)).to_rfc3339()),
+        consecutive_failures: failures,
+        ..Default::default()
+    };
+    assert!(automatic_check_due(&Default::default(), now));
+    assert!(!automatic_check_due(
+        &crate::persistence::UpdatePreferences {
+            auto_update_enabled: false,
+            ..Default::default()
+        },
+        now
+    ));
+    assert!(!automatic_check_due(&attempted(359, 0), now));
+    assert!(automatic_check_due(&attempted(360, 0), now));
+    assert!(!automatic_check_due(&attempted(14, 1), now));
+    assert!(automatic_check_due(&attempted(15, 1), now));
+    assert!(!automatic_check_due(&attempted(59, 2), now));
+    assert!(automatic_check_due(&attempted(60, 2), now));
+    assert!(!automatic_check_due(&attempted(359, 9), now));
+    assert!(automatic_check_due(&attempted(-30, 0), now));
+}
+
+#[test]
 fn subscribe_registers_the_initial_snapshot_before_a_new_status_can_publish() {
     let fixture = manager_fixture(b"test", b"test", None);
     let subscribers = fixture.manager.subscribers.lock().unwrap();

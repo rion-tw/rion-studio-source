@@ -19,6 +19,7 @@ export interface RawChromiumUpdaterOptions {
 export interface RawChromiumUpdaterBinding {
   getUpdateStatusInternal: () => string;
   checkForUpdatesInternal: () => Promise<string>;
+  checkForUpdatesIfDueInternal: () => Promise<string | null>;
   setAutoUpdateEnabledInternal: (enabled: boolean) => Promise<string>;
   acceptUpdateInstallInternal: () => Promise<string>;
   prepareUpdateInstallInternal: (attemptId: string) => Promise<string>;
@@ -199,6 +200,15 @@ export class ElectronChromiumUpdater {
       });
     this.#checkPromise = operation;
     return operation;
+  }
+
+  /**
+   * Starts an automatic check from an application event. Rust decides whether
+   * one is due; its outcome, including a failure, is published as status.
+   */
+  checkForUpdatesIfDue(): void {
+    if (this.#commandIngressError() || this.#checkPromise) return;
+    void this.#binding.checkForUpdatesIfDueInternal().catch(() => undefined);
   }
 
   setAutoUpdateEnabled(enabled: boolean): Promise<AppUpdateStatusRecord> {

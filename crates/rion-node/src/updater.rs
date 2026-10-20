@@ -65,6 +65,16 @@ impl NativeChromiumUpdater {
         serialize(status)
     }
 
+    #[napi(js_name = "checkForUpdatesIfDueInternal")]
+    pub async fn check_for_updates_if_due_internal(&self) -> Result<Option<String>> {
+        let manager = Arc::clone(&self.inner);
+        let status = napi::tokio::task::spawn_blocking(move || manager.check_for_updates_if_due())
+            .await
+            .map_err(join_error)?
+            .map_err(updater_error)?;
+        status.map(serialize).transpose()
+    }
+
     #[napi(js_name = "setAutoUpdateEnabledInternal")]
     pub async fn set_auto_update_enabled_internal(&self, enabled: bool) -> Result<String> {
         let manager = Arc::clone(&self.inner);

@@ -83,6 +83,28 @@ describe("Electron Chromium updater", () => {
     expect(fixture.binding.checkForUpdatesInternal).toHaveBeenCalledTimes(2);
   });
 
+  it("starts an automatic check without waiting for it and never reports its failure", async () => {
+    const manual = deferredPromise<string>();
+    const fixture = await updaterFixture({
+      checkForUpdatesInternal: vi.fn(() => manual.promise),
+      checkForUpdatesIfDueInternal: vi.fn(async () => {
+        throw new Error("network unavailable");
+      })
+    });
+
+    expect(fixture.updater.checkForUpdatesIfDue()).toBeUndefined();
+    expect(fixture.binding.checkForUpdatesIfDueInternal).toHaveBeenCalledOnce();
+    await Promise.resolve();
+    expect(fixture.onError).not.toHaveBeenCalled();
+
+    // A manual check already owns the operation, so the event adds nothing.
+    const check = fixture.updater.checkForUpdates();
+    fixture.updater.checkForUpdatesIfDue();
+    expect(fixture.binding.checkForUpdatesIfDueInternal).toHaveBeenCalledOnce();
+    manual.resolve(envelope(4, downloadedStatus));
+    await check;
+  });
+
   it("publishes only contiguous forward native revisions and rejects a gap", async () => {
     const fixture = await updaterFixture();
     fixture.emit(envelope(5, idleStatus));
@@ -437,6 +459,7 @@ async function updaterFixture(
   const binding: RawChromiumUpdaterBinding = {
     getUpdateStatusInternal: vi.fn(() => envelope(1, idleStatus)),
     checkForUpdatesInternal: vi.fn(async () => envelope(2, downloadedStatus)),
+    checkForUpdatesIfDueInternal: vi.fn(async () => null),
     setAutoUpdateEnabledInternal: vi.fn(async (enabled) => envelope(2, {
       ...idleStatus,
       autoUpdateEnabled: enabled

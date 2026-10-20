@@ -224,6 +224,8 @@ export interface RionStudioApi {
   getWindowsMicaEnabled: () => Promise<boolean>;
   getUpdateStatus: () => Promise<AppUpdateStatus>;
   checkForUpdates: () => Promise<AppUpdateStatus>;
+  /** Starts a check only when automatic updates are enabled and one is due. */
+  checkForUpdatesIfDue: () => Promise<void>;
   setAutoUpdateEnabled: (enabled: boolean) => Promise<AppUpdateStatus>;
   openUpdateDownload: () => Promise<void>;
   installDownloadedUpdate: () => Promise<AppUpdateInstallAttempt>;

@@ -4,6 +4,8 @@ import type { AppUpdateStatus } from "../../../shared/types";
 import { useGuardedApplicationAction } from "../components/applicationQuitGuardRegistry";
 
 interface UseAppUpdatesOptions {
+  /** Automatic checks start only after the legal disclosures were accepted. */
+  automaticChecks?: boolean;
   enabled: boolean;
   onError: (error: unknown) => void;
 }
@@ -18,7 +20,11 @@ interface UseAppUpdatesResult {
   installDownloadedUpdate: () => Promise<void>;
 }
 
-export function useAppUpdates({ enabled, onError }: UseAppUpdatesOptions): UseAppUpdatesResult {
+export function useAppUpdates({
+  automaticChecks = false,
+  enabled,
+  onError
+}: UseAppUpdatesOptions): UseAppUpdatesResult {
   const [appVersion, setAppVersion] = useState("");
   const [status, setStatus] = useState<AppUpdateStatus | null>(null);
   const checkInFlightRef = useRef(false);
@@ -52,6 +58,20 @@ export function useAppUpdates({ enabled, onError }: UseAppUpdatesOptions): UseAp
       unsubscribe();
     };
   }, [enabled, onError]);
+
+  // Automatic updates follow application events: this window opening and
+  // every return to it. Core starts a check only when one is due.
+  useEffect(() => {
+    if (!enabled || !automaticChecks) {
+      return;
+    }
+    const checkIfDue = (): void => {
+      void window.rionStudio.checkForUpdatesIfDue().catch(() => undefined);
+    };
+    checkIfDue();
+    window.addEventListener("focus", checkIfDue);
+    return () => window.removeEventListener("focus", checkIfDue);
+  }, [automaticChecks, enabled]);
 
   const checkForUpdates = useCallback(async () => {
     if (!enabled || checkInFlightRef.current) {

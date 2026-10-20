@@ -125,6 +125,29 @@ describe("useAppUpdates", () => {
   });
 });
 
+describe("automatic update checks", () => {
+  it("asks Core on open and on each return to the window only after legal acceptance", async () => {
+    const checkForUpdatesIfDue = vi.fn().mockResolvedValue(undefined);
+    installBridge(vi.fn().mockResolvedValue(idleStatus));
+    Object.assign(window.rionStudio, { checkForUpdatesIfDue });
+    const { rerender, unmount } = renderHook(
+      ({ accepted }) => useAppUpdates({ automaticChecks: accepted, enabled: true, onError: vi.fn() }),
+      { initialProps: { accepted: false } }
+    );
+    window.dispatchEvent(new Event("focus"));
+    expect(checkForUpdatesIfDue).not.toHaveBeenCalled();
+
+    rerender({ accepted: true });
+    expect(checkForUpdatesIfDue).toHaveBeenCalledOnce();
+    window.dispatchEvent(new Event("focus"));
+    expect(checkForUpdatesIfDue).toHaveBeenCalledTimes(2);
+
+    unmount();
+    window.dispatchEvent(new Event("focus"));
+    expect(checkForUpdatesIfDue).toHaveBeenCalledTimes(2);
+  });
+});
+
 function installBridge(
   checkForUpdates: () => Promise<AppUpdateStatus>,
   installDownloadedUpdate = vi.fn().mockResolvedValue(acceptedAttempt)

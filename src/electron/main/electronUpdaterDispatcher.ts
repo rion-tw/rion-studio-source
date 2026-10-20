@@ -15,6 +15,7 @@ type MaybePromise<Value> = Value | Promise<Value>;
 export interface ElectronUpdaterActions {
   getUpdateStatus: () => MaybePromise<AppUpdateStatusRecord>;
   checkForUpdates: () => Promise<AppUpdateStatusRecord>;
+  checkForUpdatesIfDue: () => void;
   setAutoUpdateEnabled: (enabled: boolean) => Promise<AppUpdateStatusRecord>;
   installDownloadedUpdate: () => Promise<AppUpdateInstallAttemptRecord>;
 }
@@ -36,6 +37,11 @@ export function createElectronUpdaterDispatcher(
           break;
         case "checkForUpdates":
           value = await updates.checkForUpdates();
+          break;
+        case "checkForUpdatesIfDue":
+          // The outcome arrives as status events; the request never waits for it.
+          updates.checkForUpdatesIfDue();
+          value = undefined;
           break;
         case "setAutoUpdateEnabled": {
           const [enabled] = args as unknown as RionApiArgs<"setAutoUpdateEnabled">;

@@ -124,7 +124,9 @@ function GameEditor({
 
 function GameCoverEditor({ form, game, isSaving, t, onChange, onError }: { form: GameFormState; game?: Game; isSaving: boolean; t: Translator; onChange: (form: GameFormState) => void; onError: (error: unknown | null) => void }): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
-  const coverUrl = form.coverImageDataUrl ?? getGameCoverUrl(game);
+  // A custom game's preview is its form value; falling back to the saved image
+  // would keep showing an image the user just removed.
+  const coverUrl = form.source === "custom" ? form.coverImageDataUrl : form.coverImageDataUrl ?? getGameCoverUrl(game);
 
   async function change(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
@@ -155,7 +157,7 @@ function GameCoverEditor({ form, game, isSaving, t, onChange, onError }: { form:
 
 function GameIconEditor({ form, game, isSaving, t, onChange, onError }: { form: GameFormState; game?: Game; isSaving: boolean; t: Translator; onChange: (form: GameFormState) => void; onError: (error: unknown | null) => void }): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
-  const iconUrl = form.iconImageDataUrl ?? getGameIconUrl(game);
+  const iconUrl = form.source === "custom" ? form.iconImageDataUrl : form.iconImageDataUrl ?? getGameIconUrl(game);
   async function change(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
     try { onChange({ ...form, iconImageDataUrl: await createSquareImage(file) }); onError(null); } catch (error) { onError(error); }

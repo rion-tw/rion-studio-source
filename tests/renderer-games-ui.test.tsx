@@ -70,6 +70,31 @@ describe("games cover UI", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: "Renamed game" })));
   });
 
+  it("stops previewing a saved custom icon and cover once they are removed", () => {
+    const savedIcon = "data:image/png;base64,SUNPTg==";
+    const customGame = game({ id: "game-1", iconImageDataUrl: savedIcon, coverImageDataUrl: processedCover });
+    const router = createMemoryRouter([{
+      path: "/games/:id/edit",
+      element: <ConfirmationProvider><GameEditorRoute
+        games={[customGame]}
+        isSaving={false}
+        t={t}
+        onError={vi.fn()}
+        onReset={vi.fn()}
+        onSave={vi.fn()}
+      /></ConfirmationProvider>
+    }], { initialEntries: ["/games/game-1/edit"] });
+    const { container } = render(<RouterProvider router={router} />);
+    expect(container.querySelector(`img[src="${savedIcon}"]`)).not.toBeNull();
+    expect(container.querySelector(`img[src="${processedCover}"]`)).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove icon" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove cover" }));
+
+    expect(container.querySelector(`img[src="${savedIcon}"]`)).toBeNull();
+    expect(container.querySelector(`img[src="${processedCover}"]`)).toBeNull();
+  });
+
   it("renders a clean cover section and keeps card actions independent from navigation", async () => {
     const user = userEvent.setup();
     const covered = game({ id: "covered", name: "Covered", coverImageDataUrl: processedCover });

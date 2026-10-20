@@ -227,6 +227,7 @@ interface WindowsHostRecord {
   nativeLayoutSequence: number;
   readonly contentGeometry: WindowsRuntimeContentGeometry;
   readonly restoredGeometry: WindowsRuntimeRestoredGeometry;
+  creationPreferences: RuntimeWindowPreferencesRecord | null;
 }
 
 function deferred<Value>(): Deferred<Value> {
@@ -746,6 +747,7 @@ implements ChromiumRuntimeHostFactoryPort {
     }
     try {
       installDenyByDefaultPolicy(record.contents);
+      record.creationPreferences = this.#windowPreferences;
       void record.chrome.applyPreferences(this.#windowPreferences).catch((error) => {
         this.#failCreation(
           record,
@@ -802,6 +804,7 @@ implements ChromiumRuntimeHostFactoryPort {
       shortcutOwnerInstalled: false,
       lastNativeLayoutSignature: null,
       nativeLayoutSequence: 0,
+      creationPreferences: null,
       contentGeometry: new WindowsRuntimeContentGeometry(),
       restoredGeometry: new WindowsRuntimeRestoredGeometry(native.getNormalBounds())
     };
@@ -1264,6 +1267,11 @@ implements ChromiumRuntimeHostFactoryPort {
     }
     record.state = "active";
     this.#removeReadinessListeners(record);
+    // Preference changes skip hosts that are still opening; catch up once so a
+    // window restored during startup does not keep the earlier toolbar options.
+    if (record.creationPreferences !== this.#windowPreferences) {
+      void record.chrome.applyPreferences(this.#windowPreferences).catch(this.#onCommandError);
+    }
     record.creation.resolve(record.host);
   }
 

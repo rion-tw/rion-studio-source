@@ -6,7 +6,7 @@ import type {
   EmbeddedTabEffectRecord
 } from "../src/shared/generated";
 import { describe, expect, it, vi } from "vitest";
-import { WINDOWS_RUNTIME_HOST_COMMAND_CHANNEL } from
+import { WINDOWS_RUNTIME_HOST_COMMAND_CHANNEL, WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL } from
   "../src/shared/windowsRuntimeHost";
 
 import type { ChromiumRuntimeHostPort } from "../src/electron/main/chromiumRuntimeEffectExecutor";
@@ -441,6 +441,33 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     await empty(11);
     send("F4", true);
     expect(window.webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+  });
+
+  it("catches up on toolbar preferences changed while the host was still opening", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32",
+      browserWindows: browserWindows.port,
+      displays,
+      runtimeDocumentPath,
+      runtimeForegroundProbe: new FakeRuntimeForegroundProbe()
+    });
+    const launchTarget = target();
+    const creation = factory.create(launchTarget, tab(launchTarget));
+    const native = browserWindows.windows[0]!;
+    await factory.applyWindowPreferences({
+      alwaysHideTabCloseButton: true,
+      alwaysShowToolbarInFullScreen: false,
+      restoreGameWindowsOnStartup: false
+    });
+    const host = await finishCreation(creation, native);
+    await applyWindowFence(host);
+    await vi.waitFor(() => {
+      const projections = native.webContents.sent
+        .filter(([channel]) => channel === WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL)
+        .map(([, projection]) => projection as { alwaysHideTabCloseButton: boolean });
+      expect(projections.at(-1)?.alwaysHideTabCloseButton).toBe(true);
+    });
   });
 
   it("keeps a taskbar-minimized host shown until it is actually hidden", async () => {

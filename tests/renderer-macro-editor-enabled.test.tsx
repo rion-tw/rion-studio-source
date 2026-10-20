@@ -578,6 +578,24 @@ it("records a modified middle click as a macro shortcut", () => {
       .toBe("false");
   });
 
+it("states the real 24-hour maximum when a loop wait is out of range", () => {
+    const selectedMacro = macro({ repeat: { type: "loop", intervalMs: 86_400_001 } });
+    const router = createMemoryRouter([{
+      path: "/macros/:id/edit",
+      element: <MacroEditorRoute
+        games={[game()]}
+        isSaving={false}
+        macros={[selectedMacro]}
+        roles={[role()]}
+        t={t}
+        onSave={vi.fn()}
+      />
+    }], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    expect(screen.getByText("Enter a whole-number wait from 0 to 86,400,000 ms (24 hours).")).toBeTruthy();
+  });
+
 it("keeps only the most recently started recorder listening", () => {
     const selectedMacro = macro({
       trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }

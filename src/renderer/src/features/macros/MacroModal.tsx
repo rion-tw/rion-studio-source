@@ -33,7 +33,7 @@ import { cn } from "../../lib/utils";
 
 import { areMacroTriggersEqual, isReservedBrowserZoomMacroTrigger, isReservedQuickAccessMacroTrigger, isReservedRuntimeTabSwitchMacroTrigger, macroShortcutSourcesOverlap, MACRO_OVERLAY_TRIGGER } from "../../../../shared/macroShortcuts";
 
-import { DEFAULT_MACRO_SETTINGS, isValidMacroKeyHoldDuration } from "../../../../shared/macroSettings";
+import { DEFAULT_MACRO_SETTINGS, isValidMacroKeyHoldDuration, MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
 
 import type { Game, Macro, MacroActivationMode, MacroKeyAction, MacroRepeat, MacroSettings, MacroStep, Role } from "../../../../shared/types";
 
@@ -166,7 +166,7 @@ function MacroEditor({
       : form.steps.length === 0
         ? t("macroForm.saveHint.needsStep")
         : form.repeat.type === "loop" && !isValidMacroInterval(form.repeat.intervalMs)
-          ? t("macroForm.saveHint.invalidInterval")
+          ? t("macroForm.saveHint.invalidInterval").replace("{max}", MACRO_DELAY_MAX_MS.toLocaleString("en-US"))
         : t("macroForm.saveHint.ready")
   );
   const confirmationOptions = useMemo(() => ({

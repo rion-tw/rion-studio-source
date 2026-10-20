@@ -20,6 +20,11 @@ fn migrate_reserved_quick_access_shortcuts(connection: &Connection) -> CoreResul
             continue;
         }
         payload["trigger"] = Value::Null;
+        // A hold macro needs a shortcut; without one it falls back to a press,
+        // as when its last shortcut source role is deleted.
+        if payload.get("activationMode").and_then(Value::as_str) == Some("hold") {
+            payload["activationMode"] = Value::String("press".to_owned());
+        }
         connection
             .execute(
                 "UPDATE macros SET payload_json=?1 WHERE id=?2",

@@ -178,3 +178,43 @@ fn schema_twenty_five_quick_access_migration_rolls_back_payload_and_version() {
     .unwrap();
     assert_eq!(payload["trigger"]["code"], "KeyK");
 }
+
+#[test]
+fn schema_twenty_five_turns_a_hold_quick_access_macro_into_a_press_macro() {
+    let connection = Connection::open_in_memory().unwrap();
+    create_schema(&connection, false).unwrap();
+    prepare_schema_twenty_five(&connection);
+    insert_schema_twenty_five_macro(
+        &connection,
+        "hold-k",
+        "Hold K",
+        json!({"code":"KeyK","ctrl":true,"alt":false,"shift":false,"meta":false}),
+    );
+    let read_payload = |connection: &Connection| -> Value {
+        serde_json::from_str(
+            &connection
+                .query_row(
+                    "SELECT payload_json FROM macros WHERE id='hold-k'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let mut payload = read_payload(&connection);
+    payload["activationMode"] = json!("hold");
+    connection
+        .execute(
+            "UPDATE macros SET payload_json=?1 WHERE id='hold-k'",
+            [serde_json::to_string(&payload).unwrap()],
+        )
+        .unwrap();
+
+    create_schema(&connection, false).unwrap();
+
+    let payload = read_payload(&connection);
+    assert!(payload["trigger"].is_null());
+    assert_eq!(payload["activationMode"], "press");
+}
+

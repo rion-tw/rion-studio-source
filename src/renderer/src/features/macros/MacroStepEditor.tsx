@@ -27,6 +27,7 @@ import { createClientId, formatMacroCode, formatMacroKeyCombination,
 import { AffixedInput, RecordingButton, TimeUnitSelect, fromDisplayTime, getTimeUnitMax, getTimeUnitStep, toDisplayTime } from "./MacroEditorControls";
 
 import type { TimeUnit } from "./MacroEditorControls";
+import { useExclusiveRecording } from "./useExclusiveRecording";
 
 interface MacroStepEditorProps {
   index: number;
@@ -297,7 +298,7 @@ function MacroStepFields({
   step: MacroStep;
   t: Translator;
 }): JSX.Element {
-  const [isRecording, setIsRecording] = useState(false);
+  const [isRecording, setIsRecording] = useExclusiveRecording();
   const [timeUnit, setTimeUnit] = useState<TimeUnit>("s");
   const pastedMeasurementRef = useRef<{
     measurement: NonNullable<ReturnType<typeof parseMacroCoordinateClipboard>>;

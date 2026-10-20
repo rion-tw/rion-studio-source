@@ -578,6 +578,35 @@ it("records a modified middle click as a macro shortcut", () => {
       .toBe("false");
   });
 
+it("keeps only the most recently started recorder listening", () => {
+    const selectedMacro = macro({
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
+    });
+    const router = createMemoryRouter([{
+      path: "/macros/:id/edit",
+      element: <MacroEditorRoute
+        games={[game()]}
+        isSaving={false}
+        macros={[selectedMacro]}
+        roles={[role()]}
+        t={t}
+        onSave={vi.fn()}
+      />
+    }], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    const [shortcutRecord, stepRecord] = screen.getAllByRole("button", { name: "Record" });
+    fireEvent.click(shortcutRecord!);
+    fireEvent.click(stepRecord!);
+    expect(screen.getAllByRole("button", { name: "Stop recording" })).toHaveLength(1);
+    fireEvent.keyDown(window, { code: "KeyQ", key: "q" });
+
+    const [, shortcutKey, , stepKey] = screen.getAllByRole("combobox", { name: /^(Modifiers|Key)$/ });
+    expect(shortcutKey!.textContent).toContain("F6");
+    expect(stepKey!.textContent).toContain("Q");
+    expect(screen.queryByRole("button", { name: "Stop recording" })).toBeNull();
+  });
+
 it("offers left, middle, and right mouse buttons for click steps", () => {
     const selectedMacro = macro({
       steps: [{ id: "click", type: "click", button: "middle", xPercent: 50, yPercent: 50 }]

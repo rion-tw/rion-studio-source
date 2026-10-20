@@ -31,6 +31,7 @@ import { formatMacroCode, formatMacroIntervalPreset, formatMacroStep,
 import { MACRO_COMMAND_MAX_STEPS, parseMacroCommand, type MacroCommandIssue, type MacroCommandParseResult } from "./macroCommandParser";
 
 import { MODIFIERS_NONE_VALUE, getModifierComboOptions, parseModifierComboValue } from "./MacroStepEditor";
+import { useExclusiveRecording } from "./useExclusiveRecording";
 
 export function MacroHelpSection({ children, title }: { children: ReactNode; title: string }): JSX.Element {
   return (
@@ -417,7 +418,7 @@ interface ShortcutRecorderProps {
 }
 
 export function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.Element {
-  const [isRecording, setIsRecording] = useState(false);
+  const [isRecording, setIsRecording] = useExclusiveRecording();
   const selectedCode = trigger && "code" in trigger ? trigger.code : "";
   const selectedInput = trigger && "button" in trigger ? "MouseMiddle" : selectedCode;
   const selectedModifiers = getMacroTriggerModifiers(trigger);

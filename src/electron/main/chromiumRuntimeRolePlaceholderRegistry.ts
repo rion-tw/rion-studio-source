@@ -73,7 +73,7 @@ export interface ChromiumRuntimeRolePlaceholderDescriptor {
 }
 
 export interface ChromiumRuntimeRolePlaceholderEvidence
-extends RuntimeRolePlaceholderState {
+extends Omit<RuntimeRolePlaceholderState, "labels"> {
   readonly bounds: ChromiumRoleSurfaceBounds;
   readonly nativeHostId: number;
   readonly shellSession: typeof RUNTIME_ROLE_PLACEHOLDER_SHELL_SESSION;
@@ -319,7 +319,8 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
         "The blocked Role-slot placeholder is no longer active."
       );
     }
-    const state = this.#stateFor(record);
+    // Localized labels are presentation only; the evidence keeps its identity shape.
+    const { labels: _labels, ...state } = this.#stateFor(record);
     const bounds = record.view.getBounds();
     const visible = record.view.getVisible();
     if (

@@ -237,6 +237,8 @@ describe("ChromiumRuntimeRolePlaceholderRegistry", () => {
     expect(evidence.shellUrl).toBe(pathToFileURL(
       resolve("/bundle/runtime-role-placeholder-electron.html")
     ).href);
+    // Desktop E2E evidence checks exact keys; localized labels stay out of it.
+    expect(evidence).not.toHaveProperty("labels");
     expect(subject.attached).toEqual([subject.descriptor().placeholderId]);
     expect(subject.views[0]?.webContents.sent).toHaveLength(1);
     await subject.registry.dispose();

@@ -1123,6 +1123,7 @@
   "error.roleOrderInvalid": "角色排序无效。",
   "error.gameWindowNameRequired": "游戏窗口名称为必填。",
   "error.gameWindowNameTooLong": "游戏窗口名称必须为 80 个字符以内。",
+  "error.gameWindowLimitReached": "最多只能保存 32 个游戏窗口。请先删除一个，再创建新的窗口。",
   "error.gameWindowNameDuplicate": "已有同名的游戏窗口。",
   "error.savedWindowLaunchRequiresShow": "这个已保存的游戏窗口已有标签页。请先在“游戏窗口”中显示它，然后重试。",
   "error.roleNameRequired": "角色名称为必填。",

@@ -1123,6 +1123,7 @@
   "error.roleOrderInvalid": "角色排序無效。",
   "error.gameWindowNameRequired": "遊戲視窗名稱為必填。",
   "error.gameWindowNameTooLong": "遊戲視窗名稱必須為 80 個字元以內。",
+  "error.gameWindowLimitReached": "最多只能儲存 32 個遊戲視窗。請先刪除一個，再建立新的視窗。",
   "error.gameWindowNameDuplicate": "已有相同名稱的遊戲視窗。",
   "error.savedWindowLaunchRequiresShow": "這個已儲存的遊戲視窗已有分頁。請先在「遊戲視窗」中顯示它，再試一次。",
   "error.roleNameRequired": "角色名稱為必填。",

@@ -84,6 +84,7 @@ function localizedErrorKey(code: unknown) {
     PROFILE_INVALID: "error.chromeImportProfileInvalid",
     SOURCE_INVALID: "error.chromeImportSourceInvalid",
     ELECTRON_CHROMIUM_SAVED_WINDOW_RESTORE_UNSUPPORTED: "error.savedWindowLaunchRequiresShow",
+    GAME_WINDOW_LIMIT_REACHED: "error.gameWindowLimitReached",
     GAME_WINDOW_NAME_DUPLICATE: "error.gameWindowNameDuplicate",
     GAME_WINDOW_NAME_REQUIRED: "error.gameWindowNameRequired",
     GAME_WINDOW_NAME_TOO_LONG: "error.gameWindowNameTooLong",

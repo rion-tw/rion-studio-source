@@ -1127,6 +1127,7 @@
   "error.roleOrderInvalid": "Role order is invalid.",
   "error.gameWindowNameRequired": "Game window name is required.",
   "error.gameWindowNameTooLong": "Game window name must be 80 characters or fewer.",
+  "error.gameWindowLimitReached": "You can save up to 32 game windows. Delete one before creating another.",
   "error.gameWindowNameDuplicate": "A game window with this name already exists.",
   "error.savedWindowLaunchRequiresShow": "This saved Game Window already has tabs. Show it from Game Windows first, then try again.",
   "error.roleNameRequired": "Role name is required.",

@@ -199,8 +199,9 @@ describe("renderer error localization", () => {
     );
   });
 
-  it("localizes game-window rename validation errors in every language", async () => {
+  it("localizes game-window rename and limit errors in every language", async () => {
     const codes = {
+      GAME_WINDOW_LIMIT_REACHED: "error.gameWindowLimitReached",
       GAME_WINDOW_NAME_REQUIRED: "error.gameWindowNameRequired",
       GAME_WINDOW_NAME_TOO_LONG: "error.gameWindowNameTooLong",
       GAME_WINDOW_NAME_DUPLICATE: "error.gameWindowNameDuplicate"

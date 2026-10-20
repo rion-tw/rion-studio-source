@@ -83,7 +83,8 @@ const native = vi.hoisted(() => {
         ) => { requestHandler = handler; })
       }
     },
-    visible: vi.fn()
+    visible: vi.fn(),
+    bounds: vi.fn()
   };
 });
 
@@ -91,7 +92,7 @@ vi.mock("electron", () => ({
   WebContentsView: class {
     webContents = native.contents;
     setVisible = native.visible;
-    setBounds = vi.fn();
+    setBounds = native.bounds;
   },
   session: { fromPartition: vi.fn(() => native.session) }
 }));
@@ -389,5 +390,19 @@ describe("serialized Chrome Web Store navigation", () => {
       source: "initial"
     })));
     expect(native.contents.loadURL).not.toHaveBeenCalled();
+  });
+});
+
+describe("store placement in a zoomed main window", () => {
+  it.each([
+    [0.9, { x: 0, y: 50, width: 1000, height: 600 }, { x: 0, y: 45, width: 900, height: 540 }],
+    [1.25, { x: 0, y: 50, width: 600, height: 400 }, { x: 0, y: 63, width: 750, height: 500 }]
+  ])("maps page CSS pixels to window DIPs at zoom %s", (zoom, cssBounds, expected) => {
+    const window = { ...owner(), webContents: { getZoomFactor: () => zoom } } as unknown as BrowserWindow;
+    const host = new ExtensionStoreHost(() => window, vi.fn());
+    // At 0.9 the CSS rectangle is wider than the 960×640 window in DIPs.
+    host.request({ action: "show", bounds: cssBounds, language: "en" });
+    expect(native.bounds).toHaveBeenLastCalledWith(expected);
+    host.dispose();
   });
 });

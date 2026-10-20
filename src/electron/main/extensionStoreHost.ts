@@ -226,7 +226,14 @@ export class ExtensionStoreHost {
       this.#queueNavigation(view, this.#generation, url, "language");
     }
     if (request.action === "show") {
-      const bounds = request.bounds;
+      // The page measures CSS pixels; a zoomed main window maps them to DIPs.
+      const zoom = window.webContents?.getZoomFactor?.() ?? 1;
+      const bounds = request.bounds && Number.isFinite(zoom) && zoom > 0
+        ? {
+            x: request.bounds.x * zoom, y: request.bounds.y * zoom,
+            width: request.bounds.width * zoom, height: request.bounds.height * zoom
+          }
+        : request.bounds;
       const [width, height] = window.getContentSize();
       if (!bounds || !Object.values(bounds).every(Number.isFinite) || bounds.x < 0 || bounds.y < 0 ||
         bounds.width < 1 || bounds.height < 1 || bounds.x + bounds.width > width + 1 || bounds.y + bounds.height > height + 1) {

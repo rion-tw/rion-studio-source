@@ -426,6 +426,34 @@ fn update_ordinals(transaction: &Transaction<'_>, table: &str, ids: &[String]) -
     Ok(())
 }
 
+/// Deletes leave ordinal gaps and earlier builds stored duplicate ordinals,
+/// while creates append at the collection length and updates write their
+/// current position. Renumber each ordered table contiguously, in its stored
+/// order, before a mutation relies on that invariant.
+fn compact_ordinals(transaction: &Transaction<'_>) -> CoreResult<()> {
+    for table in ["games", "roles", "workspaces", "game_windows", "macros"] {
+        let rows = {
+            let mut statement = transaction
+                .prepare(&format!("SELECT id, ordinal FROM {table} ORDER BY ordinal, rowid"))
+                .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            statement
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+                .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+        };
+        let sql = format!("UPDATE {table} SET ordinal=?1 WHERE id=?2");
+        for (position, (id, ordinal)) in rows.iter().enumerate() {
+            if *ordinal != position as i64 {
+                transaction
+                    .execute(&sql, params![position as i64, id])
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn json_value(value: &impl serde::Serialize) -> CoreResult<Value> {
     serde_json::to_value(value).map_err(|error| CoreError::Internal(error.to_string()))
 }

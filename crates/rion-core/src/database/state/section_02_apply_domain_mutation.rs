@@ -5,6 +5,7 @@ fn apply_domain_mutation(
     let transaction = connection
         .transaction()
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    compact_ordinals(&transaction)?;
     let mut state_changed = true;
     let result = match mutation {
         StateMutation::GameCreate(input) => {

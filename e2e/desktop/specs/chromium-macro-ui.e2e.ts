@@ -277,11 +277,17 @@ async function exerciseTablesAndSelection(macro: Macro, role: Role): Promise<voi
   expect(await roleGroup.getTagName()).toBe("tbody");
   expect(await roleGroup.$("tr:first-child > td").getAttribute("colspan")).toBe("5");
   await expect(roleGroup).toHaveText(expect.stringContaining(role.name));
+  // Selecting a collapsed group expands it first; hidden rows cannot be selected.
+  const collapse = await roleGroup.$("button[aria-label='Collapse macro group']");
+  await collapse.waitForClickable({ timeout: 10_000 });
+  await collapse.click();
+  await roleGroup.$(`[data-selection-id='${macro.id}']`).waitForExist({ reverse: true, timeout: 10_000 });
   const selectGroup = await roleGroup.$("button=Select 2");
   await selectGroup.waitForClickable({ timeout: 10_000 });
   await selectGroup.click();
   const groupSelection = await $("[role='toolbar'][aria-label='2 selected']");
   await groupSelection.waitForDisplayed({ timeout: 10_000 });
+  await roleGroup.$(`[data-selection-id='${macro.id}']`).waitForDisplayed({ timeout: 10_000 });
   await groupSelection.$("button[aria-label='Clear selection']").click();
   await groupSelection.waitForExist({ reverse: true, timeout: 10_000 });
 

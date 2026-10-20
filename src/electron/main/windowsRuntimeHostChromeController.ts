@@ -160,6 +160,8 @@ export class WindowsRuntimeHostChromeController {
     Object.freeze([]);
   readonly #endedIndicatorGestures = new Set<string>();
   readonly #dividerGestures = new Map<string, ActiveWorkspaceDividerGesture>();
+  /** Gestures whose start was superseded or whose event failed (reported once). */
+  readonly #retiredDividerGestures = new Set<string>();
   #layoutObserver: (() => Promise<void>) | null = null;
   #layoutLane: Promise<void> = Promise.resolve();
   #placementObserver: (() => Promise<void>) | null = null;
@@ -529,6 +531,14 @@ export class WindowsRuntimeHostChromeController {
         candidate.type === "workspaceDividerPointer" &&
         candidate.phase !== "start" &&
         this.#dividerGestures.has(candidate.gestureId);
+      // The pointer keeps streaming after its gesture was dropped; the drop
+      // already republished or reported, so its later events end quietly.
+      if (validCommand && candidate.type === "workspaceDividerPointer" && candidate.phase !== "start" &&
+          url === this.#documentUrl && candidate.windowId === this.#windowId &&
+          this.#retiredDividerGestures.has(candidate.gestureId)) {
+        if (candidate.phase !== "move") this.#retiredDividerGestures.delete(candidate.gestureId);
+        return;
+      }
       // Native layout/fullscreen projections can supersede queued hover and
       // paint observations. Cancel those observations without overwriting the
       // latest presentation or turning an expected supersede into a domain error.
@@ -548,6 +558,8 @@ export class WindowsRuntimeHostChromeController {
         const superseded = validCommand && url === this.#documentUrl &&
           candidate.windowId === this.#windowId && (this.#native.isDestroyed() ||
             candidate.projectionRevision < this.#projectionRevision);
+        if (superseded && candidate.type === "workspaceDividerPointer" && candidate.phase !== "end" &&
+            candidate.phase !== "cancel") this.#retireDividerGesture(candidate.gestureId);
         throw new (superseded ? SupersededHostCommand : RionBridgeError)({
           code: "ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE",
           message: `The bundled toolbar command did not match its exact sender projection: ${JSON.stringify(validCommand ? { type: candidate.type, submitted: candidate.projectionRevision, current: this.#projectionRevision, windowId: candidate.windowId } : { malformed: true })}.`
@@ -575,7 +587,11 @@ export class WindowsRuntimeHostChromeController {
         return;
       }
       if (candidate.type === "workspaceDividerPointer") {
-        return this.#applyWorkspaceDividerCommand(candidate, observedDividerPosition);
+        return this.#applyWorkspaceDividerCommand(candidate, observedDividerPosition).catch((error: unknown) => {
+          if (candidate.phase !== "end" && candidate.phase !== "cancel" &&
+              !this.#dividerGestures.has(candidate.gestureId)) this.#retireDividerGesture(candidate.gestureId);
+          throw error;
+        });
       } else if (
         candidate.type === "openTabMenu" ||
         candidate.type === "activateTab" || candidate.type === "closeTab" ||
@@ -1138,6 +1154,14 @@ export class WindowsRuntimeHostChromeController {
       this.#dividerGestures.delete(command.gestureId);
     }
     this.#paintResizeIndicators();
+  }
+
+  #retireDividerGesture(gestureId: string): void {
+    // A renderer that never sends its terminal event cannot grow this set.
+    if (this.#retiredDividerGestures.size >= 128) {
+      this.#retiredDividerGestures.delete(this.#retiredDividerGestures.values().next().value!);
+    }
+    this.#retiredDividerGestures.add(gestureId);
   }
 
   #paintResizeIndicators(): void {

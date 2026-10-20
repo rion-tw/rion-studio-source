@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  documentUrl, harness, projection, secondTabId, tabId, windowId
+  attemptGeneration, documentUrl, gestureId, harness, projection, secondTabId, tabId, windowId
 } from "./support/windowsRuntimeHostChromeControllerHarness";
 
 type Phase = ReturnType<typeof projection>["tabs"][number]["phase"] | "loading";
@@ -145,5 +145,59 @@ describe("Windows host-document command supersede", () => {
       ...Array<string>(4).fill("ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE"), "CORE_REFUSED"
     ]);
     expect(subject.requestWindowControl).not.toHaveBeenCalled();
+  });
+
+  describe("workspace divider gestures", () => {
+    const divider = {
+      attemptGeneration, axis: "vertical" as const, bounds: { x: 478, y: 40, width: 4, height: 640 },
+      dividerIndex: 0, tabId, visible: true
+    };
+    async function withDivider() {
+      const subject = harness();
+      await subject.controller.applyCoreProjection({ ...coreProjection(1, tabId), workspaceDividers: [divider] });
+      subject.controller.documentLoaded(documentUrl);
+      const pointer = (phase: "start" | "move" | "end", pointerSequence: number) =>
+        subject.controller.submitCommand(documentUrl, {
+          attemptGeneration, dividerIndex: 0, gestureId, phase, pointerSequence,
+          projectionRevision: subject.controller.readObservation().projectionRevision,
+          ...(phase === "move" ? { requestedPosition: 0.6 } : {}),
+          tabId, type: "workspaceDividerPointer", windowId
+        });
+      return { subject, pointer };
+    }
+
+    it("drops the rest of a drag whose start met a newer projection", async () => {
+      const { subject, pointer } = await withDivider();
+      await subject.controller.submitCommand(documentUrl, {
+        attemptGeneration, dividerIndex: 0, gestureId, phase: "start", pointerSequence: 1,
+        projectionRevision: subject.controller.readObservation().projectionRevision - 1,
+        tabId, type: "workspaceDividerPointer", windowId
+      });
+      // The republished projection reaches the renderer before its next moves.
+      await pointer("move", 2);
+      await pointer("move", 3);
+      await pointer("end", 4);
+      expect(subject.requestWorkspaceDividerPointer).not.toHaveBeenCalled();
+      expect(subject.onCommandError).not.toHaveBeenCalled();
+      expect(subject.controller.hasActiveWorkspaceDividerGestures).toBe(false);
+    });
+
+    it("reports a refused divider event once, not for each later pointer event", async () => {
+      const { subject, pointer } = await withDivider();
+      await pointer("start", 1);
+      subject.requestWorkspaceDividerPointer.mockRejectedValueOnce(
+        Object.assign(new Error("Core refused the divider move."), { code: "CORE_REFUSED" })
+      );
+      await pointer("move", 2);
+      await pointer("move", 3);
+      await pointer("end", 4);
+      expect(subject.requestWorkspaceDividerPointer).toHaveBeenCalledTimes(2);
+      expect(subject.onCommandError.mock.calls.map(([error]) => (error as { code?: string }).code))
+        .toEqual(["CORE_REFUSED"]);
+      // The terminal event released the retired gesture; a fresh drag still works.
+      await pointer("start", 1);
+      expect(subject.requestWorkspaceDividerPointer).toHaveBeenCalledTimes(3);
+      expect(subject.onCommandError).toHaveBeenCalledOnce();
+    });
   });
 });

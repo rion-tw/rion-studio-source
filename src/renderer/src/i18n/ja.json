@@ -1489,7 +1489,7 @@
   "settings.logsExportPartial": "診断情報をエクスポートしました。一部の最新データは取得できませんでした。",
   "settings.logsExportComplete": "診断情報をエクスポートしました。",
   "operations.busyRetry": "選択した項目の一部が前の操作を完了中です。しばらくしてからもう一度お試しください。",
-  "operations.roleBusyRetry": "このロールは前の操作を完了しています。しばらくしてからもう一度お試しください。",
+  "operations.roleBusyRetry": "このロールはまだ前の操作を処理中です。しばらくしてからもう一度お試しください。",
   "bulkDelete.reason.protected": "保護 {count} 件",
   "bulkDelete.reason.in_use": "使用中 {count} 件",
   "bulkDelete.reason.not_found": "存在しない {count} 件",

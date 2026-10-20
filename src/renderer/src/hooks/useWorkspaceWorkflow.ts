@@ -28,7 +28,6 @@ export function useWorkspaceWorkflow({
   const [query, setQuery] = useState("");
   const isReorderingWorkspacesRef = useRef(false);
   const isSavingWorkspaceRef = useRef(false);
-  const launchInProgressRef = useRef(false);
   const listScrollTopRef = useRef(0);
 
   async function saveWorkspace(form: WorkspaceFormState): Promise<LaunchWorkspace | undefined> {
@@ -164,14 +163,10 @@ export function useWorkspaceWorkflow({
     workspace: LaunchWorkspace,
     destination?: RuntimeLaunchDestination
   ): Promise<boolean> {
-    if (launchInProgressRef.current) {
-      return false;
-    }
-
-    launchInProgressRef.current = true;
+    // Only this Workspace is busy; the main process queues launches, so another
+    // Workspace's launch button must not silently swallow its click meanwhile.
     const finishBusy = beginBusy(workspace.id);
     if (!finishBusy) {
-      launchInProgressRef.current = false;
       return false;
     }
 
@@ -191,7 +186,6 @@ export function useWorkspaceWorkflow({
       reportError(launchError);
       return false;
     } finally {
-      launchInProgressRef.current = false;
       finishBusy();
     }
   }

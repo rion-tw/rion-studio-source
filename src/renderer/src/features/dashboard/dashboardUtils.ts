@@ -62,6 +62,7 @@ export interface DashboardMacroActionState {
   disabled: boolean;
   disabledReason?:
     | "automationUnavailable"
+    | "roleRestartRequired"
     | "macroDisabled"
     | "noRoles"
     | "runtimeNotActive"
@@ -203,6 +204,11 @@ function createMacroActionState({
       statusByRole.get(roleId)?.automationState === "ready" &&
       statusByRole.get(roleId)?.pageHealth !== "unresponsive"
   );
+  const runningAutomationStates = executionRoleIds
+    .filter((roleId) => roleIds.has(roleId) && statusByRole.get(roleId)?.state === "running")
+    .map((roleId) => statusByRole.get(roleId)?.automationState);
+  const requiresRoleRestart = runningAutomationStates.length > 0 &&
+    runningAutomationStates.every((state) => state === "unavailable");
   const isBusy = busyRunKeys.has(macro.id) || busyMacroIds.has(macro.id) || isStopping;
   const disabledReason = !isRunning && !hasRoles
     ? "noRoles"
@@ -215,7 +221,7 @@ function createMacroActionState({
     : !hasRunningBrowser && !isRunning
       ? "rolesNotRunning"
       : !hasRunnableRole && !isRunning
-        ? "automationUnavailable"
+        ? requiresRoleRestart ? "roleRestartRequired" : "automationUnavailable"
         : undefined;
 
   return {

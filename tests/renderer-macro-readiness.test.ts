@@ -66,6 +66,48 @@ describe("macro readiness admission", () => {
     });
   });
 
+  it("asks for a Role restart only after Core disabled its macro input", () => {
+    const disabledStatus: RoleStatus = { roleId: role.id, state: "running", automationState: "unavailable" };
+
+    expect(macroListState(disabledStatus)).toMatchObject({
+      canStart: false,
+      disabled: true,
+      disabledReason: "roleRestartRequired"
+    });
+    expect(dashboardState(disabledStatus)).toMatchObject({
+      disabled: true,
+      disabledReason: "roleRestartRequired"
+    });
+    expect(macroListState({ ...disabledStatus, automationState: undefined }))
+      .toMatchObject({ disabledReason: "automationUnavailable" });
+  });
+
+  it("keeps waiting while another running execution Role is still preparing", () => {
+    const twoRoleMacro: Macro = { ...macro, roleIds: [role.id, "role-2"] };
+    const statusByRole = new Map<string, RoleStatus>([
+      [role.id, { roleId: role.id, state: "running", automationState: "unavailable" }],
+      ["role-2", { roleId: "role-2", state: "running" }]
+    ]);
+
+    expect(createMacroListRunActionState({
+      busyMacroIds: new Set(),
+      busyRunKeys: new Set(),
+      hasUnassignedDependency: false,
+      macro: twoRoleMacro,
+      macroStatusByRun: new Map(),
+      statusByRole
+    })).toMatchObject({ disabled: true, disabledReason: "automationUnavailable" });
+    expect(getDashboardMacroItems({
+      busyMacroIds: new Set(),
+      busyRunKeys: new Set(),
+      macroStatusByRun: new Map(),
+      macros: [twoRoleMacro],
+      roles: [role, { ...role, id: "role-2", name: "Role 2" }],
+      runtimeInputAvailable: true,
+      statusByRole
+    })[0].action).toMatchObject({ disabled: true, disabledReason: "automationUnavailable" });
+  });
+
   it("enables both UI start actions only after authoritative readiness", () => {
     const readyStatus: RoleStatus = {
       roleId: role.id,

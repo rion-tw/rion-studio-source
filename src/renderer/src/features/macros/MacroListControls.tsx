@@ -142,7 +142,8 @@ type MacroRunDisabledReason =
   | "macroDisabled"
   | "runtimeNotActive"
   | "rolesNotRunning"
-  | "automationUnavailable";
+  | "automationUnavailable"
+  | "roleRestartRequired";
 
 export interface MacroListRunActionState {
   canStart: boolean;
@@ -187,6 +188,13 @@ export function createMacroListRunActionState({
       statusByRole.get(roleId)?.automationState === "ready" &&
       statusByRole.get(roleId)?.pageHealth !== "unresponsive"
   );
+  const runningAutomationStates = roleIds
+    .filter((roleId) => statusByRole.get(roleId)?.state === "running")
+    .map((roleId) => statusByRole.get(roleId)?.automationState);
+  // Core reports "unavailable" only after input was disabled for the surface;
+  // that clears on relaunch, while an absent state is still preparing.
+  const requiresRoleRestart = runningAutomationStates.length > 0 &&
+    runningAutomationStates.every((state) => state === "unavailable");
   const isBusy = busyMacroIds.has(macro.id) || busyRunKeys.has(macro.id) || isStopping;
   const disabledReason = !isRunning && macro.executionMode !== "source_role" && macro.roleIds.length === 0
     ? "noRoles"
@@ -199,7 +207,7 @@ export function createMacroListRunActionState({
         : !isRunning && !hasRunningBrowser
           ? "rolesNotRunning"
           : !isRunning && !hasRunnableRole
-            ? "automationUnavailable"
+            ? requiresRoleRestart ? "roleRestartRequired" : "automationUnavailable"
             : undefined;
   const kind = isRunning || isStopping ? "stop" : "start";
   const disabled = isBusy || Boolean(disabledReason);
@@ -242,7 +250,9 @@ export function MacroRunButton({
           ? t("macros.launchRoleFirst")
           : runState.disabledReason === "automationUnavailable"
             ? t("macros.automationUnavailable")
-            : runLabel;
+            : runState.disabledReason === "roleRestartRequired"
+              ? t("macros.roleRestartRequired")
+              : runLabel;
 
   function handleRun(): void {
     if (runState.disabled) {

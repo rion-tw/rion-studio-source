@@ -654,6 +654,10 @@ function getMacroStatusLabel(item: DashboardMacroItem, t: Translator): string {
     return t("macros.automationUnavailable");
   }
 
+  if (item.action.disabledReason === "roleRestartRequired") {
+    return t("macros.roleRestartRequired");
+  }
+
   if (item.action.disabledReason === "runtimeNotActive") {
     return t("macros.status.runtimeNotActive");
   }
@@ -722,6 +726,10 @@ function getMacroActionTitle(item: DashboardMacroItem, t: Translator): string | 
 
   if (item.action.disabledReason === "automationUnavailable") {
     return t("macros.automationUnavailable");
+  }
+
+  if (item.action.disabledReason === "roleRestartRequired") {
+    return t("macros.roleRestartRequired");
   }
 
   if (item.action.disabledReason === "runtimeNotActive") {

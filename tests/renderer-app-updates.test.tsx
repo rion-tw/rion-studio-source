@@ -146,6 +146,20 @@ describe("automatic update checks", () => {
     window.dispatchEvent(new Event("focus"));
     expect(checkForUpdatesIfDue).toHaveBeenCalledTimes(2);
   });
+
+  it("asks Core right after automatic updates are turned on", async () => {
+    const checkForUpdatesIfDue = vi.fn().mockResolvedValue(undefined);
+    const setAutoUpdateEnabled = vi.fn(async (autoUpdateEnabled: boolean) => ({ ...idleStatus, autoUpdateEnabled }));
+    installBridge(vi.fn().mockResolvedValue(idleStatus));
+    Object.assign(window.rionStudio, { checkForUpdatesIfDue, setAutoUpdateEnabled });
+    const { result } = renderHook(() => useAppUpdates({ automaticChecks: true, enabled: true, onError: vi.fn() }));
+    expect(checkForUpdatesIfDue).toHaveBeenCalledOnce();
+
+    await act(async () => result.current.setAutoUpdateEnabled(false));
+    expect(checkForUpdatesIfDue).toHaveBeenCalledOnce();
+    await act(async () => result.current.setAutoUpdateEnabled(true));
+    expect(checkForUpdatesIfDue).toHaveBeenCalledTimes(2);
+  });
 });
 
 function installBridge(

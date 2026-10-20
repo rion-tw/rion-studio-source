@@ -95,10 +95,14 @@ export function useAppUpdates({
 
     try {
       setStatus(await window.rionStudio.setAutoUpdateEnabled(autoUpdateEnabled));
+      // Turning automatic updates on is itself the event for a due check.
+      if (autoUpdateEnabled && automaticChecks) {
+        void window.rionStudio.checkForUpdatesIfDue().catch(() => undefined);
+      }
     } catch (error) {
       onError(error);
     }
-  }, [enabled, onError]);
+  }, [automaticChecks, enabled, onError]);
 
   const installDownloadedUpdate = useCallback(async () => {
     if (!enabled) {

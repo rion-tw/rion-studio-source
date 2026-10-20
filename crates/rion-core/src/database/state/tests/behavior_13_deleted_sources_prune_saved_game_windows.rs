@@ -171,7 +171,7 @@ fn role_delete_prunes_saved_game_window_tabs_that_reference_the_role() {
     assert_eq!(
         prune_tab_ids(mixed),
         vec![PRUNE_TAB_WORKSPACE_W1, PRUNE_TAB_ROLE_R2],
-        "the deleted role tab and the workspace tab left without content are removed"
+        "the deleted role tab and the tab of the Workspace left without content are removed"
     );
     assert_eq!(mixed.active_tab_id.as_deref(), Some(PRUNE_TAB_WORKSPACE_W1));
     let workspace_tab = &mixed.tabs[0];

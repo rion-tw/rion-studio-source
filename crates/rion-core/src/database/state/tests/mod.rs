@@ -15,3 +15,4 @@ include!("behavior_12_ordinals_after_delete.rs");
 include!("behavior_13_deleted_sources_prune_saved_game_windows.rs");
 include!("behavior_14_role_removal_clears_workspace_slot_zoom.rs");
 include!("behavior_15_dangling_game_window_source_migration.rs");
+include!("behavior_16_saved_workspace_tabs_follow_current_workspace.rs");

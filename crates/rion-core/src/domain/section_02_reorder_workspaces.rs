@@ -499,17 +499,25 @@ pub fn clear_workspace_role(workspaces: &mut [StateLaunchWorkspaceRecord], role_
 }
 
 /// Removes saved Game Window content whose Role or Workspace source was deleted
-/// so every remaining saved tab can still be restored. Role tabs and Workspace
-/// tabs for a deleted source are removed, a deleted Role is cleared from the
-/// remaining Workspace layout snapshots (together with its slot zoom), and a
-/// Workspace tab left without any Role or Web content is removed. A window may
-/// become empty; empty saved windows remain valid domain records. Returns the
-/// indexes of the windows that changed.
+/// so every remaining saved tab can still be restored. Role tabs for a deleted
+/// Role and Workspace tabs for a deleted Workspace are removed.
+///
+/// A Workspace tab restores the current Workspace definition and takes only its
+/// geometry from the saved layout snapshot, so a deleted Role is cleared from
+/// that snapshot (together with its slot zoom) and the tab is removed only when
+/// the current Workspace, given in `workspaces`, is gone or has no Role or Web
+/// content left. A snapshot left without content is rebuilt from the current
+/// Workspace; when even that cannot be saved, the tab is removed.
+///
+/// A window may become empty; empty saved windows remain valid domain records.
+/// A window that no longer normalizes is left unchanged, so pruning never makes
+/// deleting its source fail. Returns the indexes of the windows that changed.
 pub(crate) fn prune_game_window_sources(
     game_windows: &mut [StateGameWindowRecord],
     deleted_role_ids: &[String],
     deleted_workspace_ids: &[String],
-) -> CoreResult<Vec<usize>> {
+    workspaces: &[StateLaunchWorkspaceRecord],
+) -> Vec<usize> {
     let deleted_roles = deleted_role_ids
         .iter()
         .map(String::as_str)
@@ -521,31 +529,51 @@ pub(crate) fn prune_game_window_sources(
     let now = chrono::Utc::now().to_rfc3339();
     let mut changed = Vec::new();
     for (index, window) in game_windows.iter_mut().enumerate() {
-        let mut tabs = window.tabs.clone();
-        tabs.retain_mut(|tab| match tab.tab_type.as_str() {
-            "role" => !deleted_roles.contains(tab.source_id.as_str()),
-            "workspace" if deleted_workspaces.contains(tab.source_id.as_str()) => false,
-            "workspace" => {
-                tab.role_slots
-                    .retain(|slot| !deleted_roles.contains(slot.role_id.as_str()));
-                for slot in &mut tab.workspace_slots {
-                    if slot
-                        .role_id
-                        .as_deref()
-                        .is_some_and(|role_id| deleted_roles.contains(role_id))
-                    {
-                        slot.role_id = None;
-                        slot.browser_zoom_percent = None;
+        let mut tabs = Vec::with_capacity(window.tabs.len());
+        for saved in &window.tabs {
+            match saved.tab_type.as_str() {
+                "role" if deleted_roles.contains(saved.source_id.as_str()) => {}
+                "workspace" if deleted_workspaces.contains(saved.source_id.as_str()) => {}
+                "workspace" => {
+                    let mut tab = saved.clone();
+                    clear_deleted_snapshot_roles(&mut tab, &deleted_roles);
+                    if tab == *saved {
+                        tabs.push(tab);
+                        continue;
                     }
-                }
-                !tab.role_slots.is_empty()
-                    || tab
-                        .workspace_slots
+                    let Some(workspace) = workspaces
                         .iter()
-                        .any(|slot| slot.role_id.is_some() || slot.web.is_some())
+                        .find(|workspace| workspace.id == saved.source_id)
+                        .filter(|workspace| {
+                            workspace.slots.iter().any(|slot| {
+                                slot.web.is_some()
+                                    || slot
+                                        .role_id
+                                        .as_deref()
+                                        .is_some_and(|role_id| !deleted_roles.contains(role_id))
+                            })
+                        })
+                    else {
+                        continue;
+                    };
+                    if !game_window_tab_has_content(&tab) {
+                        rebuild_workspace_tab_snapshot(&mut tab, saved, workspace, &deleted_roles);
+                        // A Workspace definition that a saved snapshot cannot
+                        // hold leaves the tab nothing it can restore.
+                        let probe = StateGameWindowRecord {
+                            tabs: vec![tab.clone()],
+                            active_tab_id: None,
+                            ..window.clone()
+                        };
+                        if normalize_game_window(probe).is_err() {
+                            continue;
+                        }
+                    }
+                    tabs.push(tab);
+                }
+                _ => tabs.push(saved.clone()),
             }
-            _ => true,
-        });
+        }
         if tabs == window.tabs {
             continue;
         }
@@ -555,15 +583,99 @@ pub(crate) fn prune_game_window_sources(
             .active_tab_id
             .clone()
             .filter(|active| tabs.iter().any(|tab| &tab.id == active));
-        *window = normalize_game_window(StateGameWindowRecord {
+        if let Ok(pruned) = normalize_game_window(StateGameWindowRecord {
             tabs,
             active_tab_id,
             updated_at: now.clone(),
             ..window.clone()
-        })?;
-        changed.push(index);
+        }) {
+            *window = pruned;
+            changed.push(index);
+        }
     }
-    Ok(changed)
+    changed
+}
+
+fn clear_deleted_snapshot_roles(tab: &mut GameWindowTabRecord, deleted_roles: &HashSet<&str>) {
+    tab.role_slots
+        .retain(|slot| !deleted_roles.contains(slot.role_id.as_str()));
+    for slot in &mut tab.workspace_slots {
+        if slot
+            .role_id
+            .as_deref()
+            .is_some_and(|role_id| deleted_roles.contains(role_id))
+        {
+            slot.role_id = None;
+            slot.browser_zoom_percent = None;
+        }
+    }
+}
+
+fn game_window_tab_has_content(tab: &GameWindowTabRecord) -> bool {
+    !tab.role_slots.is_empty()
+        || tab
+            .workspace_slots
+            .iter()
+            .any(|slot| slot.role_id.is_some() || slot.web.is_some())
+}
+
+/// Rebuilds a saved Workspace tab's layout snapshot from the current Workspace
+/// definition, which restore treats as authoritative for slot content and zoom.
+/// Restore applies saved geometry by stable slot id, so every slot that still
+/// exists keeps its saved rect and restores exactly as the old snapshot would.
+fn rebuild_workspace_tab_snapshot(
+    tab: &mut GameWindowTabRecord,
+    saved: &GameWindowTabRecord,
+    workspace: &StateLaunchWorkspaceRecord,
+    deleted_roles: &HashSet<&str>,
+) {
+    tab.workspace_slots = workspace
+        .slots
+        .iter()
+        .map(|slot| {
+            let mut slot = slot.clone();
+            if slot
+                .role_id
+                .as_deref()
+                .is_some_and(|role_id| deleted_roles.contains(role_id))
+            {
+                slot.role_id = None;
+            }
+            if slot.role_id.is_none() && slot.web.is_none() {
+                slot.browser_zoom_percent = None;
+            }
+            if let Some(rect) = saved
+                .workspace_slots
+                .iter()
+                .find(|saved_slot| saved_slot.id == slot.id)
+                .map(|saved_slot| &saved_slot.rect)
+                .or_else(|| {
+                    saved
+                        .role_slots
+                        .iter()
+                        .find(|saved_slot| saved_slot.slot_id == slot.id)
+                        .map(|saved_slot| &saved_slot.rect)
+                })
+            {
+                slot.rect = rect.clone();
+            }
+            slot
+        })
+        .collect();
+    tab.role_slots = tab
+        .workspace_slots
+        .iter()
+        .filter_map(|slot| {
+            slot.role_id
+                .as_ref()
+                .map(|role_id| GameWindowRoleSlotRecord {
+                    slot_id: slot.id.clone(),
+                    role_id: role_id.clone(),
+                    rect: slot.rect.clone(),
+                    browser_zoom_percent: slot.browser_zoom_percent,
+                })
+        })
+        .collect();
 }
 
 pub fn set_workspace_role_browser_zoom(

@@ -11,7 +11,7 @@ use crate::{
     model::{
         BrowserFontSettingsRecord, DisplayTargetRecord,
         GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
-        GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowRoleSlotRecord,
+        GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowRoleSlotRecord, GameWindowTabRecord,
         GameWindowSaveRuntimeInputRecord,
         GameWindowUpdateInputRecord, LegalAcceptanceRecord, MacroBadgePositionRecord,
         MacroActivationMode, MacroCreateInputRecord, MacroOverlaySettingsRecord, MacroRepeat, MacroSettingsRecord, MacroStepDefinition,

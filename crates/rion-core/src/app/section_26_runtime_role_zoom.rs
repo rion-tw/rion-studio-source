@@ -78,7 +78,7 @@ impl AppCore {
                     } else { Status::Failed }, Some(error.code().to_owned())),
                 result => {
                     let committed = result.and_then(|()| self.apply_runtime_intent(crate::RuntimeIntent::SetRoleZoom {
-                        browser_zoom_percent: Some(next * 100.0),
+                        browser_zoom_percent: Some(zoom_factor_percent(next)),
                         expected_revision: Some(request.topology_revision),
                         operation_id: format!("{}:commit", request.operation_id),
                         role_id: request.role_id.clone(), tab_id: request.tab_id.clone(),

@@ -964,7 +964,11 @@ fn appkit_event_error(code: &'static str, message: &'static str) -> CoreError {
 /// 1.1 * 100.0 is 110.00000000000001, which no longer equals the 110 percent
 /// recorded for the same slot and made restoring that tab fail.
 fn zoom_factor_percent(zoom_factor: f64) -> f64 {
-    (zoom_factor * 100.0 * 100.0).round() / 100.0
+    zoom_percent_without_noise(zoom_factor * 100.0)
+}
+
+fn zoom_percent_without_noise(percent: f64) -> f64 {
+    (percent * 100.0).round() / 100.0
 }
 
 fn runtime_live_tab_from_effect(tab: &EmbeddedTabEffectRecord) -> crate::RuntimeLiveTabRecord {
@@ -992,7 +996,17 @@ fn runtime_live_tab_from_effect(tab: &EmbeddedTabEffectRecord) -> crate::Runtime
                     .then_some(zoom_factor_percent(slot.zoom_factor)),
             })
             .collect(),
-        workspace_slots: tab.workspace_slots.clone(),
+        // Stored slots can still carry noise from earlier writes; role slots are
+        // derived from the same percent and must compare equal.
+        workspace_slots: tab
+            .workspace_slots
+            .iter()
+            .cloned()
+            .map(|mut slot| {
+                slot.browser_zoom_percent = slot.browser_zoom_percent.map(zoom_percent_without_noise);
+                slot
+            })
+            .collect(),
         source_id: tab.source_id.clone(),
         tab_type: if tab.workspace_id.is_some() {
             "workspace".to_owned()

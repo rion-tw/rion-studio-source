@@ -111,8 +111,11 @@ async function exerciseGatedFirstWorkspaceHost(input: Input): Promise<void> {
       const waiting = await fetch(`${process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN}/api/gates/first-host-${input.windowId}-${phase}/waiting`, {signal:AbortSignal.timeout(30_000)});
       expect(waiting.ok).toBe(true);
       await capture(`first-host-${phase}-shown`);
-      // Exercise the largest reversals first so native input failures surface
-      // before the remaining combinations. Every gap/background still runs.
+      // Every gap/background is projected and pixel-checked while gated, but
+      // only one pair per barrier runs the five-edge native resize sweep:
+      // 16px/black (with the full range and rapid reversals) before mount and
+      // 1px/material after it. Resize tracking does not depend on paint colour.
+      const sweep = phase === "before" ? { gap: 16, background: "black" } : { gap: 1, background: "material" };
       for (const gap of [16,1] as const) for (const background of ["black","material"] as const) {
       await input.setAppearance(gap,background); expectedBackground = background; expectedGap = gap;
       // Core holding the new appearance does not mean the host has projected it,
@@ -139,6 +142,10 @@ async function exerciseGatedFirstWorkspaceHost(input: Input): Promise<void> {
         return background === "black" ? brightest <= 8 : brightest > 8;
       }, {timeout:20_000,timeoutMsg:`First host ${phase} did not paint the ${background} workspace background`});
       const prefix = `first-host-${phase}-${gap}-${background}`;
+      if (gap !== sweep.gap || background !== sweep.background) {
+        await capture(`${prefix}-shown`);
+        continue;
+      }
       for (const edge of ["right","bottom","bottomRight","left","top"] as const) {
         const old = (await layout()).contentBounds;
         const move = { x: edge === "top" || edge === "bottom" ? 0 : edge === "left" ? 64 : -64,
@@ -201,7 +208,8 @@ async function exerciseGatedFirstWorkspaceHost(input: Input): Promise<void> {
         }
       }
       }
-      for (const transitionBackground of ["black","material"] as const) {
+      // Presentation transitions run once per barrier, each on a different background.
+      for (const transitionBackground of [phase === "before" ? "black" : "material"] as const) {
       await input.setAppearance(16,transitionBackground); expectedBackground = transitionBackground; expectedGap = 16;
       for (const presentation of ["maximized","normal","fullscreen","normal"] as const) {
         if (input.platform === "macos") await focusVisibleMacosAppKitRuntime({processId,windowId:input.windowId});

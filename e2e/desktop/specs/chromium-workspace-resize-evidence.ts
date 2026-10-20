@@ -3,7 +3,9 @@ import { resizeWorkspaceWindow } from "../support/workspace-window-resize";
 import { electronDesktopE2eFullscreenToolbarRuntime as inspect } from "../support/electron-driver";
 import { expectWorkspacePixels } from "./chromium-workspace-gap-evidence";
 
-type ResizeInput = { windowId: string; tabId: string; gap: number; background: "black" | "material" };
+type ResizeEdge = "right" | "bottom" | "bottomRight" | "left" | "top";
+type ResizeInput = { windowId: string; tabId: string; gap: number; background: "black" | "material";
+  edges?: readonly ResizeEdge[] };
 async function inspectProjected(windowId: string): Promise<Awaited<ReturnType<typeof inspect>>> {
   let current: Awaited<ReturnType<typeof inspect>> | undefined;
   await browser.waitUntil(async () => {
@@ -31,7 +33,7 @@ export async function exerciseWorkspaceResize(input: ResizeInput): Promise<void>
     expect(right[1]!.bounds.y - right[0]!.bounds.y - right[0]!.bounds.height).toBe(input.gap);
     await expectWorkspacePixels({ inspection: current, ...input, name });
   };
-  for (const edge of ["right", "bottom", "bottomRight", "left", "top"] as const) {
+  for (const edge of input.edges ?? ["right", "bottom", "bottomRight", "left", "top"] as const) {
     const first = { x: edge === "bottom" || edge === "top" ? 0 : edge === "left" ? 72 : -72,
       y: edge === "right" || edge === "left" ? 0 : edge === "top" ? 48 : -48 };
     const extent = (current: Awaited<ReturnType<typeof inspect>>) => {

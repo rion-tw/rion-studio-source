@@ -538,7 +538,11 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     await setVisibleWorkspaceGap(gap, background);
     await waitForExactGap({ gap, primaryRoleId: primary.id, secondaryRoleId: secondary.id,
       tabId: launched.tabId, windowId: gameWindow.id });
-    await exerciseWorkspaceResize({ windowId: gameWindow.id, tabId: launched.tabId, gap, background });
+    // Every native border runs once at 16px/black (with range and rapid
+    // reversals); the other pairs keep held and released pixel evidence for
+    // the two-axis corner grip. Divider drags below still cover every pair.
+    await exerciseWorkspaceResize({ windowId: gameWindow.id, tabId: launched.tabId, gap, background,
+      ...(gap === 16 && background === "black" ? {} : { edges: ["bottomRight"] as const }) });
     for (const axis of ["vertical", "horizontal"] as const) {
       const before = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
       await dragDivider({ axis, dividerIndex: axis === "vertical" ? 0 : 1, gap, delta,

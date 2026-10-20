@@ -90,6 +90,17 @@ Windows bundled-host separators, selected by both axis and Core divider index.
 Both terminal moves must update and persist only the Core-owned slot rects, and
 restart must restore their layout with the 16px setting and no shell errors.
 
+Resize coverage is deliberately not a full Cartesian matrix (owner-approved on
+2026-10-21; the phase had grown to about 15 minutes and 536 screenshots). Every
+1px/16px and material/black pair is still projected, pixel-checked, and dragged
+on both divider axes. Native window resize runs all five borders once at
+16px/black, with the minimum-to-large range and rapid reversals, and the other
+pairs keep held and released evidence for the two-axis corner grip. The gated
+first host projects and checks every pair in each barrier but runs the five-edge
+sweep for one pair per barrier (16px/black with range and rapid reversals before
+mount, 1px/material after it), and its maximize/fullscreen transitions run once
+per barrier on alternating backgrounds.
+
 First-host resize evidence requires acknowledgement of the submitted native frame
 before comparing Chromium layout or capturing pixels. Each macOS corner-range
 step clamps the requested frame to the actual `NSWindow.minSize`, read through

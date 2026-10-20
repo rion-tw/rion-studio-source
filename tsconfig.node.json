@@ -14,6 +14,7 @@
     "e2e/desktop/support/macos-launcher-activation.ts",
     "e2e/desktop/support/visible-canvas-point.ts",
     "e2e/desktop/support/native-failure-sample.ts",
+    "e2e/desktop/support/compiled-macos-swift.ts",
     "e2e/desktop/support/compiled-workspace-swift.ts",
     "e2e/desktop/support/compiled-macos-native-focus.ts",
     "e2e/desktop/support/compiled-macos-launcher-activation.ts",

@@ -1,12 +1,6 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
-
+import { runCompiledMacosSwift } from "./compiled-macos-swift";
 import { electronDesktopE2eProbe } from "./electron-driver";
 import { focusVisibleMacosAppKitRuntime } from "./native-application-actions";
-
-const executeFile = promisify(execFile);
-const script = fileURLToPath(new URL("./macos-native-window-controls.swift", import.meta.url));
 
 /** Native UI input/readback, fenced to the exact retained AppKit window. */
 export async function macosNativeWindowControl(
@@ -21,9 +15,20 @@ export async function macosNativeWindowControl(
   if (command !== "minimized") {
     await focusVisibleMacosAppKitRuntime({ processId, windowId });
   }
-  const result = await executeFile("/usr/bin/xcrun", [
-    "swift", script, String(processId), windowId, command,
+  const stdout = await runCompiledMacosSwift("macos-native-window-controls", [
+    String(processId), windowId, command,
     ...(dragDelta ? [String(dragDelta.x), String(dragDelta.y)] : [])
-  ], { encoding: "utf8", timeout: command === "drag" || command === "resize" ? 30_000 : 10_000 });
-  return result.stdout.trim();
+  ], command === "drag" || command === "resize" ? 30_000 : 10_000);
+  return stdout.trim();
+}
+
+/** Read the exact focused AppKit frame without interpreting Swift on each call. */
+export async function readMacosNativeWindowGeometry(
+  processId: number,
+  windowId: string,
+  fullscreen = false
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  return JSON.parse(await runCompiledMacosSwift("macos-native-window-controls", [
+    String(processId), windowId, fullscreen ? "fullscreenGeometry" : "geometry"
+  ], 15_000)) as { x: number; y: number; width: number; height: number };
 }

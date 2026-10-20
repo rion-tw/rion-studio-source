@@ -73,6 +73,11 @@ The launcher AX activation helper also compiles before session eligibility with
 the same separate 120-second compilation bound. Its exact-owner activation keeps
 the original 10-second native bound and strict receipt checks; compile and run
 failures retain bounded process metadata without retrying an unknown action.
+The retained AppKit window-control helper (geometry, minimize, drag and resize)
+also compiles once per phase under that 120-second bound instead of being
+interpreted by `xcrun swift` on every call; a cold first interpretation exceeded
+the 15-second geometry bound on CI. Each executable call keeps its original
+10/15/30-second native bound, and a compiler failure stays terminal for the phase.
 
 The paired `chromium-workspace-gap-dividers-seed` / `restart` phases create a
 `main_left_stack_right` Workspace with two Roles and one Website, open it with a

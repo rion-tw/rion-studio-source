@@ -1,4 +1,5 @@
 import { dragMacosNativeDivider } from "./macos-native-divider-input";
+import { readMacosNativeWindowGeometry } from "./macos-native-window-controls";
 import { focusVisibleMacosAppKitRuntime } from "./native-application-actions";
 import { resolveMacosNativeTabPoint } from "./macos-native-tab-geometry";
 import { execFile } from "node:child_process";
@@ -31,13 +32,7 @@ async function focusedNativeWindowGeometry(
   fullscreen = false
 ): Promise<{ x: number; y: number; width: number; height: number }> {
   await focusVisibleMacosAppKitRuntime({ processId, windowId });
-  const result = await executeFile("/usr/bin/xcrun", [
-    "swift", resolve(import.meta.dirname, "macos-native-window-controls.swift"),
-    String(processId), windowId, fullscreen ? "fullscreenGeometry" : "geometry"
-  ], { encoding: "utf8", timeout: 15_000 });
-  const bounds = JSON.parse(result.stdout) as {
-    x: number; y: number; width: number; height: number;
-  };
+  const bounds = await readMacosNativeWindowGeometry(processId, windowId, fullscreen);
   if (![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) ||
       bounds.width <= 0 || bounds.height <= 0) {
     throw new Error("The exact AppKit window geometry is invalid");
@@ -85,13 +80,7 @@ export async function clickMacosVisibleRoleControl(
   }
   const processId = probe.processId;
   await focusVisibleMacosAppKitRuntime({ processId, windowId });
-  const geometryResult = await executeFile("/usr/bin/xcrun", [
-    "swift", resolve(import.meta.dirname, "macos-native-window-controls.swift"),
-    String(processId), windowId, "geometry"
-  ], { encoding: "utf8", timeout: 15_000 });
-  const geometry = JSON.parse(geometryResult.stdout) as {
-    x: number; y: number; width: number; height: number;
-  };
+  const geometry = await readMacosNativeWindowGeometry(processId, windowId);
   const windowGeometry = [geometry.x, geometry.y, geometry.width, geometry.height];
   if (windowGeometry.some((value) => !Number.isFinite(value)) ||
       windowGeometry[2]! <= 0 || windowGeometry[3]! <= 0) {

@@ -57,3 +57,34 @@ describe("macOS Workspace native helper lifecycle", () => {
     expect(execute).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("macOS native window control helper lifecycle", () => {
+  it("compiles once per phase, then keeps each native read within its original bound", async () => {
+    execute.mockResolvedValueOnce({ stdout: "" })
+      .mockResolvedValueOnce({ stdout: '{"x":56,"y":31,"width":935,"height":676}\n' })
+      .mockResolvedValueOnce({ stdout: "false\n" });
+    const { runCompiledMacosSwift } = await import("../e2e/desktop/support/compiled-macos-swift");
+    expect(await runCompiledMacosSwift("macos-native-window-controls", ["42", "window", "geometry"], 15_000))
+      .toBe('{"x":56,"y":31,"width":935,"height":676}\n');
+    expect(await runCompiledMacosSwift("macos-native-window-controls", ["42", "window", "minimized"], 10_000))
+      .toBe("false\n");
+    expect(execute.mock.calls.map(call => call.slice(0, 3))).toEqual([
+      ["/usr/bin/xcrun", ["swiftc", resolve("e2e/desktop/support/macos-native-window-controls.swift"), "-o",
+        resolve("native-helper-fixture/macos-native-window-controls")], { timeout: 120_000 }],
+      [resolve("native-helper-fixture/macos-native-window-controls"), ["42", "window", "geometry"], { timeout: 15_000 }],
+      [resolve("native-helper-fixture/macos-native-window-controls"), ["42", "window", "minimized"], { timeout: 10_000 }]
+    ]);
+  });
+
+  it("separates a cold compilation timeout from the native geometry bound", async () => {
+    const cause = Object.assign(new Error("compiler stopped"), {
+      code: "ETIMEDOUT", signal: "SIGTERM", killed: true, stderr: ""
+    });
+    execute.mockRejectedValue(cause);
+    const { runCompiledMacosSwift } = await import("../e2e/desktop/support/compiled-macos-swift");
+    await expect(runCompiledMacosSwift("macos-native-window-controls", ["42", "window", "geometry"], 15_000))
+      .rejects.toMatchObject({ cause, message: expect.stringMatching(
+        /^Compile macos-native-window-controls failed.*signal=SIGTERM, killed=true/u) });
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+});

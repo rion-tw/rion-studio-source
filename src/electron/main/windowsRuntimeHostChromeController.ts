@@ -91,6 +91,10 @@ function chromeError(code: string, message: string): RionBridgeError {
   return new RionBridgeError({ code, message });
 }
 
+/** A host-document command that lost only to a newer projection of its exact
+ * host, or to that host's retirement: an expected supersede, not forged input. */
+class SupersededHostCommand extends RionBridgeError {}
+
 function nativePresentation(
   native: WindowsRuntimeHostChromeNativePort
 ): ChromiumRuntimeWindowPresentationRequest["presentation"] {
@@ -482,8 +486,23 @@ export class WindowsRuntimeHostChromeController {
     this.#publish();
   }
 
+  /**
+   * Admits one host-document IPC command. A supersede republishes the current
+   * projection and is dropped quietly; every other failure is still reported.
+   */
+  submitCommand(url: string, candidate: unknown): Promise<void> {
+    return this.handleCommand(url, candidate).catch((error: unknown) => {
+      if (!(error instanceof SupersededHostCommand)) this.#onCommandError(error);
+    });
+  }
+
   async handleCommand(url: string, candidate: unknown): Promise<void> {
     const validCandidate = isWindowsRuntimeHostCommand(candidate);
+    // A repeated close click joins the close already admitted, as OS close does;
+    // queued behind it, the click could only meet the projection it retires.
+    if (validCandidate && candidate.type === "closeWindow" && this.#nativeClose &&
+        url === this.#documentUrl && candidate.windowId === this.#windowId &&
+        candidate.projectionRevision <= this.#projectionRevision) return this.#nativeClose;
     const indicatorTerminal = validCandidate && url === this.#documentUrl && candidate.windowId === this.#windowId &&
       candidate.type === "workspaceDividerPointer" && (candidate.phase === "end" || candidate.phase === "cancel")
       ? candidate.gestureId : null;
@@ -524,10 +543,15 @@ export class WindowsRuntimeHostChromeController {
         (candidate.projectionRevision !== this.#projectionRevision &&
           !activeDividerContinuation && !currentDragStart)
       ) {
-        throw chromeError(
-          "ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE",
-          `The bundled toolbar command did not match its exact sender projection: ${JSON.stringify(validCommand ? { type: candidate.type, submitted: candidate.projectionRevision, current: this.#projectionRevision, windowId: candidate.windowId } : { malformed: true })}.`
-        );
+        // Commands queue in one lane and an earlier command's Core effect may
+        // publish first; only the exact document of this window can lose so.
+        const superseded = validCommand && url === this.#documentUrl &&
+          candidate.windowId === this.#windowId && (this.#native.isDestroyed() ||
+            candidate.projectionRevision < this.#projectionRevision);
+        throw new (superseded ? SupersededHostCommand : RionBridgeError)({
+          code: "ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE",
+          message: `The bundled toolbar command did not match its exact sender projection: ${JSON.stringify(validCommand ? { type: candidate.type, submitted: candidate.projectionRevision, current: this.#projectionRevision, windowId: candidate.windowId } : { malformed: true })}.`
+        });
       }
       if (candidate.type === "tabDragGeometry") {
         if (!candidate.tabs.every(tab => this.#tabs.some(t => t.tabId === tab.tabId))) {
@@ -572,7 +596,9 @@ export class WindowsRuntimeHostChromeController {
     });
     const publishFailure = (error: unknown): never => {
       if (!this.#native.isDestroyed()) {
-        this.#advanceProjection();
+        // The current projection already superseded the sender; advancing it
+        // again would only retire clicks the renderer makes on that projection.
+        if (!(error instanceof SupersededHostCommand)) this.#advanceProjection();
         this.#publish();
       }
       throw error;
@@ -738,14 +764,24 @@ export class WindowsRuntimeHostChromeController {
   requestNativeClose(): Promise<void> {
     if (this.#nativeClose) return this.#nativeClose;
     const operation = this.#commandLane.then(async () => {
-      if (this.#native.isDestroyed()) return;
-      await this.#drainWorkspaceDividerGesturesNow();
-      await this.#requestWindowControl("closeWindow");
+      if (!this.#native.isDestroyed()) await this.#closeWindowNow();
     });
     this.#commandLane = operation.catch(() => undefined);
-    const terminal = operation.finally(() => { this.#nativeClose = null; });
+    return this.#joinableClose(operation);
+  }
+
+  /** OS close and repeated close clicks join one Core close per host. */
+  #joinableClose(operation: Promise<void>): Promise<void> {
+    const terminal: Promise<void> = operation.finally(() => {
+      if (this.#nativeClose === terminal) this.#nativeClose = null;
+    });
     this.#nativeClose = terminal;
     return terminal;
+  }
+
+  async #closeWindowNow(): Promise<void> {
+    await this.#drainWorkspaceDividerGesturesNow();
+    await this.#requestWindowControl("closeWindow");
   }
 
   nativePointerLeft(isCurrent: () => boolean): Promise<void> {
@@ -825,13 +861,13 @@ export class WindowsRuntimeHostChromeController {
       await completion.promise;
       return;
     }
-    if (
-      command.type === "closeWindow" ||
-      command.type === "toggleMaximizeWindow" || command.type === "toggleFullscreen"
-    ) {
-      if (command.type === "closeWindow") {
-        await this.#drainWorkspaceDividerGesturesNow();
-      }
+    if (command.type === "closeWindow") {
+      const close = this.#closeWindowNow();
+      // An OS close queued behind this click keeps its slot and finds the host retired.
+      if (!this.#nativeClose) void this.#joinableClose(close).catch(() => undefined);
+      return close;
+    }
+    if (command.type === "toggleMaximizeWindow" || command.type === "toggleFullscreen") {
       await this.#requestWindowControl(command.type);
       return;
     }
@@ -869,7 +905,7 @@ export class WindowsRuntimeHostChromeController {
       this.#menuOpen = true;
       try {
         this.#popupMenu(windowsRuntimeTabMenu(this.#lastProjection, command.tabId, this.#appearance.language,
-          selected => { void this.handleCommand(this.#documentUrl, selected).catch(this.#onCommandError); }));
+          selected => { void this.submitCommand(this.#documentUrl, selected); }));
       } catch (error) { this.#menuOpen = false; throw error; }
       return;
     }

@@ -1051,10 +1051,7 @@ implements ChromiumRuntimeHostFactoryPort {
         if (channel !== WINDOWS_RUNTIME_HOST_COMMAND_CHANNEL || args.length !== 1) {
           return;
         }
-        void record.chrome.handleCommand(
-          record.contents.getURL(),
-          args[0]
-        ).catch((error) => this.#onCommandError(error));
+        void record.chrome.submitCommand(record.contents.getURL(), args[0]);
       },
       moved: () => this.#publishNativeLayout(record),
       readyToShow: () => {

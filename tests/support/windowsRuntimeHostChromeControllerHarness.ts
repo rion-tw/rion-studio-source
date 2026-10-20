@@ -65,6 +65,7 @@ export function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: n
   const requestWindowControl = vi.fn(async () => undefined);
   const requestTabControl = vi.fn(async () => undefined);
   const requestTabDrag = vi.fn<NonNullable<ControllerInput["requestTabDrag"]>>();
+  const onCommandError = vi.fn<NonNullable<ControllerInput["onCommandError"]>>();
   const requestTabReload = vi.fn(async (): Promise<void> => undefined);
   const requestWorkspaceDividerPointer = vi.fn(async (event) => ({
     eventId: event.eventId,
@@ -97,6 +98,7 @@ export function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: n
     hostGeneration: 1,
     native,
     nativeHostId: 41,
+    onCommandError,
     readProjection,
     ...(readCursorScreenPoint ? { readCursorScreenPoint } : {}),
     readLifecycleEpoch,
@@ -112,7 +114,7 @@ export function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: n
   const relayout = vi.fn(async () => undefined);
   controller.bindLayout(relayout);
   return {
-    resizeIndicators, controller, native, readProjection, relayout, requestWindowControl,
+    resizeIndicators, controller, native, onCommandError, readProjection, relayout, requestWindowControl,
     requestTabControl, requestTabReload, requestTabDrag, requestWorkspaceDividerPointer, send, state
   };
 }

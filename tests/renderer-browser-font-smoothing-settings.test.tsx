@@ -35,7 +35,8 @@ afterAll(() => {
 function renderSettings(
   platform: "mac" | "windows",
   onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>,
-  onError = vi.fn()
+  onError = vi.fn(),
+  onFontSmoothingChange?: (enabled: boolean) => Promise<GameBrowserSettings>
 ): void {
   document.documentElement.dataset.platform = platform;
   render(
@@ -53,6 +54,7 @@ function renderSettings(
           onError={onError}
           onExportPortableData={async () => null}
           onGameBrowserSettingsChange={onGameBrowserSettingsChange}
+          {...(onFontSmoothingChange ? { onFontSmoothingChange } : {})}
           onInstallDownloadedUpdate={async () => undefined}
           onSetAutoUpdateEnabled={async () => undefined}
           onLanguageChange={() => undefined}
@@ -118,6 +120,17 @@ describe("browser font smoothing settings", () => {
       });
     }
   );
+
+  it("saves only smoothing when the app applies it to the newest fonts", async () => {
+    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+    const onFontSmoothingChange = vi.fn(async () => DEFAULT_GAME_BROWSER_SETTINGS);
+    renderSettings("windows", onGameBrowserSettingsChange, vi.fn(), onFontSmoothingChange);
+
+    fireEvent.click(screen.getByRole("switch", { name: "Font smoothing" }));
+
+    await waitFor(() => expect(onFontSmoothingChange).toHaveBeenCalledExactlyOnceWith(false));
+    expect(onGameBrowserSettingsChange).not.toHaveBeenCalled();
+  });
 
   it("reports a failed immediate save and leaves the controlled value enabled", async () => {
     const error = new Error("save failed");

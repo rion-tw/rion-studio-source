@@ -19,6 +19,7 @@ import {
 import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
 import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
 import { isPersistentRuntimeError, toMessage } from "./app/errorUtils";
+import { fontsFromFontRowsSave, fontsWithSmoothing } from "./app/gameBrowserFontWrites";
 import { shouldShowUpdateBadge } from "./app/statusUtils";
 import { useExtensionSummary } from "./hooks/useExtensionSummary";
 import { useAppData } from "./hooks/useAppData";
@@ -131,15 +132,18 @@ export function App(): JSX.Element {
   // Whole-object updates come only from the font rows. Queue them behind
   // patches and apply their fonts to the newest settings, so a concurrent
   // overlay, badge, or workspace patch is not written back to its old value.
-  const updateGameBrowserSettings = useCallback((settings: GameBrowserSettings): Promise<GameBrowserSettings> => {
+  const writeGameBrowserFonts = useCallback((
+    nextFonts: (latest: GameBrowserSettings) => GameBrowserSettings["fonts"]
+  ): Promise<GameBrowserSettings> => {
     const operation = gameBrowserSettingsPatchQueueRef.current.then(async () => {
       if (!window.rionStudio) {
         throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
       }
 
+      const latest = latestGameBrowserSettingsRef.current;
       const nextSettings = await window.rionStudio.updateGameBrowserSettings({
-        ...latestGameBrowserSettingsRef.current,
-        fonts: settings.fonts
+        ...latest,
+        fonts: nextFonts(latest)
       });
       latestGameBrowserSettingsRef.current = nextSettings;
       setGameBrowserSettings(nextSettings);
@@ -151,6 +155,14 @@ export function App(): JSX.Element {
     );
     return operation;
   }, []);
+  const updateGameBrowserSettings = useCallback(
+    (settings: GameBrowserSettings) => writeGameBrowserFonts((latest) => fontsFromFontRowsSave(settings, latest)),
+    [writeGameBrowserFonts]
+  );
+  const updateFontSmoothing = useCallback(
+    (enabled: boolean) => writeGameBrowserFonts((latest) => fontsWithSmoothing(latest, enabled)),
+    [writeGameBrowserFonts]
+  );
   const patchGameBrowserSettings = useCallback(
     (patch: GameBrowserSettingsPatch): Promise<GameBrowserSettings> => {
       const operation = gameBrowserSettingsPatchQueueRef.current.then(async () => {
@@ -930,6 +942,7 @@ export function App(): JSX.Element {
                   onExportPortableData={exportPortableData}
                   onGameBrowserSettingsChange={updateGameBrowserSettings}
                   onGameBrowserSettingsPatch={patchGameBrowserSettings}
+                  onFontSmoothingChange={updateFontSmoothing}
                   onMacroSettingsChange={updateMacroSettings}
                   onClearQuickAccessRecent={clearQuickAccessRecent}
                   onRuntimeWindowPreferencesChange={updateRuntimeWindowPreferences}

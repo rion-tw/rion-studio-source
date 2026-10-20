@@ -74,6 +74,8 @@ interface SettingsViewProps {
   onError: (error: unknown) => void;
   onExportPortableData: (input: PortableExportInput) => Promise<PortableExportResult | null>;
   onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+  /** Applies only smoothing to the newest saved fonts. */
+  onFontSmoothingChange?: (enabled: boolean) => Promise<GameBrowserSettings>;
   onGameBrowserSettingsPatch?: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>;
   onMacroSettingsChange: (settings: MacroSettings) => Promise<MacroSettings>;
   onClearQuickAccessRecent?: () => Promise<void>;
@@ -116,6 +118,7 @@ function SettingsViewBase({
   onError,
   onExportPortableData,
   onGameBrowserSettingsChange,
+  onFontSmoothingChange,
   onGameBrowserSettingsPatch,
   onMacroSettingsChange,
   onClearQuickAccessRecent = async () => undefined,
@@ -202,13 +205,13 @@ function SettingsViewBase({
 
     const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
     setIsFontSmoothingSaving(true);
-    void onGameBrowserSettingsChange({
+    void (onFontSmoothingChange?.(fontSmoothingEnabled) ?? onGameBrowserSettingsChange({
       ...normalizedSettings,
       fonts: {
         ...normalizedSettings.fonts,
         fontSmoothingEnabled
       }
-    })
+    }))
       .catch(onError)
       .finally(() => setIsFontSmoothingSaving(false));
   }

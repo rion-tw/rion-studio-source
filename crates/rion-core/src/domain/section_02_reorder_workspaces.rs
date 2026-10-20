@@ -485,7 +485,10 @@ pub fn clear_workspace_role(workspaces: &mut [StateLaunchWorkspaceRecord], role_
         let mut changed = false;
         for slot in &mut workspace.slots {
             if slot.role_id.as_deref() == Some(role_id) {
+                // Zoom belongs to slot content; an emptied slot keeps none,
+                // matching `normalize_workspace_slots` and runtime admission.
                 slot.role_id = None;
+                slot.browser_zoom_percent = None;
                 changed = true;
             }
         }

@@ -243,13 +243,7 @@ fn apply_domain_mutation(
                 &transaction,
                 "launchWorkspaces",
             )?;
-            for workspace in &mut workspaces {
-                for slot in &mut workspace.slots {
-                    if slot.role_id.as_deref() == Some(&id) {
-                        slot.role_id = None;
-                    }
-                }
-            }
+            clear_workspace_role(&mut workspaces, &id);
             let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
             clear_macro_role(&mut macros, &id);
             transaction
@@ -281,24 +275,13 @@ fn apply_domain_mutation(
                 .filter(|id| !existing_ids.contains(id.as_str()))
                 .map(|id| bulk_skip(id.clone(), "not_found", Vec::new()))
                 .collect::<Vec<_>>();
-            let deleted = deleted_ids.iter().collect::<std::collections::HashSet<_>>();
             let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
                 &transaction,
                 "launchWorkspaces",
             )?;
-            for workspace in &mut workspaces {
-                for slot in &mut workspace.slots {
-                    if slot
-                        .role_id
-                        .as_ref()
-                        .is_some_and(|role_id| deleted.contains(role_id))
-                    {
-                        slot.role_id = None;
-                    }
-                }
-            }
             let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
             for role_id in &deleted_ids {
+                clear_workspace_role(&mut workspaces, role_id);
                 clear_macro_role(&mut macros, role_id);
             }
             for id in &deleted_ids {

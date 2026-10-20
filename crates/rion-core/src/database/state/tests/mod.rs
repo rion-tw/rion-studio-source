@@ -13,3 +13,4 @@ include!("behavior_10_macro_activation_mode_migration.rs");
 include!("behavior_11_snapshot_replacement_preserves_extensions.rs");
 include!("behavior_12_ordinals_after_delete.rs");
 include!("behavior_13_deleted_sources_prune_saved_game_windows.rs");
+include!("behavior_14_role_removal_clears_workspace_slot_zoom.rs");

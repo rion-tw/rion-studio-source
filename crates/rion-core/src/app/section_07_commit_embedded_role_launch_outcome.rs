@@ -142,6 +142,7 @@ impl AppCore {
                     "Launch workspace not found.",
                 )?)
                 .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            crate::domain::discard_empty_workspace_slot_zoom(&mut workspace.slots);
             if restore_role_slots.is_some()
                 && let Some(saved_workspace_slots) = self
                     .read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?

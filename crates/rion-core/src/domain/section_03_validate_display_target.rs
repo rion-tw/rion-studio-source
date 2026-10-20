@@ -112,6 +112,17 @@ fn normalize_workspace_slots(
     Ok(slots)
 }
 
+/// Applies the `normalize_workspace_slots` zoom rule to persisted slots: browser
+/// zoom belongs to Role or Web content, so an empty slot carries none. Older
+/// role removals cleared only the role identity and can have left zoom behind.
+pub(crate) fn discard_empty_workspace_slot_zoom(slots: &mut [StateWorkspaceSlotRecord]) {
+    for slot in slots {
+        if slot.role_id.is_none() && slot.web.is_none() {
+            slot.browser_zoom_percent = None;
+        }
+    }
+}
+
 fn normalize_workspace_web(
     web: WorkspaceWebContentRecord,
 ) -> CoreResult<WorkspaceWebContentRecord> {

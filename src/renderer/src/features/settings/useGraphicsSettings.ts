@@ -19,7 +19,10 @@ export function useGraphicsSettings(onError: (error: unknown) => void) {
     if (mounted.current) setStatus((current) => !current || next.sequence >= current.sequence ? next : current);
   }, []);
   const reportError = useCallback((failure: unknown) => {
-    if (mounted.current) setError(failure instanceof Error ? failure.message : String(failure));
+    if (mounted.current) {
+      setError(typeof failure === "object" && failure !== null && "message" in failure &&
+        typeof failure.message === "string" ? failure.message : String(failure));
+    }
     onError(failure);
   }, [onError]);
   useEffect(() => {

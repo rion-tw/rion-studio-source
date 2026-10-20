@@ -5,7 +5,7 @@ import {
   RION_API_NOTIFY_METHODS,
   type RionApiEventMethod
 } from "../ipc/apiMethods";
-import { bridgeErrorFromPayload } from "../ipc/errors";
+import { bridgeErrorFromPayload, normalizeRionBridgeError } from "../ipc/errors";
 import {
   parseEventEnvelope,
   parseInvokeResponse,
@@ -102,11 +102,32 @@ export function createRionStudioPreloadApi(
   return Object.freeze(api) as unknown as Readonly<RionStudioApi>;
 }
 
+/**
+ * contextBridge copies a thrown Error with its message only, dropping `code`,
+ * so the page could never localize a failure by code. A plain object keeps
+ * both fields when it crosses into the page.
+ */
+export function transferableBridgeError(error: unknown): Readonly<{
+  name: "RionBridgeError";
+  code: string;
+  message: string;
+}> {
+  const payload = normalizeRionBridgeError(error);
+  return Object.freeze({ name: "RionBridgeError", code: payload.code, message: payload.message });
+}
+
 export function installRionStudioPreloadBridge(
   contextBridge: ElectronContextBridgePort,
   ipcRenderer: ElectronIpcRendererPort
 ): Readonly<RionStudioApi> {
   const api = createRionStudioPreloadApi(ipcRenderer);
-  contextBridge.exposeInMainWorld(RION_STUDIO_GLOBAL, api);
+  const exposed: Record<string, unknown> = { ...api };
+  for (const method of Object.keys(RION_API_INVOKE_METHODS)) {
+    const invoke = (api as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)[method];
+    exposed[method] = (...args: unknown[]) => invoke(...args).catch((error: unknown) => {
+      throw transferableBridgeError(error);
+    });
+  }
+  contextBridge.exposeInMainWorld(RION_STUDIO_GLOBAL, Object.freeze(exposed));
   return api;
 }

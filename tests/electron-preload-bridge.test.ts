@@ -29,7 +29,10 @@ describe("Electron sandbox preload bridge", () => {
     const exposeInMainWorld = vi.fn();
     const api = installRionStudioPreloadBridge({ exposeInMainWorld }, ipc.port);
 
-    expect(exposeInMainWorld).toHaveBeenCalledWith(RION_STUDIO_GLOBAL, api);
+    expect(exposeInMainWorld).toHaveBeenCalledWith(RION_STUDIO_GLOBAL, expect.any(Object));
+    const exposed = exposeInMainWorld.mock.calls[0]![1] as Record<string, unknown>;
+    expect(Object.isFrozen(exposed)).toBe(true);
+    expect(Object.keys(exposed).sort()).toEqual(Object.keys(api).sort());
     expect(Object.isFrozen(api)).toBe(true);
     await expect(api.getAppVersion()).resolves.toBe("1.2.3");
     expect(ipc.invoke).toHaveBeenCalledWith(RION_IPC_CHANNELS.invoke, {
@@ -60,6 +63,26 @@ describe("Electron sandbox preload bridge", () => {
     await expect(rejection).resolves.toMatchObject({
       code: "ROLE_NOT_FOUND",
       message: "Role not found."
+    });
+  });
+
+  it("keeps the error code when a page-facing call fails across contextBridge", async () => {
+    const ipc = createIpcRenderer();
+    ipc.invoke.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "MACRO_ROLE_INPUT_RESTART_REQUIRED", message: "Restart the role." }
+    });
+    const exposeInMainWorld = vi.fn();
+    installRionStudioPreloadBridge({ exposeInMainWorld }, ipc.port);
+    const exposed = exposeInMainWorld.mock.calls[0]![1] as { getAppVersion: () => Promise<string> };
+
+    const rejection = await exposed.getAppVersion().catch((error: unknown) => error);
+    // contextBridge drops Error properties, so the page receives a plain object.
+    expect(rejection).not.toBeInstanceOf(Error);
+    expect(rejection).toEqual({
+      name: "RionBridgeError",
+      code: "MACRO_ROLE_INPUT_RESTART_REQUIRED",
+      message: "Restart the role."
     });
   });
 

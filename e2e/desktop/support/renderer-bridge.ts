@@ -28,7 +28,9 @@ export async function rendererCall<K extends keyof RionStudioApi>(
       void callable(...methodArgs).then(
         (value) => done({ ok: true, value }),
         (error: unknown) => done({
-          error: error instanceof Error ? error.message : String(error),
+          // Bridge failures reach the page as coded plain objects.
+          error: typeof error === "object" && error !== null && "message" in error &&
+            typeof error.message === "string" ? error.message : String(error),
           ok: false
         })
       );

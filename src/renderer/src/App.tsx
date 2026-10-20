@@ -89,10 +89,13 @@ export function App(): JSX.Element {
       event: "renderer_error", message: event.message || "Renderer error", ...(event.error?.stack ? { stack: String(event.error.stack) } : {})
     });
     const onRejection = (event: PromiseRejectionEvent) => {
-      const reason = event.reason;
+      const reason: unknown = event.reason;
+      // Bridge failures arrive as coded plain objects, not Error instances.
+      const message = typeof reason === "object" && reason !== null && "message" in reason &&
+        typeof reason.message === "string" ? reason.message : String(reason);
       window.rionStudio.reportRendererLog({
         event: "unhandled_rejection",
-        message: reason instanceof Error ? reason.message : String(reason),
+        message,
         ...(reason instanceof Error && reason.stack ? { stack: reason.stack } : {})
       });
     };

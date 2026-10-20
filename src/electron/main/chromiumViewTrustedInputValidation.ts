@@ -28,8 +28,10 @@ export function validChromiumViewInputObservation(
     typeof value.parentForeground === "boolean" && typeof value.parentVisible === "boolean" &&
     typeof value.parentMinimized === "boolean" &&
     // Trusted input needs an on-screen parent. Canvas compatibility writes to the
-    // fixed document target, so a minimized game window keeps its running macro.
-    (value.parentMinimized ? inputRoute === "compatible" && !value.parentForeground : value.parentVisible) &&
+    // fixed document target, so a minimized or hidden game window keeps its
+    // running macro; it can never be the foreground parent in that state.
+    ((value.parentVisible && !value.parentMinimized) ||
+      (inputRoute === "compatible" && !value.parentForeground)) &&
     value.viewAttached === true && value.contentsDestroyed === false &&
     value.viewVisible === (mode === "foreground") &&
     typeof value.contentsFocused === "boolean" &&

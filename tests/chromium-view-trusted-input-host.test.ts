@@ -43,7 +43,7 @@ describe.each(["macos", "windows"] as const)("%s View trusted-input host bridge"
   });
 
   it.each([true, false])(
-    "keeps compatible input on a minimized parent while trusted input stays refused (parentVisible=%s)",
+    "keeps compatible input on a minimized or hidden parent while trusted input stays refused (parentVisible=%s)",
     parentVisible => {
       const f = fixture(platform);
       f.change({ parentForeground: false, parentVisible, parentMinimized: true, viewVisible: true,
@@ -59,6 +59,9 @@ describe.each(["macos", "windows"] as const)("%s View trusted-input host bridge"
       f.change({ contentsFocused: false, focusedWebContentsId: null, parentForeground: true });
       expect(native.currentInputDeliveryMode(identity, "compatible")).toBeNull();
       f.change({ parentForeground: false, parentMinimized: false, parentVisible: false });
+      expect(native.currentInputDeliveryMode(identity)).toBeNull();
+      expect(native.currentInputDeliveryMode(identity, "compatible")).toBe("foreground");
+      f.change({ parentForeground: true });
       expect(native.currentInputDeliveryMode(identity, "compatible")).toBeNull();
       f.retire();
       expect(() => native.probeExactInputSurface(identity, "foreground", "compatible")).toThrow();

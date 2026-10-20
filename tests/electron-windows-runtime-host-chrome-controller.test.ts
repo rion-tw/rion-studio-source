@@ -1,124 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { WindowsRuntimeHostChromeController } from
-  "../src/electron/main/windowsRuntimeHostChromeController";
 import {
   isWindowsRuntimeHostCommand,
   isWindowsRuntimeHostProjection,
   WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL
 } from "../src/shared/windowsRuntimeHost";
-
-const windowId = "10000000-0000-4000-8000-000000000001";
-const tabId = "20000000-0000-4000-8000-000000000001";
-const secondTabId = "20000000-0000-4000-8000-000000000002";
-const targetWindowId = "10000000-0000-4000-8000-000000000002";
-const attemptGeneration = "workspace-attempt-1";
-const gestureId = "30000000-0000-4000-8000-000000000001";
-const documentUrl = "file:///Rion/out/renderer/runtime-windows-host.html";
-
-function projection(active = tabId) {
-  return {
-    activeTabId: active,
-    alwaysShowToolbarInFullScreen: false,
-    contentBounds: { height: 640, width: 960, x: 0, y: 40 },
-    fullscreen: false,
-    lifecycleEpoch: 3,
-    moveTargets: [],
-    projectionRevision: 1,
-    tabs: [
-      { active: true, audioMuted: false, hidden: false, name: "Role", phase: "ready" as const, tabId }
-    ],
-    toolbarVisible: true,
-    topologyRevision: 1,
-    windowGeneration: 1,
-    workspaceDividers: [],
-    windowId,
-    windowMaximized: false,
-    windowName: ""
-  };
-}
-
-function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>, initialWorkspaceBackground: "black" | "material" = "material", initialWindowName = "", readLifecycleEpoch: () => number = () => 3) {
-  const state = {
-    destroyed: false,
-    focused: true,
-    fullscreen: false,
-    maximized: false,
-    minimized: false,
-    minimizeThrows: false
-  };
-  const native = {
-    getContentBounds: () => ({ height: 680, width: 960, x: 100, y: 80 }),
-    isDestroyed: () => state.destroyed,
-    isFocused: () => state.focused,
-    focus: vi.fn(() => { state.focused = true; }),
-    isFullScreen: () => state.fullscreen,
-    isMaximized: () => state.maximized,
-    isMinimized: () => state.minimized,
-    maximize: vi.fn(() => { state.maximized = true; }),
-    minimize: vi.fn(() => {
-      if (state.minimizeThrows) throw new Error("native minimize failed");
-      state.minimized = true;
-    }),
-    setFullScreen: vi.fn((value: boolean) => { state.fullscreen = value; }),
-    unmaximize: vi.fn(() => { state.maximized = false; })
-  };
-  const resizeIndicators = { update: vi.fn() };
-  const send = vi.fn();
-  const requestWindowControl = vi.fn(async () => undefined);
-  const requestTabControl = vi.fn(async () => undefined);
-  const requestTabDrag = vi.fn();
-  const requestTabReload = vi.fn(async (): Promise<void> => undefined);
-  const requestWorkspaceDividerPointer = vi.fn(async (event) => ({
-    eventId: event.eventId,
-    gestureId: event.gestureId,
-    pointerSequence: event.pointerSequence,
-    phase: event.phase,
-    status: event.phase === "cancel" ? "cancelled" as const : "applied" as const,
-    changed: event.phase === "move",
-    durable: event.phase === "end",
-    ...(event.phase === "move" ? { position: event.requestedPosition } : {}),
-    windowGeneration: event.windowGeneration,
-    topologyRevision: event.phase === "move"
-      ? event.topologyRevision + 1
-      : event.topologyRevision,
-    workspaceSlots: []
-  }));
-  const readProjection = () => ({
-    bounds: { height: 680, width: 960, x: 100, y: 80 },
-    displayId: 7,
-    focused: true,
-    presentation: state.fullscreen
-      ? "fullscreen" as const
-      : state.maximized ? "maximized" as const : "normal" as const,
-    visible: true
-  });
-  const controller = new WindowsRuntimeHostChromeController({
-    initialWindowName,
-    initialWorkspaceBackground,
-    documentUrl,
-    hostGeneration: 1,
-    native,
-    nativeHostId: 41,
-    readProjection,
-    ...(readCursorScreenPoint ? { readCursorScreenPoint } : {}),
-    readLifecycleEpoch,
-    requestWindowControl,
-    requestTabControl,
-    requestTabReload,
-    requestTabDrag,
-    requestWorkspaceDividerPointer,
-    resizeIndicators,
-    send,
-    windowId
-  });
-  const relayout = vi.fn(async () => undefined);
-  controller.bindLayout(relayout);
-  return {
-    resizeIndicators, controller, native, readProjection, relayout, requestWindowControl,
-    requestTabControl, requestTabReload, requestTabDrag, requestWorkspaceDividerPointer, send, state
-  };
-}
+import {
+  attemptGeneration, documentUrl, gestureId, harness, projection, secondTabId, tabId, targetWindowId, windowId
+} from "./support/windowsRuntimeHostChromeControllerHarness";
 
 describe("Windows runtime-host chrome controller", () => {
   it("routes and coalesces OS close events even before a workspace is loaded", async () => {

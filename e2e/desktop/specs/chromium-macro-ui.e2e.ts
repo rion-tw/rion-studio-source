@@ -212,6 +212,14 @@ async function setPortableDelayStep(): Promise<void> {
   }
   await step.waitForDisplayed({ timeout: 10_000 });
   const type = await step.$("button[aria-label='Step type']");
+  // Escape closes the open list only; it must not cancel the unsaved editor.
+  await type.click();
+  const listbox = await $("[role='listbox']");
+  await listbox.waitForDisplayed({ timeout: 10_000 });
+  await browser.keys(Key.Escape);
+  await listbox.waitForExist({ reverse: true, timeout: 10_000 });
+  expect(await $("h1=New Macro").isDisplayed()).toBe(true);
+  expect(await $("dialog[open]").isExisting()).toBe(false);
   await type.click();
   await $("[role='option']=Delay").click();
   const delay = await step.$("input[aria-label='Delay']");

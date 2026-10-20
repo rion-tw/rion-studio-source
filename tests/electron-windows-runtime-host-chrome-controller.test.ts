@@ -38,7 +38,7 @@ function projection(active = tabId) {
   };
 }
 
-function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>, initialWorkspaceBackground: "black" | "material" = "material", initialWindowName = "") {
+function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>, initialWorkspaceBackground: "black" | "material" = "material", initialWindowName = "", readLifecycleEpoch: () => number = () => 3) {
   const state = {
     destroyed: false,
     focused: true,
@@ -102,7 +102,7 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
     nativeHostId: 41,
     readProjection,
     ...(readCursorScreenPoint ? { readCursorScreenPoint } : {}),
-    readLifecycleEpoch: () => 3,
+    readLifecycleEpoch,
     requestWindowControl,
     requestTabControl,
     requestTabReload,
@@ -177,6 +177,22 @@ describe("Windows runtime-host chrome controller", () => {
     items.find(item => item.id === "closeTab")!.click!({} as never, null!, {} as never);
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     expect(subject.requestTabControl).not.toHaveBeenCalled();
+  });
+  it("captures a resumed lifecycle fence when the tab menu opens", async () => {
+    let lifecycleEpoch = 3;
+    const subject = harness(undefined, "material", "", () => lifecycleEpoch);
+    const popup = vi.fn();
+    subject.controller.bindTabMenu(popup);
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    const revision = subject.controller.readObservation().projectionRevision;
+    lifecycleEpoch = 4;
+
+    await subject.controller.handleCommand(documentUrl, { type: "openTabMenu", windowId, tabId, projectionRevision: revision });
+    const items = popup.mock.calls[0]![0] as import("electron").MenuItemConstructorOptions[];
+    items.find(item => item.id === "reloadTab")!.click!({} as never, null!, {} as never);
+    await vi.waitFor(() => expect(subject.requestTabReload).toHaveBeenCalledOnce());
+    expect(subject.requestTabReload).toHaveBeenCalledWith(expect.objectContaining({ lifecycleEpoch: 4, tabId }));
   });
   it("holds fullscreen chrome while its native menu is open and releases it on native close", async () => {
     const subject = harness(() => ({ x: 200, y: 300 }));

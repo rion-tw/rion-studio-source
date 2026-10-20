@@ -860,6 +860,12 @@ export class WindowsRuntimeHostChromeController {
       if (!this.#popupMenu || !this.#lastProjection || this.#native.isDestroyed()) {
         throw chromeError("ELECTRON_WINDOWS_TAB_MENU_UNAVAILABLE", "The exact Windows native tab menu is unavailable.");
       }
+      if (this.#lastProjection.lifecycleEpoch !== this.#currentLifecycleEpoch()) {
+        // Sleep/resume advances the lifecycle fence without a toolbar change.
+        // Capture the menu from a current projection so its Reload is admitted.
+        this.#advanceProjection();
+        this.#publish();
+      }
       this.#menuOpen = true;
       try {
         this.#popupMenu(windowsRuntimeTabMenu(this.#lastProjection, command.tabId, this.#appearance.language,

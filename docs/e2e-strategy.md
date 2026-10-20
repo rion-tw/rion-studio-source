@@ -101,7 +101,17 @@ from this native corner-grip limit. Windows retains its exact HWND
 Both paced minimum-to-large steps and rapid reversals submit one physical input
 stream and retain the actual pointer observation with the final frame receipt.
 An intermediate AX frame can precede processing of the final drag event even
-when the pointer has reached its destination. This `internal-only` harness
+when the pointer has reached its destination, so first-host steps, including
+standard-border returns, are acknowledged at their exact requested frame. A new
+host's placement can exceed the frame AppKit permits for live border resize near
+the screen edge (CI: a 960-point width returned to 935). Only the first right
+and bottom return on macOS therefore has no held frame claim: after release the
+test waits for the end-live-resize placement's next Core topology revision,
+which follows every queued drag, before its released evidence. Every later
+return targets that AppKit-produced frame and keeps exact held evidence.
+A refused AX frame read is observation only: the helper records its AX error and
+keeps observing within the same 10-second bound without resubmitting input.
+This `internal-only` harness
 reliability correction preserves both WORKSPACE-GAP-DIVIDERS-035 journeys, their
 complete resize matrices, and the coverage targets. Focused helper tests verify
 minimum clamping and receipt ownership; actual AppKit geometry and pixel

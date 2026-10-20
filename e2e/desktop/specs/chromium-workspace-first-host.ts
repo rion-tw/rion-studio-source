@@ -102,6 +102,11 @@ async function exerciseGatedFirstWorkspaceHost(input: Input): Promise<void> {
     else await pressVisibleWindowsApplicationShortcut({command:"toggleFullscreen",processId,
       nativeWindowHandle:(await inspect(input.windowId)).nativeWindowHandle,targetMode:"focused-runtime"});
   };
+  // A new host's placement can exceed the frame AppKit permits for a live
+  // border resize near the screen edge (CI: a 960-wide host returns to 935).
+  // Until one standard border resize per axis has ended, its return frame is
+  // unknown while held; afterwards every frame was produced by AppKit itself.
+  const appKitFitted = { width: input.platform !== "macos", height: input.platform !== "macos" };
   for (const phase of ["before", "mounted"]) {
       const waiting = await fetch(`${process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN}/api/gates/first-host-${input.windowId}-${phase}/waiting`, {signal:AbortSignal.timeout(30_000)});
       expect(waiting.ok).toBe(true);
@@ -138,11 +143,18 @@ async function exerciseGatedFirstWorkspaceHost(input: Input): Promise<void> {
         const old = (await layout()).contentBounds;
         const move = { x: edge === "top" || edge === "bottom" ? 0 : edge === "left" ? 64 : -64,
           y: edge === "left" || edge === "right" ? 0 : edge === "top" ? 48 : -48 };
-        await resizeWorkspaceWindow({inspection:await inspect(input.windowId),edge,moves:[move,{x:0,y:0}],
-          // The custom corner follows the exact pointer destination. AppKit's
-          // standard borders can constrain a return near the screen edge.
-          requireRequestedFrame:edge === "bottomRight" ? "all" : true,
+        // An unacknowledged AX sample can be an intermediate frame while AppKit
+        // still processes the final drag (CI: 924 wide at x 56, ending at 935).
+        // The custom corner follows the exact pointer; a fitted border returns
+        // exactly. Right and bottom run first and never move the origin, so only
+        // their first return is left to the release's placement commit.
+        const axis = edge === "right" ? "width" : edge === "bottom" ? "height" : undefined;
+        const fitting = axis !== undefined && !appKitFitted[axis];
+        const before = await inspect(input.windowId);
+        await resizeWorkspaceWindow({inspection:before,edge,moves:[move,{x:0,y:0}],
+          requireRequestedFrame:fitting ? true : "all",
           whileHeld: async (step, frame, initialFrame) => {
+            if (fitting && step === 1) return;
             // The layout plateaus on an intermediate size before catching up, so
             // waiting for it to merely change, or merely hold still, samples a
             // window that has already moved on. The resize measures the real
@@ -158,6 +170,13 @@ async function exerciseGatedFirstWorkspaceHost(input: Input): Promise<void> {
             }, {timeout:20_000,timeoutMsg:`First host ${phase} ${edge} step ${step} layout did not track the ${movedWidth}x${movedHeight} frame move`});
             await capture(`${prefix}-${edge}-${step}-held`, frame);
           }});
+        if (fitting) {
+          // AppKit's end-live-resize placement commits the next Core revision
+          // only after the release and every queued drag were processed.
+          await browser.waitUntil(async () => (await inspect(input.windowId)).topologyRevision > before.topologyRevision,
+            {timeout:20_000,timeoutMsg:`First host ${phase} ${edge} live resize did not commit its released frame`});
+          appKitFitted[axis] = true;
+        }
         await capture(`${prefix}-${edge}-ended`);
       }
       if (gap === 16 && background === "black") {

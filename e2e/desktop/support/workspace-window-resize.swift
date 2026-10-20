@@ -73,18 +73,32 @@ postMouse(type, point)
 usleep(100_000)
 let expected = input["expected"] as? [String: NSNumber]
 let deadline = Date().addingTimeInterval(10)
+var frameRead = false
+var frameReadFailure = "none"
 while true {
-  guard let currentSize = attribute(window, "AXSize"),
-        let currentPosition = attribute(window, "AXPosition") else {
-    fatalError("resize acknowledgement frame unavailable")
+  // A frame read is observation only. AX can refuse one read while AppKit is
+  // busy with live resize (CI: SIGTRAP after 2.2s); keep observing within the
+  // same bound and record the exact error, but never resubmit input.
+  var currentSize: CFTypeRef?
+  var currentPosition: CFTypeRef?
+  let sizeError = AXUIElementCopyAttributeValue(window, "AXSize" as CFString, &currentSize)
+  let positionError = sizeError == .success
+    ? AXUIElementCopyAttributeValue(window, "AXPosition" as CFString, &currentPosition) : .success
+  if sizeError == .success, positionError == .success, let currentSize, let currentPosition {
+    frameRead = true
+    AXValueGetValue(currentSize as! AXValue, .cgSize, &extent)
+    AXValueGetValue(currentPosition as! AXValue, .cgPoint, &origin)
+    guard let expected else { break }
+    if abs(extent.width - expected["x"]!.doubleValue) <= 1 &&
+        abs(extent.height - expected["y"]!.doubleValue) <= 1 { break }
+  } else {
+    frameReadFailure = "AXSize=\(sizeError.rawValue), AXPosition=\(positionError.rawValue)"
   }
-  AXValueGetValue(currentSize as! AXValue, .cgSize, &extent)
-  AXValueGetValue(currentPosition as! AXValue, .cgPoint, &origin)
-  guard let expected else { break }
-  if abs(extent.width - expected["x"]!.doubleValue) <= 1 &&
-      abs(extent.height - expected["y"]!.doubleValue) <= 1 { break }
   if Date() >= deadline {
-    fatalError("native resize did not reach requested frame: \(expected), actual \(extent), initial \(initialExtent), pointer \(initialPointer) -> \(point), observed pointer \(CGEvent(source: nil)!.location), edge \(input["edge"]!)")
+    guard frameRead, let expected else {
+      fatalError("resize acknowledgement frame unavailable: \(frameReadFailure)")
+    }
+    fatalError("native resize did not reach requested frame: \(expected), actual \(extent), initial \(initialExtent), pointer \(initialPointer) -> \(point), observed pointer \(CGEvent(source: nil)!.location), edge \(input["edge"]!), last read failure \(frameReadFailure)")
   }
   // Observe the submitted physical stream without injecting stationary drags;
   // those events can replace a queued relative movement before AppKit handles it.

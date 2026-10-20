@@ -475,10 +475,15 @@ describe("Electron Chromium role-surface registry", () => {
       isMainFrame: false,
       isSameDocument: false
     });
+    // An external-protocol link is cancelled before commit; the document survives.
+    for (const url of ["mailto:support@game.test", "discord://invite/game"]) {
+      contents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false, url });
+    }
     expect(events).toEqual([]);
     contents.emit("did-start-navigation", {
       isMainFrame: true,
-      isSameDocument: false
+      isSameDocument: false,
+      url: "https://game.test/next"
     });
     expect(events).toEqual([{
       roleId: "role-1",

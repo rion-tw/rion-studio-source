@@ -1210,6 +1210,10 @@ export class ChromiumRoleSurfaceRegistry {
       },
       didStartNavigation: (details) => {
         if (!details.isMainFrame || details.isSameDocument) return;
+        // Links such as mailto: or app schemes never commit here: will-navigate
+        // cancels them, so the current document and its input identity survive.
+        if (typeof details.url === "string" && /^[a-z][a-z0-9+.-]*:/iu.test(details.url) &&
+            !/^(?:https?|about|blob|data|file|filesystem|javascript):/iu.test(details.url)) return;
         if (
           record.state !== "active" || record.destroyed ||
           this.#recordsByRole.get(record.roleId) !== record

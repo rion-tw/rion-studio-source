@@ -37,6 +37,16 @@ are single-flight in both Electron main and Rust. A duplicate waits for or
 replays the exact leader outcome and never repeats download, replacement, drain,
 or installer launch.
 
+Automatic checks follow application events, not a scheduler. After the legal
+disclosures are accepted, the main window opening, every return to it, and
+turning automatic updates on each ask Rust whether a check is due. Rust starts
+the ordinary single-flight check only when the persisted preference is on,
+nothing is downloaded or in flight, and the last attempt is at least six hours
+old, or 15 minutes, one hour, then six hours after consecutive failures.
+Elapsed time only decides whether such an event is due; nothing polls. The
+request returns before the check settles, status events carry its outcome, and
+quitting never waits for a pending check or download request.
+
 ## Verified staging
 
 The v23 downloader rejects redirects except for the bounded, fixed public GitHub

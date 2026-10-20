@@ -47,6 +47,8 @@ export class ChromiumRuntimeNativeWindowController {
   readonly #readNativeSnapshot: () => ChromiumRuntimeExecutorSnapshot;
   readonly #platform: "darwin" | "win32";
   readonly #presentationLanes = new Map<string, Promise<void>>();
+  // Leaving fullscreen returns to the presentation it was entered from.
+  readonly #presentationBeforeFullscreen = new Map<string, "maximized" | "normal">();
   readonly #zoomLanes = new Map<string, Promise<void>>();
   #adapterSequence = 0;
 
@@ -93,7 +95,7 @@ export class ChromiumRuntimeNativeWindowController {
     });
     return this.#setPresentation(
       target.windowId,
-      window.presentation === "fullscreen" ? "normal" : "fullscreen",
+      this.#fullscreenToggle(target.windowId, window.presentation),
       target
     );
   }
@@ -104,7 +106,7 @@ export class ChromiumRuntimeNativeWindowController {
     const window = this.#requireExplicitWindowTarget(target, target.topologyRevision, "window");
     return this.#setPresentation(
       target.windowId,
-      window.presentation === "fullscreen" ? "normal" : "fullscreen",
+      this.#fullscreenToggle(target.windowId, window.presentation),
       target,
       "window"
     );
@@ -149,7 +151,7 @@ export class ChromiumRuntimeNativeWindowController {
     await this.#setPresentation(
       windowId,
       action === "toggleFullscreen"
-        ? native?.presentation === "fullscreen" ? "normal" : "fullscreen"
+        ? this.#fullscreenToggle(windowId, native?.presentation)
         : native?.presentation === "normal" ? "maximized" : "normal"
     );
   }
@@ -214,6 +216,19 @@ export class ChromiumRuntimeNativeWindowController {
       );
     }
     return receipt.value as RuntimeWindowPreferencesRecord;
+  }
+
+  #fullscreenToggle(
+    windowId: string,
+    current: "fullscreen" | "maximized" | "normal" | undefined
+  ): "fullscreen" | "maximized" | "normal" {
+    if (current === "fullscreen") {
+      const restored = this.#presentationBeforeFullscreen.get(windowId) ?? "normal";
+      this.#presentationBeforeFullscreen.delete(windowId);
+      return restored;
+    }
+    this.#presentationBeforeFullscreen.set(windowId, current === "maximized" ? "maximized" : "normal");
+    return "fullscreen";
   }
 
   async #setPresentation(

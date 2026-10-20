@@ -93,6 +93,21 @@ function emptyWindowHarness(platform: "darwin" | "win32" = "darwin") {
 }
 
 describe("Core-owned native runtime-window controls", () => {
+  it.each(["darwin", "win32"] as const)("leaves %s fullscreen to the presentation it was entered from", async platform => {
+    const { subject, invoke, native, logical, target } = emptyWindowHarness(platform);
+    native.windows[0]!.presentation = logical.presentation = "maximized";
+    const current = () => ({ ...target, topologyRevision: native.windows[0]!.topologyRevision });
+    await subject.toggleFullscreenForTarget(current());
+    await subject.toggleFullscreenForTarget(current());
+    expect(invoke.mock.calls.map(([command]) => command.presentation).filter(Boolean))
+      .toEqual(["fullscreen", "maximized"]);
+
+    native.windows[0]!.presentation = logical.presentation = "normal";
+    await subject.toggleFullscreenForTarget(current());
+    await subject.toggleFullscreenForTarget(current());
+    expect(native.windows[0]!.presentation).toBe("normal");
+  });
+
   it.each(["darwin", "win32"] as const)("allows the exact empty %s window fullscreen target through Core and its terminal readback", async platform => {
     const { subject, invoke, native, target } = emptyWindowHarness(platform);
     await expect(subject.toggleFullscreenForTarget(target)).resolves.toMatchObject({ status: "applied" });

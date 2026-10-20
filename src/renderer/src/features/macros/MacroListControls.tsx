@@ -16,7 +16,7 @@ import { ContextMenuContent, ContextMenuItem } from "../../components/ui/context
 
 import { Surface } from "../../components/ui/patterns";
 
-import type { Translator } from "../../i18n";
+import { translateErrorMessage, type Translator } from "../../i18n";
 
 import { cn } from "../../lib/utils";
 
@@ -49,7 +49,7 @@ export function MacroFailureMessage({
   const failed = [...macroStatusByRun.values()].find((status) => status.macroId === macro.id && status.state === "failed");
   if (!failed) return null;
   const roleName = roleById.get(failed.roleId)?.name ?? failed.roleId;
-  const message = failed.error ?? t("macros.status.failed");
+  const message = failed.error ? translateErrorMessage(failed.error, t) : t("macros.status.failed");
 
   return (
     <span

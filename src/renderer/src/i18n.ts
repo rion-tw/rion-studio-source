@@ -335,12 +335,18 @@ function isLanguage(value: string | null): value is Language {
 }
 
 export function localizeErrorMessage(message: string, language: Language): string {
+  return translateErrorMessage(
+    message,
+    createTranslator(language, getLoadedTranslations(language) ?? fallbackTranslations)
+  );
+}
+
+/** Localizes a known Core/bridge message with an existing translator; unknown text is kept. */
+export function translateErrorMessage(message: string, t: Translator): string {
   const normalizedMessage = normalizeIpcErrorMessage(message);
-  const translations = getLoadedTranslations(language) ?? fallbackTranslations;
   const alreadyRunningMatch = /^Already running in another game window: (.+)\.$/.exec(normalizedMessage);
   if (alreadyRunningMatch) {
-    const template = translations["error.rolesAlreadyRunning"] ?? fallbackTranslations["error.rolesAlreadyRunning"];
-    return template.replace("{names}", alreadyRunningMatch[1]);
+    return t("error.rolesAlreadyRunning").replace("{names}", alreadyRunningMatch[1]);
   }
 
   const dynamicMacroErrors: Array<[RegExp, TranslationKey, string]> = [
@@ -351,13 +357,13 @@ export function localizeErrorMessage(message: string, language: Language): strin
   for (const [pattern, key, placeholder] of dynamicMacroErrors) {
     const match = pattern.exec(normalizedMessage);
     if (match) {
-      return (translations[key] ?? fallbackTranslations[key]).replace(placeholder, match[1]);
+      return t(key).replace(placeholder, match[1]);
     }
   }
 
   const key = knownErrorMessages[normalizedMessage];
   if (key) {
-    return translations[key] ?? fallbackTranslations[key] ?? normalizedMessage;
+    return t(key);
   }
 
   let localizedMessage = normalizedMessage;
@@ -366,7 +372,7 @@ export function localizeErrorMessage(message: string, language: Language): strin
     if (!translationKey?.startsWith("notice.") || !localizedMessage.includes(knownMessage)) {
       return;
     }
-    const translatedNotice = translations[translationKey] ?? fallbackTranslations[translationKey];
+    const translatedNotice = t(translationKey);
     localizedMessage = localizedMessage.split(knownMessage).join(translatedNotice);
     localizedNotice = true;
   });

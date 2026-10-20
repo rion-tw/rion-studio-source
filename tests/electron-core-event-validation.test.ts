@@ -30,13 +30,13 @@ const extensionPackage = {
   removed: false
 };
 
-function extensionsChanged(packageRecord: Record<string, unknown>): string {
+function extensionsChanged(packageRecord: Record<string, unknown>, roles: unknown[] = []): string {
   return JSON.stringify([{
     type: "extensionsChanged",
     snapshot: {
       revision: 4,
       installed: [packageRecord],
-      roles: []
+      roles
     }
   }]);
 }
@@ -80,6 +80,26 @@ describe("Core extension event validation", () => {
       .toThrow("The Core event batch is invalid.");
     expect(() => parseCoreEvents(extensionsChanged({ ...extensionPackage, unexpected: true })))
       .toThrow("The Core event batch is invalid.");
+  });
+
+  it("accepts each Role lease exactly as Core serializes its per-package outcomes", () => {
+    const blocked = "b".repeat(32);
+    const role = {
+      roleId: "role-a", leaseId: "lease-a", extensionIds: [extensionPackage.id, blocked], status: "degraded",
+      outcomes: [{ extensionId: extensionPackage.id, status: "loaded" }, { extensionId: blocked, status: "degraded" }]
+    };
+    for (const lease of [role, { ...role, status: "loading", outcomes: [] }]) {
+      expect(() => parseCoreEvents(extensionsChanged(extensionPackage, [lease]))).not.toThrow();
+    }
+    const { outcomes: _outcomes, ...withoutOutcomes } = role;
+    for (const lease of [
+      withoutOutcomes,
+      { ...role, outcomes: [{ extensionId: blocked, status: "loading" }] },
+      { ...role, outcomes: [{ extensionId: blocked, status: "degraded", unexpected: true }] }
+    ]) {
+      expect(() => parseCoreEvents(extensionsChanged(extensionPackage, [lease])))
+        .toThrow("The Core event batch is invalid.");
+    }
   });
 
   it("accepts classified permissions without conflating absent and empty metadata", () => {

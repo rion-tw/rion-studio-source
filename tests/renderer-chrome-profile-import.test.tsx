@@ -180,7 +180,7 @@ describe("Chrome profile import flow", () => {
     });
     expect(screen.getByText("3 cookies · 2 LocalStorage entries")).toBeTruthy();
     expect(screen.getByText(/1 partitioned/)).toBeTruthy();
-    expect(screen.getByText("Partitioned cookies cannot be transferred to this System WebView")).toBeTruthy();
+    expect(screen.getByText("Partitioned cookies cannot be transferred to role sessions")).toBeTruthy();
   });
 
   it("shows a dedicated progress state and waits for a safe rollback when cancelled", async () => {

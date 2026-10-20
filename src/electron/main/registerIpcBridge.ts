@@ -67,6 +67,9 @@ function canOwnShutdownDrain(
   return method === "quitApplication"
     || method === "confirmApplicationQuit"
     || method === "installDownloadedUpdate"
+    // An update check can download for many minutes and also publishes its
+    // outcome as status events, so quitting never waits for that request.
+    || method === "checkForUpdates"
     || (method === "executeApplicationShortcut" && args[0] === "quitApplication");
 }
 

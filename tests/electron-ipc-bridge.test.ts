@@ -273,7 +273,8 @@ describe("Electron main IPC bridge", () => {
     ["quitApplication", []],
     ["confirmApplicationQuit", []],
     ["executeApplicationShortcut", ["quitApplication"]],
-    ["installDownloadedUpdate", []]
+    ["installDownloadedUpdate", []],
+    ["checkForUpdates", []]
   ] as const)("recognizes an externally started shutdown while %s awaits it", async (
     method,
     args

@@ -70,6 +70,7 @@ import type {
   WindowsRuntimeShortcutOwnerReceipt
 } from "./windowsRuntimeHostNativePorts";
 import {
+  isWindowsRuntimeHostShown,
   WindowsRuntimeWindowStateStream,
   type WindowsRuntimeForegroundProbePort
 } from "./windowsRuntimeWindowState";
@@ -882,7 +883,10 @@ implements ChromiumRuntimeHostFactoryPort {
       isDestroyed: () =>
         record.state === "closed" || native.isDestroyed() ||
         this.#activeByLogicalWindow.get(record.logicalWindowId) !== record,
-      isVisible: () => this.#withCurrent(record, () => this.#shown(native)),
+      isVisible: () => this.#withCurrent(
+        record,
+        () => isWindowsRuntimeHostShown(native, this.#runtimeForegroundProbe)
+      ),
       show: () => this.#withCurrent(record, () => native.show()),
       showInactive: () => this.#withCurrent(record, () => native.showInactive()),
       bindRuntimeWindowState: (observer: ChromiumRuntimeWindowStateObserver) =>
@@ -1419,21 +1423,6 @@ implements ChromiumRuntimeHostFactoryPort {
           ? error.message
           : "The native Windows presentation event failed."
       );
-    }
-  }
-
-  // Electron reports a minimized Windows host as not visible, but it is still
-  // shown (WS_VISIBLE). Projections made while it is minimized must keep its
-  // surfaces attached, or the restored window shows an empty content area.
-  #shown(native: WindowsRuntimeHostWindowPort): boolean {
-    if (native.isVisible()) return true;
-    if (!native.isMinimized() || !this.#runtimeForegroundProbe) return false;
-    try {
-      return this.#runtimeForegroundProbe.readWindowsRuntimeForeground(
-        native.getNativeWindowHandle()
-      ).parentVisible === true;
-    } catch {
-      return false;
     }
   }
 

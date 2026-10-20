@@ -52,6 +52,22 @@ interface WindowsRuntimeWindowStateStreamInput {
   readonly onError: (error: unknown) => void;
 }
 
+// Electron reports a minimized Windows host as not visible, but it is still
+// shown (WS_VISIBLE). Projections made while it is minimized must keep its
+// surfaces attached, or the restored window shows an empty content area.
+export function isWindowsRuntimeHostShown(
+  native: Pick<WindowsRuntimeHostWindowPort, "getNativeWindowHandle" | "isMinimized" | "isVisible">,
+  probe: WindowsRuntimeForegroundProbePort | null
+): boolean {
+  if (native.isVisible()) return true;
+  if (!native.isMinimized() || !probe) return false;
+  try {
+    return probe.readWindowsRuntimeForeground(native.getNativeWindowHandle()).parentVisible === true;
+  } catch {
+    return false;
+  }
+}
+
 function stateError(code: string, message: string): RionBridgeError {
   return new RionBridgeError({ code, message });
 }

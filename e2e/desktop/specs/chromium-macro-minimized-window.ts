@@ -89,7 +89,10 @@ export async function exerciseWindowsMinimizedHeldMacro(input: Readonly<{
   });
   const observations = (await electronDesktopE2eTrustedInputRuntime(input.role.id))
     .filter(entry => entry.sequence > hold.sequence);
-  expect(observations.filter(entry => entry.receipt.status !== "applied")).toEqual([]);
+  // A refused or unknown delivery is what disabled the Role before; superseded
+  // work never reached the page and is not evidence either way.
+  expect(observations.filter(entry => entry.receipt.status === "failed" ||
+    entry.receipt.status === "indeterminate")).toEqual([]);
   const roleStatus = (await rendererCall("listRoleStatuses")).find(status => status.roleId === input.role.id);
   expect(roleStatus).toEqual(expect.objectContaining({ automationState: "ready", state: "running" }));
   expect(roleStatus?.issueReason).toBeUndefined();

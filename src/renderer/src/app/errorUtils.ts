@@ -66,6 +66,9 @@ function localizedErrorKey(code: unknown) {
     MACRO_RUNTIME_NOT_ACTIVE: "error.macroRuntimeNotActive",
     MACRO_INPUT_WAKE_FAILED: "error.macroInputWakeFailed",
     MACRO_INPUT_WAKE_INDETERMINATE: "error.macroInputWakeIndeterminate",
+    PORTABLE_IMPORT_GAME_WINDOWS_RUNNING: "error.portableImportGameWindowsRunning",
+    PORTABLE_IMPORT_ROLES_RUNNING: "error.portableImportRolesRunning",
+    PORTABLE_IMPORT_STATE_CHANGED: "error.portableImportStateChanged",
     SYSTEM_TRUSTED_INPUT_RECOVERING: "error.trustedInputRecovering",
     WORKSPACE_CONTENT_REQUIRED: "error.workspaceEmpty"
   } as const;

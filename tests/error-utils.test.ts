@@ -240,6 +240,33 @@ describe("renderer error localization", () => {
     }
   });
 
+  it("localizes JSON backup imports blocked by running roles or changed app data", async () => {
+    const codes = {
+      PORTABLE_IMPORT_GAME_WINDOWS_RUNNING: [
+        "error.portableImportGameWindowsRunning",
+        "Stop all running roles before importing Game Windows."
+      ],
+      PORTABLE_IMPORT_ROLES_RUNNING: [
+        "error.portableImportRolesRunning",
+        "Stop affected roles before importing Games, Roles, or Workspaces."
+      ],
+      PORTABLE_IMPORT_STATE_CHANGED: [
+        "error.portableImportStateChanged",
+        "App data changed while the import was waiting. Review and apply the import again."
+      ]
+    } as const;
+
+    for (const language of languages) {
+      const translations = await loadTranslations(language);
+      const t = (key: TranslationKey) => translations[key];
+      for (const [code, [key, message]] of Object.entries(codes) as Array<[string, readonly [TranslationKey, string]]>) {
+        expect(translations[key]).toBeTruthy();
+        expect(toMessage({ code, message }, language, t)).toBe(translations[key]);
+        if (language !== "en") expect(translations[key]).not.toBe(message);
+      }
+    }
+  });
+
   it("localizes the unassigned macro workflow error", async () => {
     const message = "Assign a role to this macro and every called macro before running it.";
     await Promise.all([loadTranslations("zh-TW"), loadTranslations("zh-CN"), loadTranslations("ja")]);

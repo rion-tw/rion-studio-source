@@ -249,3 +249,31 @@
             .unwrap();
         assert_eq!(receipt.status, "indeterminate");
     }
+
+    #[test]
+    fn a_fresh_early_hold_release_survives_stale_releases_at_capacity() {
+        let (events, _receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let release = |cycle: &str| {
+            runtime
+                .hold_release(MacroHoldReleaseRequest {
+                    macro_id: "m1".to_owned(),
+                    source_role_id: "r1".to_owned(),
+                    shortcut_cycle_id: cycle.to_owned(),
+                })
+                .unwrap();
+        };
+        for index in 0..300 {
+            release(&format!("stale-{index}"));
+        }
+        release("fresh");
+
+        let inner = runtime.shared.inner.lock().unwrap();
+        assert!(inner.early_hold_releases.contains(&early_hold_release_key("r1", "m1", "fresh")));
+        assert!(!inner.early_hold_releases.contains(&early_hold_release_key("r1", "m1", "stale-0")));
+        assert_eq!(inner.early_hold_releases.keys.len(), EarlyHoldReleases::CAPACITY);
+        drop(inner);
+        runtime.shutdown();
+    }

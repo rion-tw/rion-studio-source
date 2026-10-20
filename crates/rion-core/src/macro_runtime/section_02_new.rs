@@ -168,30 +168,32 @@ impl MacroRuntime {
         }
         let shortcut_cycle_id = request.shortcut_cycle_id;
         let (statuses, control) = self.start_tracked(request.start, true)?;
-        if self
-            .shared
-            .inner
-            .lock()
-            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?
-            .early_hold_releases
-            .remove(&release_key)
-        {
+        // Check for an early release and publish the lease under one lock; a
+        // release landing between two acquisitions would otherwise be lost and
+        // leave the hold running with its shortcut locked.
+        let released_early = {
+            let mut inner = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            let released_early = inner.early_hold_releases.remove(&release_key);
+            if !released_early {
+                inner.hold_leases.insert(
+                    lease_key,
+                    HoldLease {
+                        invocation_id: control.id.clone(),
+                        shortcut_cycle_id,
+                    },
+                );
+            }
+            released_early
+        };
+        if released_early {
             cancel_control(&control);
             wait_finished(&control)?;
             return Ok(Vec::new());
         }
-        self.shared
-            .inner
-            .lock()
-            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?
-            .hold_leases
-            .insert(
-                lease_key,
-                HoldLease {
-                    invocation_id: control.id.clone(),
-                    shortcut_cycle_id,
-                },
-            );
         mark_invocation_ready(&control);
         Ok(statuses)
     }
@@ -213,7 +215,6 @@ impl MacroRuntime {
                         &request.shortcut_cycle_id,
                     ),
                 );
-                trim_early_hold_releases(&mut inner.early_hold_releases);
                 return Ok(());
             };
             if lease.shortcut_cycle_id != request.shortcut_cycle_id {
@@ -224,7 +225,6 @@ impl MacroRuntime {
                         &request.shortcut_cycle_id,
                     ),
                 );
-                trim_early_hold_releases(&mut inner.early_hold_releases);
                 return Ok(());
             }
             let invocation_id = lease.invocation_id.clone();

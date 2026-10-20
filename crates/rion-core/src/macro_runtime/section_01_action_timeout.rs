@@ -172,7 +172,7 @@ struct Inner {
     held_keys: HashMap<String, HeldKey>,
     invocations: HashMap<String, Arc<InvocationControl>>,
     hold_leases: HashMap<String, HoldLease>,
-    early_hold_releases: HashSet<String>,
+    early_hold_releases: EarlyHoldReleases,
     mutation_leases: HashMap<String, HashSet<String>>,
     mutating_macro_ids: HashSet<String>,
     input_epochs: HashMap<String, u64>,

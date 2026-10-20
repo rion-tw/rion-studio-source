@@ -641,12 +641,47 @@ fn early_hold_release_key(role_id: &str, macro_id: &str, shortcut_cycle_id: &str
     format!("{role_id}|{macro_id}|{shortcut_cycle_id}")
 }
 
-fn trim_early_hold_releases(releases: &mut HashSet<String>) {
-    while releases.len() > 256 {
-        let Some(key) = releases.iter().next().cloned() else {
-            break;
+/// Hold-shortcut releases that arrived before their hold started. Bounded and
+/// evicted oldest first, so a release from a cycle that already ended can
+/// never displace the one a pending hold is about to consume.
+#[derive(Default)]
+struct EarlyHoldReleases {
+    keys: VecDeque<String>,
+}
+
+impl EarlyHoldReleases {
+    const CAPACITY: usize = 256;
+
+    fn insert(&mut self, key: String) {
+        if self.keys.contains(&key) {
+            return;
+        }
+        self.keys.push_back(key);
+        while self.keys.len() > Self::CAPACITY {
+            self.keys.pop_front();
+        }
+    }
+
+    fn remove(&mut self, key: &str) -> bool {
+        let Some(index) = self.keys.iter().position(|candidate| candidate == key) else {
+            return false;
         };
-        releases.remove(&key);
+        self.keys.remove(index);
+        true
+    }
+
+    fn clear(&mut self) {
+        self.keys.clear();
+    }
+
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+
+    #[cfg(test)]
+    fn contains(&self, key: &str) -> bool {
+        self.keys.iter().any(|candidate| candidate == key)
     }
 }
 

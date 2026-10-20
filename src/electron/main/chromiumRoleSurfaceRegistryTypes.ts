@@ -12,6 +12,34 @@ import type {
   ChromiumRoleWebContentsViewPort
 } from "./chromiumRoleSurfacePorts";
 
+export type ChromiumRoleCreationFailurePhase = "view-construction" |
+  "transparency" | "native-alias" | "session-mismatch" | "returned-destroyed" |
+  "initial-configuration" | "parent-destroyed" | "contents-access";
+export type ChromiumRoleCreationConfigurationStep = "record-build" |
+  "security-policy" | "bounds-set" | "bounds-readback" | "visibility" |
+  "audio-set" | "audio-readback" | "zoom-set" | "zoom-readback";
+
+export interface ChromiumFailedRoleCreation {
+  readonly generation: number;
+  readonly sessionHandle: ChromiumRoleSessionHandle;
+  readonly view?: ChromiumRoleWebContentsViewPort;
+  readonly contents?: ChromiumRoleSurfaceWebContentsPort;
+  readonly unsafeAlias?: boolean;
+  destroyed: boolean;
+  destruction?: Promise<void>;
+  release?: Promise<boolean>;
+}
+
+export interface ChromiumRoleCreationFailureDiagnostic {
+  readonly roleId: string;
+  readonly tabId: string;
+  readonly generation: number;
+  readonly phase: ChromiumRoleCreationFailurePhase;
+  readonly configurationStep?: ChromiumRoleCreationConfigurationStep;
+  readonly cleanupOutcome: "pending" | "confirmed" | "indeterminate";
+  readonly errorCode: string;
+}
+
 export type ChromiumRoleSurfaceRegistryState =
   | "open"
   | "draining"
@@ -89,6 +117,7 @@ export interface ChromiumRoleSurfaceListeners {
     frameProcessId: number,
     frameRoutingId: number
   ) => void;
+  readonly didFailProvisionalLoad: ChromiumRoleSurfaceListeners["didFailLoad"];
   readonly destroyed: () => void;
   readonly willAttachWebview: (event: ChromiumRoleSurfaceEvent) => void;
   readonly willNavigate: (

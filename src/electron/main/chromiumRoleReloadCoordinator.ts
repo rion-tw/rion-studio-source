@@ -81,6 +81,7 @@ interface ReloadRoleRecord {
   readinessSignalPending: boolean;
   surfaceFence: "none" | "acquired" | "released";
   startSequence: number | null;
+  startsBeforeCommit: number;
   submissionState: "notSubmitted" | "submitted" | "unknown";
   terminalReceipt: EmbeddedRoleReloadNativeReceiptRecord | null;
   trustedInputFence: "none" | "acquired" | "released";
@@ -336,6 +337,7 @@ export class ChromiumRoleReloadCoordinator {
         readinessSignalPending: false,
         surfaceFence: "none",
         startSequence: null,
+        startsBeforeCommit: 0,
         submissionState: "notSubmitted",
         terminalReceipt: null,
         trustedInputFence: "none"
@@ -718,6 +720,15 @@ export class ChromiumRoleReloadCoordinator {
         "ELECTRON_ROLE_RELOAD_SURFACE_RETIRED");
       this.#settleNativeStability(role);
       this.#retireSafeOperation(operation);
+      return true;
+    }
+    if (event.type === "navigation-started") {
+      // A start replaces nothing, but a second one before the reload commits
+      // raced it: the document that commits is not provably the reload's.
+      if (role.startSequence === null && ++role.startsBeforeCommit > 1) {
+        this.#settleRoleForNativeFailure(role, "indeterminate",
+          "ELECTRON_ROLE_RELOAD_NAVIGATION_OVERLAPPED");
+      }
       return true;
     }
     if (event.type === "document-started") {

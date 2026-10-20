@@ -42,6 +42,7 @@ import {
   isAllowedChromiumRoleNavigation
 } from "./chromiumRoleSurfaceUrl";
 import {
+  deferred,
   fail,
   overlayRefreshSource,
   resolveTrustedInputClickPoint,
@@ -55,11 +56,14 @@ import {
   validateZoomFactor
 } from "./chromiumRoleSurfaceRegistrySupport";
 import type {
+  ChromiumFailedRoleCreation as FailedRoleCreation,
+  ChromiumRoleCreationConfigurationStep as RoleCreationConfigurationStep,
+  ChromiumRoleCreationFailureDiagnostic as RoleCreationFailureDiagnostic,
+  ChromiumRoleCreationFailurePhase as RoleCreationFailurePhase,
   ChromiumRoleOverlayFrameIdentity,
   ChromiumRoleOverlayLifecycleEvent,
   ChromiumRoleOverlayLifecycleReason,
   ChromiumRoleOverlayRefreshSubmissionReceipt,
-  ChromiumRoleSurfaceDeferred as Deferred,
   ChromiumRoleSurfaceHandle,
   ChromiumRoleSurfaceListeners as SurfaceListeners,
   ChromiumRoleSurfaceParentOwner as ParentOwner,
@@ -82,44 +86,6 @@ export type {
   ChromiumRoleNavigationLifecycleEvent
 } from "./chromiumRoleNavigationLifecycle";
 
-
-function deferred<Value>(): Deferred<Value> {
-  let resolve!: (value: Value) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
-
-type RoleCreationFailurePhase = "view-construction" | "transparency" |
-  "native-alias" | "session-mismatch" | "returned-destroyed" |
-  "initial-configuration" | "parent-destroyed" | "contents-access";
-type RoleCreationConfigurationStep = "record-build" | "security-policy" |
-  "bounds-set" | "bounds-readback" | "visibility" | "audio-set" |
-  "audio-readback" | "zoom-set" | "zoom-readback";
-
-interface FailedRoleCreation {
-  readonly generation: number;
-  readonly sessionHandle: ChromiumRoleSessionHandle;
-  readonly view?: ChromiumRoleWebContentsViewPort;
-  readonly contents?: ChromiumRoleSurfaceWebContentsPort;
-  readonly unsafeAlias?: boolean;
-  destroyed: boolean;
-  destruction?: Promise<void>;
-  release?: Promise<boolean>;
-}
-
-interface RoleCreationFailureDiagnostic {
-  readonly roleId: string;
-  readonly tabId: string;
-  readonly generation: number;
-  readonly phase: RoleCreationFailurePhase;
-  readonly configurationStep?: RoleCreationConfigurationStep;
-  readonly cleanupOutcome: "pending" | "confirmed" | "indeterminate";
-  readonly errorCode: string;
-}
 
 export class ChromiumRoleSurfaceRegistry {
   readonly #retiredGenerations = new Map<string, number>();
@@ -1210,19 +1176,26 @@ export class ChromiumRoleSurfaceRegistry {
       },
       didStartNavigation: (details) => {
         if (!details.isMainFrame || details.isSameDocument) return;
-        // Links such as mailto: or app schemes never commit here: will-navigate
-        // cancels them, so the current document and its input identity survive.
-        if (typeof details.url === "string" && /^[a-z][a-z0-9+.-]*:/iu.test(details.url) &&
-            !/^(?:https?|about|blob|data|file|filesystem|javascript):/iu.test(details.url)) return;
         if (
           record.state !== "active" || record.destroyed ||
           this.#recordsByRole.get(record.roleId) !== record
         ) return;
-        record.activeMainFrameFailureReported = false;
-        this.#emitOverlayLifecycle(record, "document-superseded");
-        record.navigation.documentStarted();
+        // A start replaces nothing: 204/205 responses, downloads, cancelled
+        // redirects and external-scheme links never commit, so the running
+        // document keeps its identity until #commitActiveDocument. Only
+        // HTTP(S) starts pass will-navigate and can overlap a controlled reload.
+        if (typeof details.url === "string" &&
+          isAllowedChromiumRoleNavigation(details.url)) {
+          record.navigation.navigationStarted();
+        }
       },
-      didNavigate: () => this.#applyInitialZoom(record),
+      didNavigate: () => {
+        if (record.state === "opening") {
+          this.#applyInitialZoom(record);
+          return;
+        }
+        this.#commitActiveDocument(record);
+      },
       didFinishLoad: () => {
         if (record.state === "opening") {
           this.#finishInitialLoad(record);
@@ -1275,6 +1248,12 @@ export class ChromiumRoleSurfaceRegistry {
         }
         this.#reportActiveMainFrameFailure(record, errorCode, validatedUrl);
       },
+      didFailProvisionalLoad: (event, code, text, url, isMainFrame, ...frameIds) => {
+        // Electron emits this only after an error page has committed, which
+        // replaces the main-frame document exactly like did-navigate.
+        if (isMainFrame) this.#commitActiveDocument(record);
+        record.listeners.didFailLoad(event, code, text, url, isMainFrame, ...frameIds);
+      },
       destroyed: () => this.#onDestroyed(record),
       willAttachWebview: (event) => event.preventDefault(),
       willNavigate: (event, destination) => {
@@ -1318,9 +1297,22 @@ export class ChromiumRoleSurfaceRegistry {
     contents.on("did-finish-load", record.listeners.didFinishLoad);
     // Native WebContents events observe failures without replacing Chromium's
     // extension network delegate (any session.webRequest listener bypasses DNR).
-    contents.on("did-fail-provisional-load", record.listeners.didFailLoad);
+    contents.on("did-fail-provisional-load", record.listeners.didFailProvisionalLoad);
     contents.on("did-fail-load", record.listeners.didFailLoad);
     contents.on("destroyed", record.listeners.destroyed);
+  }
+
+  #commitActiveDocument(record: SurfaceRecord): void {
+    if (
+      record.state !== "active" || record.destroyed ||
+      this.#recordsByRole.get(record.roleId) !== record
+    ) return;
+    // EventBound: Chromium installs the new main frame and emits its commit
+    // in one browser task, and authorization requires that exact frame, so
+    // no message from the new document is admitted before this rotation.
+    record.activeMainFrameFailureReported = false;
+    this.#emitOverlayLifecycle(record, "document-superseded");
+    record.navigation.documentCommitted();
   }
 
   #reportActiveMainFrameFailure(
@@ -1826,7 +1818,7 @@ export class ChromiumRoleSurfaceRegistry {
     const contents = record.contents;
     contents.removeListener("did-finish-load", record.listeners.didFinishLoad);
     contents.removeListener("did-navigate", record.listeners.didNavigate);
-    contents.removeListener("did-fail-provisional-load", record.listeners.didFailLoad);
+    contents.removeListener("did-fail-provisional-load", record.listeners.didFailProvisionalLoad);
     contents.removeListener("did-fail-load", record.listeners.didFailLoad);
   }
 

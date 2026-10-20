@@ -15,8 +15,8 @@ This document is part of [System WebView Runtime Contract version 22](../../syst
 - `inputReady` is stronger: Core input drained, a different completed document
   instance was observed, and the native input epoch resumed.
 - Main-frame navigation is the only implicit input-fence transaction boundary.
-  Subframe, iframe, document-resource, and other resource requests never create,
-  advance, extend, or release a role input fence on either platform.
+  Subframe, iframe, document-resource, and other resource requests never create, advance, extend, or release a role input fence on either platform.
+  On the Chromium runtime that boundary is the main-frame document commit (`did-navigate`, or a committed error page's `did-fail-provisional-load`): a started navigation that never commits (a 204/205 response, a download, a cancelled redirect or external-scheme link, or a stop) leaves the live document, its identity, compatible-input sequence, overlay readiness and CDP session untouched, and a second start before a controlled reload commits makes that reload indeterminate.
 - On macOS the native navigation delegate requires a non-null
   `targetFrame.isMainFrame` and excludes new-window, same-URL, and fragment-only
   actions. Tauri's generic macOS navigation callback enforces URL-scheme policy

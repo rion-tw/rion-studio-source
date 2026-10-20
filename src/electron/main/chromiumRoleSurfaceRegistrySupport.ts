@@ -3,6 +3,18 @@ import type { BrowserAction } from "../../shared/generated";
 import type { ChromiumRoleSurfaceBounds } from "./chromiumRoleSurfacePorts";
 import type { ChromiumRoleOverlayFrameIdentity } from
   "./chromiumRoleSurfaceRegistry";
+import type { ChromiumRoleSurfaceDeferred } from
+  "./chromiumRoleSurfaceRegistryTypes";
+
+export function deferred<Value>(): ChromiumRoleSurfaceDeferred<Value> {
+  let resolve!: (value: Value) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 export function surfaceError(code: string, message: string): RionBridgeError {
   return new RionBridgeError({ code, message });

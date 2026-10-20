@@ -401,7 +401,18 @@ function harness(roleIds: readonly string[] = ["role-1"]) {
     trustedInput: trusted as unknown as ChromiumTrustedInputCoordinator
   });
 
-  const emitStart = (roleId: string): void => {
+  const emitNavigationStart = (roleId: string): void => {
+    const state = roles.get(roleId)!;
+    navigationListener?.({
+      documentInstanceId: state.documentInstanceId,
+      generation: state.generation,
+      navigationSequence: state.navigationSequence,
+      roleId,
+      tabId,
+      type: "navigation-started"
+    });
+  };
+  const emitCommit = (roleId: string): void => {
     const state = roles.get(roleId)!;
     const previousDocumentInstanceId = state.documentInstanceId;
     state.navigationSequence += 1;
@@ -475,7 +486,8 @@ function harness(roleIds: readonly string[] = ["role-1"]) {
     emitFailure,
     emitFinish,
     emitRetired,
-    emitStart,
+    emitCommit,
+    emitNavigationStart,
     managedActive,
     managedFences,
     managedPrepareControls,
@@ -522,7 +534,7 @@ describe("ChromiumRoleReloadCoordinator", () => {
     const terminalA = subject.coordinator.commit(effect(commitA), commitA);
     expect(subject.managedActive.has("role-1")).toBe(false);
     await subject.waitForSubmission(1);
-    subject.emitStart("role-1");
+    subject.emitCommit("role-1");
     subject.emitFinish("role-1");
     await expect(terminalA).resolves.toMatchObject({ status: "applied" });
 
@@ -535,7 +547,7 @@ describe("ChromiumRoleReloadCoordinator", () => {
     })));
     const terminalB = subject.coordinator.commit(effect(commitB), commitB);
     await subject.waitForSubmission(2);
-    subject.emitStart("role-1");
+    subject.emitCommit("role-1");
     subject.emitFinish("role-1");
     await expect(terminalB).resolves.toMatchObject({
       roles: [{ navigationSequence: 2, nativeInputResumed: true }],
@@ -711,7 +723,7 @@ describe("ChromiumRoleReloadCoordinator", () => {
     await Promise.resolve();
     expect(settled).toBe(false);
     await subject.waitForSubmission(1);
-    subject.emitStart("role-1");
+    subject.emitCommit("role-1");
     subject.emitFinish("role-1");
     await subject.waitForRefresh(1);
     expect(settled).toBe(false);
@@ -738,8 +750,8 @@ describe("ChromiumRoleReloadCoordinator", () => {
     })));
     const terminal = subject.coordinator.commit(effect(commit), commit);
     await subject.waitForSubmission(1);
-    subject.emitStart("role-1");
-    subject.emitStart("role-1");
+    subject.emitCommit("role-1");
+    subject.emitCommit("role-1");
     subject.emitFailure("role-1", -3);
     subject.emitFinish("role-1");
     await expect(terminal).resolves.toMatchObject({
@@ -749,6 +761,59 @@ describe("ChromiumRoleReloadCoordinator", () => {
     const next = prepareAction("reload-after-overlap");
     await expect(prepare(subject, next)).resolves.toMatchObject({
       status: "superseded"
+    });
+    subject.emitRetired("role-1");
+    subject.coordinator.dispose();
+  });
+
+  it("applies a reload whose own start commits despite starts that never commit", async () => {
+    const subject = harness();
+    const action = prepareAction("reload-uncommitted-noise");
+    const prepared = await prepare(subject, action);
+    const commit = commitAction(action, prepared.roles.map((role) => ({
+      ...role,
+      navigationSequence: 0,
+      tabId
+    })));
+    // A download started before submission belongs to the old document.
+    subject.emitNavigationStart("role-1");
+    const terminal = subject.coordinator.commit(effect(commit), commit);
+    await subject.waitForSubmission(1);
+    subject.emitNavigationStart("role-1");
+    subject.emitCommit("role-1");
+    // A 204 ping from the reloaded page replaces nothing.
+    subject.emitNavigationStart("role-1");
+    subject.emitFinish("role-1");
+    await expect(terminal).resolves.toMatchObject({
+      roles: [{ nativeInputResumed: true, restartRequired: false, status: "applied" }],
+      status: "applied"
+    });
+    subject.coordinator.dispose();
+  });
+
+  it("quarantines a second navigation start that races the reload's commit", async () => {
+    const subject = harness();
+    const action = prepareAction("reload-start-race");
+    const prepared = await prepare(subject, action);
+    const commit = commitAction(action, prepared.roles.map((role) => ({
+      ...role,
+      navigationSequence: 0,
+      tabId
+    })));
+    const terminal = subject.coordinator.commit(effect(commit), commit);
+    await subject.waitForSubmission(1);
+    subject.emitNavigationStart("role-1");
+    subject.emitNavigationStart("role-1");
+    // Whichever start commits is not provably the reload's own document.
+    subject.emitCommit("role-1");
+    subject.emitFinish("role-1");
+    await expect(terminal).resolves.toMatchObject({
+      roles: [{
+        failureCode: "ELECTRON_ROLE_RELOAD_NAVIGATION_OVERLAPPED",
+        nativeInputResumed: false,
+        restartRequired: true
+      }],
+      status: "indeterminate"
     });
     subject.emitRetired("role-1");
     subject.coordinator.dispose();
@@ -789,7 +854,7 @@ describe("ChromiumRoleReloadCoordinator", () => {
           }],
           status: "indeterminate"
         });
-        subject.emitStart("role-1");
+        subject.emitCommit("role-1");
         subject.emitFinish("role-1");
         await expect(olderTerminal).resolves.toMatchObject({ status: "applied" });
       } else {

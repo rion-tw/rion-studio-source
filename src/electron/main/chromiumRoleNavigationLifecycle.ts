@@ -11,6 +11,10 @@ interface ChromiumRoleNavigationLifecycleIdentity {
 
 export type ChromiumRoleNavigationLifecycleEvent =
   | ChromiumRoleNavigationLifecycleIdentity & Readonly<{
+      documentInstanceId: string;
+      type: "navigation-started";
+    }>
+  | ChromiumRoleNavigationLifecycleIdentity & Readonly<{
       previousDocumentInstanceId: string;
       type: "document-started";
     }>
@@ -116,7 +120,25 @@ export class ChromiumRoleNavigationLifecycleOwner {
     return this.#popupAdmissionFences.size > 0;
   }
 
-  documentStarted(): void {
+  /**
+   * A started main-frame navigation has not replaced anything yet: a 204/205
+   * response, a download, or a cancelled redirect never commits, so the live
+   * document keeps its identity and only observers of overlap are told.
+   */
+  navigationStarted(): void {
+    if (this.#retired) return;
+    this.#hub.emit(Object.freeze({
+      documentInstanceId: this.#documentInstanceId,
+      generation: this.#generation,
+      navigationSequence: this.#navigationSequence,
+      roleId: this.#roleId,
+      tabId: this.#tabId,
+      type: "navigation-started" as const
+    }));
+  }
+
+  /** Rotates identity only once a new main-frame document has committed. */
+  documentCommitted(): void {
     if (this.#retired) return;
     const previousDocumentInstanceId = this.#documentInstanceId;
     this.#navigationSequence += 1;

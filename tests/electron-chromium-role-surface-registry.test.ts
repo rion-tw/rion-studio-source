@@ -456,49 +456,139 @@ describe("Electron Chromium role-surface registry", () => {
     expect(contents.sentMessages).toHaveLength(1);
   });
 
-  it("emits only authoritative document and retirement lifecycle events", async () => {
+  it.each([
+    ["a 204 No Content response", "https://game.test/ping", null],
+    ["a download response", "https://game.test/save.bin", null],
+    ["a redirect cancelled by the navigation policy", "https://game.test/out", "file:///tmp/x"],
+    ["an external-scheme link", "mailto:support@game.test", null],
+    ["an app link", "discord://invite/game", null]
+  ])("keeps the live document identity when %s never commits", async (_case, url, redirect) => {
     const subject = harness();
-    const events: unknown[] = [];
-    const unsubscribe = subject.registry.subscribeOverlayLifecycle((event) => {
-      events.push(event);
-    });
     const creation = subject.registry.create(subject.input());
     const contents = subject.views[0].webContents;
     contents.finish("https://game.test/launch");
     await creation;
+    const overlayEvents: unknown[] = [];
+    const navigationEvents: unknown[] = [];
+    subject.registry.subscribeOverlayLifecycle((event) => overlayEvents.push(event));
+    subject.registry.subscribeNavigationLifecycle((event) => {
+      navigationEvents.push(event);
+    });
+    const before = subject.registry.authorizeOverlayFrame(
+      contents, contents.mainFrame, "frame-token-1"
+    );
 
     contents.emit("did-start-navigation", {
       isMainFrame: true,
-      isSameDocument: true
+      isSameDocument: false,
+      url
     });
-    contents.emit("did-start-navigation", {
-      isMainFrame: false,
-      isSameDocument: false
-    });
-    // An external-protocol link is cancelled before commit; the document survives.
-    for (const url of ["mailto:support@game.test", "discord://invite/game"]) {
-      contents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false, url });
+    if (redirect) {
+      const cancellation = preventableEvent();
+      contents.emit("will-redirect", cancellation, redirect, false, true, 1, 1);
+      expect(cancellation.preventDefault).toHaveBeenCalledOnce();
     }
-    expect(events).toEqual([]);
+    // Chromium ends such a navigation with did-stop-loading and no commit or
+    // failure event; the page that started it is still the live document.
+
+    expect(overlayEvents).toEqual([]);
+    expect(navigationEvents).toEqual(url.startsWith("https:") ? [{
+      documentInstanceId: before.documentInstanceId,
+      generation: 1,
+      navigationSequence: 0,
+      roleId: "role-1",
+      tabId: "tab-1",
+      type: "navigation-started"
+    }] : []);
+    expect(subject.registry.authorizeOverlayFrame(
+      contents, contents.mainFrame, "frame-token-1"
+    )).toEqual(before);
+    expect(subject.registry.resolveInputSurface("role-1")?.documentInstanceId)
+      .toBe(before.documentInstanceId);
+    expect(subject.registry.preflightControlledReload("role-1", 1)).toEqual({
+      documentInstanceId: before.documentInstanceId,
+      navigationSequence: 0,
+      roleId: "role-1",
+      surfaceGeneration: 1,
+      tabId: "tab-1"
+    });
+  });
+
+  it("supersedes the document only when a new main-frame document commits", async () => {
+    const subject = harness();
+    const overlayEvents: unknown[] = [];
+    const navigationEvents: Array<Readonly<{ type: string }>> = [];
+    subject.registry.subscribeOverlayLifecycle((event) => overlayEvents.push(event));
+    subject.registry.subscribeNavigationLifecycle((event) => {
+      navigationEvents.push(event);
+    });
+    const creation = subject.registry.create(subject.input());
+    const contents = subject.views[0].webContents;
+    // The initial load commits while opening; it is not a replacement.
+    contents.emit("did-navigate", {}, "https://game.test/launch", 200, "OK");
+    contents.finish("https://game.test/launch");
+    await creation;
+    const first = subject.registry.currentOverlayFrame("role-1", 1);
+    contents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true });
+    contents.emit("did-start-navigation", { isMainFrame: false, isSameDocument: false });
+    contents.emit("did-fail-provisional-load", {}, -105, "frame", "https://ads.test/", false, 1, 2);
+    contents.emit("did-fail-load", {}, -105, "frame", "https://ads.test/", false, 1, 2);
+    expect(overlayEvents).toEqual([]);
+    expect(navigationEvents).toEqual([]);
+
     contents.emit("did-start-navigation", {
       isMainFrame: true,
       isSameDocument: false,
       url: "https://game.test/next"
     });
-    expect(events).toEqual([{
-      roleId: "role-1",
+    // Chromium has not installed the speculative document yet, so its preload
+    // is refused as superseded instead of being admitted as the old document.
+    const speculative = Object.freeze({ frameToken: "frame-token-2" });
+    expect(subject.registry.isSupersededOverlayFrame(contents, speculative, "frame-token-2"))
+      .toBe(true);
+    expect(subject.registry.currentOverlayFrame("role-1", 1)).toEqual(first);
+    contents.mainFrame = speculative;
+    contents.emit("did-navigate", {}, "https://game.test/next", 200, "OK");
+    const second = subject.registry.authorizeOverlayFrame(
+      contents, speculative, "frame-token-2"
+    );
+    expect(second.documentInstanceId).not.toBe(first.documentInstanceId);
+    expect(subject.registry.isSupersededOverlayFrame(contents, first.frame, "frame-token-1"))
+      .toBe(true);
+    expect(overlayEvents).toEqual([
+      { roleId: "role-1", generation: 1, reason: "document-superseded" }
+    ]);
+    expect(navigationEvents.map((event) => event.type))
+      .toEqual(["navigation-started", "document-started"]);
+    expect(navigationEvents[1]).toEqual({
       generation: 1,
-      reason: "document-superseded"
-    }]);
+      navigationSequence: 1,
+      previousDocumentInstanceId: first.documentInstanceId,
+      roleId: "role-1",
+      tabId: "tab-1",
+      type: "document-started"
+    });
+
+    // A committed error page replaces the document once, not once per event.
+    contents.mainFrame = Object.freeze({ frameToken: "frame-token-3" });
+    contents.emit("did-fail-provisional-load", {}, -105, "offline", "https://game.test/x", true, 1, 1);
+    contents.emit("did-fail-load", {}, -105, "offline", "https://game.test/x", true, 1, 1);
+    const third = subject.registry.currentOverlayFrame("role-1", 1);
+    expect(third.documentInstanceId).not.toBe(second.documentInstanceId);
+    expect(overlayEvents).toHaveLength(2);
+    expect(navigationEvents.map((event) => event.type)).toEqual([
+      "navigation-started", "document-started", "document-started", "page-failed"
+    ]);
 
     const close = subject.registry.closeRole("role-1", 1);
     contents.destroy();
     await close;
-    expect(events).toEqual([
+    contents.emit("did-navigate", {}, "https://game.test/late", 200, "OK");
+    expect(overlayEvents).toEqual([
+      { roleId: "role-1", generation: 1, reason: "document-superseded" },
       { roleId: "role-1", generation: 1, reason: "document-superseded" },
       { roleId: "role-1", generation: 1, reason: "surface-retired" }
     ]);
-    unsubscribe();
   });
 
   it.each([
@@ -620,10 +710,18 @@ describe("Electron Chromium role-surface registry", () => {
       validatedUrl: "https://game.test/next"
     });
 
+    // A start that never commits leaves the same document and its one report.
     contents.emit("did-start-navigation", {
       isMainFrame: true,
-      isSameDocument: false
+      isSameDocument: false,
+      url: "https://game.test/ping"
     });
+    contents.emit(
+      "did-fail-load", {}, -105, "same document again",
+      "https://game.test/next", true, 1, 1
+    );
+    expect(report).toHaveBeenCalledOnce();
+    contents.emit("did-navigate", {}, "https://game.test/retry", 200, "OK");
     contents.emit(
       "did-fail-load", {}, -106, "connection failed",
       "https://game.test/retry", true, 1, 1
@@ -714,12 +812,22 @@ describe("Electron Chromium role-surface registry", () => {
     expect(contents.reloadCount).toBe(1);
     contents.emit("did-start-navigation", {
       isMainFrame: true,
-      isSameDocument: false
+      isSameDocument: false,
+      url: "https://game.test/launch"
     });
-    contents.mainFrame = Object.freeze({ frameToken: "frame-token-1" });
+    contents.mainFrame = Object.freeze({ frameToken: "frame-token-2" });
+    contents.emit("did-navigate", {}, "https://game.test/launch", 200, "OK");
     contents.finish("https://game.test/launch");
-    expect(events).toHaveLength(2);
+    expect(events).toHaveLength(3);
     expect(events[0]).toEqual({
+        documentInstanceId: preparation.documentInstanceId,
+        generation: 1,
+        navigationSequence: 0,
+        roleId: "role-1",
+        tabId: "tab-1",
+        type: "navigation-started"
+      });
+    expect(events[1]).toEqual({
         generation: 1,
         navigationSequence: 1,
         previousDocumentInstanceId: preparation.documentInstanceId,
@@ -727,7 +835,7 @@ describe("Electron Chromium role-surface registry", () => {
         tabId: "tab-1",
         type: "document-started"
       });
-    expect(events[1]).toEqual({
+    expect(events[2]).toEqual({
         documentInstanceId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
         generation: 1,
         navigationSequence: 1,
@@ -736,7 +844,7 @@ describe("Electron Chromium role-surface registry", () => {
         type: "page-finished",
         validatedUrl: "https://game.test/launch"
       });
-    const replacementDocument = (events[1] as {
+    const replacementDocument = (events[2] as {
       documentInstanceId: string;
     }).documentInstanceId;
     expect(replacementDocument).not.toBe(preparation.documentInstanceId);

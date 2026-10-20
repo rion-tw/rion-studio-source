@@ -96,6 +96,9 @@ export function FirstRunOnboarding({
   const activeRole = createdRole ?? resumedRole;
   const selectedGame = games.find((game) => game.id === (activeRole?.gameId ?? selectedGameId));
   const activeStatus = activeRole ? statusByRole.get(activeRole.id) : undefined;
+  // A new Role's launch is admitted as "launching" and completes in the
+  // background; its authoritative status keeps the launch in progress.
+  const isLaunchPending = isLaunching || activeStatus?.state === "launching";
 
   useEffect(() => {
     if (progress.roleId && !resumedRole && !createdRole) {
@@ -146,7 +149,7 @@ export function FirstRunOnboarding({
   }
 
   async function createAndLaunch(): Promise<void> {
-    if (!selectedGame || !roleName.trim() || isSaving || isLaunching) return;
+    if (!selectedGame || !roleName.trim() || isSaving || isLaunchPending) return;
     onClearError();
     const savedRole = await onSave({
       gameId: selectedGame.id,
@@ -160,8 +163,9 @@ export function FirstRunOnboarding({
     await launchRole(savedRole);
   }
 
-  const errorMessage = error
-    ? toMessage(error, language, t)
+  const coreErrorMessage = error ? toMessage(error, language, t) : null;
+  const errorMessage = coreErrorMessage
+    ? coreErrorMessage
     : launchFailed
       ? t("onboarding.launch.error")
       : null;
@@ -198,9 +202,10 @@ export function FirstRunOnboarding({
             />
           ) : step === "role" ? (
             <RoleStep
+              errorMessage={coreErrorMessage}
               game={selectedGame}
               headingRef={headingRef}
-              isBusy={isSaving || isLaunching}
+              isBusy={isSaving || isLaunchPending}
               nameInputRef={nameInputRef}
               roleName={roleName}
               t={t}
@@ -214,7 +219,7 @@ export function FirstRunOnboarding({
               errorMessage={errorMessage}
               game={selectedGame}
               headingRef={headingRef}
-              isLaunching={isLaunching}
+              isLaunching={isLaunchPending}
               isSuccess={step === "success"}
               notice={notice ? localizeErrorMessage(notice, language) : null}
               role={activeRole}
@@ -273,6 +278,7 @@ function GameStep({
 }
 
 function RoleStep({
+  errorMessage,
   game,
   headingRef,
   isBusy,
@@ -284,6 +290,7 @@ function RoleStep({
   onNameChange,
   onSkip
 }: {
+  errorMessage: string | null;
   game: Game | undefined;
   headingRef: RefObject<HTMLHeadingElement | null>;
   isBusy: boolean;
@@ -306,7 +313,7 @@ function RoleStep({
           id="onboarding-role-name"
           autoComplete="off"
           disabled={isBusy}
-          maxLength={120}
+          maxLength={80}
           placeholder={t("onboarding.role.namePlaceholder")}
           required
           value={roleName}
@@ -314,6 +321,7 @@ function RoleStep({
         />
       </label>
       <p className="text-xs leading-5 text-muted-foreground">{t("onboarding.role.sessionNote")}</p>
+      {errorMessage ? <StatusCallout tone="destructive" role="alert"><AlertTriangle size={15} />{errorMessage}</StatusCallout> : null}
       <div className="flex flex-col-reverse gap-2 border-t border-border/45 pt-4 sm:flex-row sm:items-center sm:justify-between">
         <Button data-testid="onboarding-skip" type="button" variant="ghost" disabled={isBusy} onClick={onSkip}>{t("onboarding.skip")}</Button>
         <div className="flex gap-2">

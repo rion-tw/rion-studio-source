@@ -134,6 +134,44 @@ describe("first-run onboarding flow", () => {
     expect(onLaunch).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps a background launch in progress until its role status terminalizes", async () => {
+    const user = userEvent.setup();
+    const flyff = game();
+    const savedRole = role({ gameId: flyff.id, name: "Background" });
+    const onSave = vi.fn().mockResolvedValue(savedRole);
+    // Core admits a new role as "launching" and completes it in the background.
+    const onLaunch = vi.fn().mockResolvedValue({ roleId: savedRole.id, state: "launching" } satisfies RoleStatus);
+    const onComplete = vi.fn();
+    const view = renderOnboarding({ games: [flyff], onComplete, onLaunch, onSave });
+    const rerender = (statusByRole: Map<string, RoleStatus>) => view.rerender(
+      <FirstRunOnboarding {...view.props} onComplete={onComplete} onLaunch={onLaunch} onSave={onSave}
+        games={[flyff]} roles={[savedRole]} statusByRole={statusByRole} />
+    );
+
+    await user.click(screen.getByRole("radio", { name: /Flyff Universe/ }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.type(screen.getByRole("textbox", { name: "Role name" }), "Background");
+    await user.click(screen.getByRole("button", { name: "Create and open" }));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledOnce());
+    rerender(new Map([[savedRole.id, { roleId: savedRole.id, state: "launching" }]]));
+    expect(screen.queryByRole("button", { name: "Retry opening" })).toBeNull();
+    expect(screen.getByText(en["onboarding.launch.title"])).toBeTruthy();
+
+    rerender(new Map([[savedRole.id, { roleId: savedRole.id, state: "running" }]]));
+    await screen.findByText("Your first role is running");
+    expect(onComplete).toHaveBeenCalledOnce();
+  });
+
+  it("shows a role save failure on the naming step and keeps Core's name limit", async () => {
+    renderOnboarding({
+      error: Object.assign(new Error("Name must be 80 characters or fewer."), { code: "ROLE_NAME_TOO_LONG" }),
+      progress: { version: 1, state: "in_progress", gameId: "builtin-flyff-universe" }
+    });
+    const name = screen.getByRole("textbox", { name: "Role name" }) as HTMLInputElement;
+    expect(name.maxLength).toBe(80);
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
+
   it("resumes at the launch step for a saved role and exposes both permanent exits", async () => {
     const user = userEvent.setup();
     const flyff = game();
@@ -197,7 +235,7 @@ function renderOnboarding(overrides: Partial<ComponentProps<typeof FirstRunOnboa
     onUpdateProgress: vi.fn(),
     ...overrides
   };
-  return render(<FirstRunOnboarding {...props} />);
+  return Object.assign(render(<FirstRunOnboarding {...props} />), { props });
 }
 
 function game(overrides: Partial<Game> = {}): Game {

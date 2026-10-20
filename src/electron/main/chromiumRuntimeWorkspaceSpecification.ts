@@ -55,7 +55,11 @@ export function projectWorkspaceSpecification(
     rectByRole.set(slot.role.id, workspaceSlot.rect);
     return { ...slot, rect: { ...workspaceSlot.rect } };
   });
-  if (slots.length !== workspaceSlots.length) {
+  // Empty slots stay in the complete layout but own no live native surface.
+  const contentSlotCount = workspaceSlots.filter(
+    (slot) => slot.roleId !== undefined || slot.web !== undefined
+  ).length;
+  if (slots.length !== contentSlotCount) {
     throw projectionError(
       "ELECTRON_CHROMIUM_WINDOWS_WORKSPACE_PROJECTION_INCOMPLETE",
       "Core supplied a workspace slot outside the live Chromium tab."

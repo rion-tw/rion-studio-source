@@ -264,6 +264,53 @@ describe("Windows Chromium runtime topology projection", () => {
     })).rejects.toMatchObject({ code: "ELECTRON_CHROMIUM_WINDOWS_WORKSPACE_PROJECTION_INVALID" });
   });
 
+  it("keeps authoritative empty workspace slots without native surfaces", async () => {
+    const subject = harness();
+    subject.tabs.delete("tab-2");
+    subject.windows.delete("window-2");
+    const left = { x: 0, y: 0, width: 0.5, height: 1 };
+    const right = { x: 0.5, y: 0, width: 0.5, height: 1 };
+    const tab = subject.tabs.get("tab-1")!;
+    tab.specification = {
+      tabId: "tab-1", workspaceId: "workspace-1", workspaceTemplate: "two_columns",
+      workspaceSlots: [{ id: "slot-1", roleId: "role-1", rect: left }, { id: "slot-2", rect: right }],
+      slots: [{ slotId: "slot-1", role: { id: "role-1" }, rect: left }],
+      roles: [{ role: { id: "role-1" }, rect: left }]
+    } as unknown as EmbeddedTabEffectRecord;
+    const movedLeft = { ...left, width: 0.6 };
+    const movedRight = { ...right, x: 0.6, width: 0.4 };
+    const projected = {
+      ...projection("window-1", ["tab-1"], "tab-1"),
+      workspaceTabs: [{
+        tabId: "tab-1",
+        workspaceSlots: [
+          { id: "slot-1", roleId: "role-1", rect: movedLeft },
+          { id: "slot-2", rect: movedRight }
+        ],
+        workspaceAppearance: { background: "black" as const, gap: 8 as const }
+      }]
+    };
+    await applyChromiumRuntimeWindowsProjection({ ...subject.input, projections: [projected] });
+    expect(tab.specification.workspaceSlots).toEqual([
+      { id: "slot-1", roleId: "role-1", rect: movedLeft },
+      { id: "slot-2", rect: movedRight }
+    ]);
+    expect(tab.specification.slots).toEqual([
+      { slotId: "slot-1", role: { id: "role-1" }, rect: movedLeft }
+    ]);
+    expect(tab.specification.roles).toEqual([{ role: { id: "role-1" }, rect: movedLeft }]);
+
+    projected.topologyRevision += 1;
+    projected.workspaceTabs[0]!.workspaceSlots[1] = {
+      id: "slot-2", roleId: "role-9", rect: movedRight
+    };
+    await expect(applyChromiumRuntimeWindowsProjection({
+      ...subject.input, projections: [projected]
+    })).rejects.toMatchObject({
+      code: "ELECTRON_CHROMIUM_WINDOWS_WORKSPACE_PROJECTION_INCOMPLETE"
+    });
+  });
+
   it("applies one exact cross-window move and commits ownership after reparent", async () => {
     const destinationLayoutTargets: string[] = [];
     const subject = harness();

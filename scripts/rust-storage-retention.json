@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "maxGiB": 12,
+  "maxAgeDays": 14,
+  "incrementalMaxGiB": 2,
+  "incrementalMaxAgeDays": 7,
+  "quietHours": 24
+}

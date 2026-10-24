@@ -230,10 +230,10 @@ describe("desktop shell migration workflows", () => {
       platformChecks.indexOf("pnpm run lint:rust")
     );
     expect(packageJson.scripts["lint:rust:portable"]).toBe(
-      "cargo fmt --all -- --check && cargo clippy -p rion-core -p rion-platform --all-targets --no-deps -- -D warnings"
+      "node scripts/rust-storage-retention.mjs --before-build --auto && cargo fmt --all -- --check && cargo clippy -p rion-core -p rion-platform --all-targets --no-deps -- -D warnings"
     );
     expect(packageJson.scripts["test:rust:portable"]).toBe(
-      "cargo test -p rion-core -p rion-platform --all-targets"
+      "node scripts/rust-storage-retention.mjs --before-build --auto && cargo test -p rion-core -p rion-platform --all-targets"
     );
     expect(workflow).toContain('"os":"macos-latest"');
     expect(workflow).toContain('"os":"windows-latest"');

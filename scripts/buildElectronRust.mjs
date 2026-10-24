@@ -6,6 +6,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { resolveCargoExecutable } from "./cargoExecutable.mjs";
+import { maintainRustStorage } from "./rust-storage-retention.mjs";
 import { verifyMacosChromiumAddonLinkage } from "./verifyElectronNativeAddon.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -33,6 +34,7 @@ const destination = join(outputDirectory, "rion-core.node");
 // skips copying, re-signing and dlopening a ~105 MB addon that has not changed.
 const stampPath = join(outputDirectory, "rion-core.node.stamp.json");
 
+maintainRustStorage({ release });
 await run(await resolveCargoExecutable(), [
   "build",
   "--locked",

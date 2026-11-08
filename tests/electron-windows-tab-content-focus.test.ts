@@ -3,6 +3,16 @@ import type { CoreEffectRequest } from "../src/shared/generated";
 import { isClosedCoreEffectRequest } from "../src/electron/core/coreEffectActionValidation";
 import { effect, tab } from "./support/electronChromiumRuntimeEffectFixtures";
 import { createTab, harness, loadRoles } from "./support/electronChromiumRuntimeEffectExecutorHarness";
+import { runtimeOperationEvidence } from "../src/electron/main/runtimeOperationJournal";
+
+function contentFocusStages(after: number): string[] {
+  return runtimeOperationEvidence().entries
+    .filter(entry => entry.sequence > after && entry.action === "contentFocus")
+    .map(entry => `${entry.targetId} ${entry.stage}`);
+}
+function journalCursor(): number {
+  return runtimeOperationEvidence().entries.at(-1)?.sequence ?? 0;
+}
 
 type Ownership = Extract<CoreEffectRequest["action"], { type: "embeddedFollowRoleOwnership" }>;
 
@@ -48,8 +58,12 @@ describe("Windows tab activation content focus", () => {
     subject.focusVisible.mockImplementation((roleId, generation) => {
       expect(subject.setVisible).toHaveBeenCalledWith(roleId, generation, true);
     });
+    const cursor = journalCursor();
     for (const id of ["tab-1", "tab-2", "tab-1"]) await subject.apply(subject.projection(id));
     expect(subject.focusVisible.mock.calls).toEqual([["role-1", 1], ["role-2", 1], ["role-1", 1]]);
+    // Diagnostics name each decision so a field report shows the failed gate.
+    expect(contentFocusStages(cursor)).toEqual(["tab-1", "tab-2", "tab-1"].flatMap(id =>
+      [`${id} request-claimed:ready`, `${id} claim-released`, `${id} handoff-focused`]));
     expect(subject.host.focus).not.toHaveBeenCalled();
     expect(subject.host.show).not.toHaveBeenCalled();
     await subject.apply(subject.projection("tab-1", "ready", false));
@@ -115,7 +129,9 @@ describe("Windows tab activation content focus", () => {
     const focusLocalChrome = vi.fn();
     Object.assign(subject.host, { focusLocalChrome });
     subject.host.focused = false;
+    const cursor = journalCursor();
     await subject.apply(subject.projection("tab-1", "loading"));
+    expect(contentFocusStages(cursor)).toEqual(["tab-1 request-skipped:not-focused"]);
     subject.host.focused = true;
     await subject.apply(subject.projection("tab-1", "ready", false));
     expect(subject.focusVisible).not.toHaveBeenCalled();

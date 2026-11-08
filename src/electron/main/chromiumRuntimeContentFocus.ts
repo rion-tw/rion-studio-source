@@ -5,6 +5,7 @@ import type {
   ChromiumRuntimeRoleRecord, ChromiumRuntimeTabRecord, ChromiumRuntimeWindowRecord
 } from "./chromiumRuntimeAppKitProjection";
 import type { ChromiumRuntimeEffectExecutorInput } from "./chromiumRuntimeEffectExecutor";
+import { recordRuntimeTransition } from "./runtimeOperationJournal";
 
 interface ContentFocusState {
   readonly windows: Map<string, ChromiumRuntimeWindowRecord>;
@@ -32,29 +33,66 @@ export interface ChromiumContentFocusClaim {
   readonly cancel: () => void;
 }
 
-function foreground(window: ChromiumRuntimeWindowRecord, epoch?: number, nativeGeneration?: number): boolean {
+/** The first failed foreground gate, or null when the exact host may take content focus. */
+function foregroundBlocker(window: ChromiumRuntimeWindowRecord, epoch?: number,
+  nativeGeneration?: number): string | null {
+  if (window.host.isDestroyed()) return "host-destroyed";
   const native = window.host.readRuntimeWindowState?.();
-  return !window.host.isDestroyed() &&
-    !!native?.focused && native.foreground && native.visible && !native.minimized &&
-    native.source !== "closed" && native.source !== "failed" && native.failureCode === undefined &&
-    native.platform === (window.host.appKitIdentity ? "macos" : "windows") &&
-    native.logicalWindowId === window.host.logicalWindowId && native.nativeHostId === window.host.id &&
-    (nativeGeneration === undefined || native.nativeGeneration === nativeGeneration) &&
-    native.windowGeneration === window.windowGeneration &&
-    native.topologyRevision === window.topologyRevision &&
-    (epoch === undefined || native.lifecycleEpoch === epoch) &&
-    window.host.readProjection().focused;
+  if (!native) return "state-unavailable";
+  if (!native.focused) return "not-focused";
+  if (!native.foreground) return "not-foreground";
+  if (!native.visible) return "not-visible";
+  if (native.minimized) return "minimized";
+  if (native.source === "closed" || native.source === "failed" || native.failureCode !== undefined) {
+    return "stream-terminal";
+  }
+  if (native.platform !== (window.host.appKitIdentity ? "macos" : "windows") ||
+      native.logicalWindowId !== window.host.logicalWindowId || native.nativeHostId !== window.host.id) {
+    return "host-identity";
+  }
+  if (nativeGeneration !== undefined && native.nativeGeneration !== nativeGeneration) return "native-generation";
+  if (native.windowGeneration !== window.windowGeneration) return "window-generation";
+  if (native.topologyRevision !== window.topologyRevision) return "topology-revision";
+  if (epoch !== undefined && native.lifecycleEpoch !== epoch) return "lifecycle-epoch";
+  if (!window.host.readProjection().focused) return "projection-not-focused";
+  return null;
+}
+
+/**
+ * Diagnostics only: each standalone content-focus decision is bounded
+ * identity evidence in the runtime journal and never affects admission.
+ */
+function recordContentFocus(tabId: string, stage: string, window?: ChromiumRuntimeWindowRecord,
+  detail?: string): void {
+  try {
+    recordRuntimeTransition({
+      operationId: `content-focus:${tabId}`, action: "contentFocus", targetKind: "tab", targetId: tabId,
+      stage: detail ? `${stage}:${detail}` : stage,
+      ...(window ? { fences: { windowId: window.host.logicalWindowId,
+        windowGeneration: window.windowGeneration, topologyRevision: window.topologyRevision } } : {})
+    });
+  } catch {
+    // Evidence capture must never change focus admission.
+  }
 }
 
 /** EventBound, content only: a user admission grants one responder handoff. */
 export function requestChromiumContentFocus(input: ContentFocusState, tabId: string,
   projections: readonly EmbeddedRuntimeWindowProjectionRecord[] = []): void {
   const tab = input.tabs.get(tabId);
-  if (!tab) return;
+  if (!tab) { recordContentFocus(tabId, "request-skipped", undefined, "tab-unknown"); return; }
   tab.pendingContentFocus?.cancel();
   const window = input.windows.get(tab.windowId);
-  if (!window || input.signal?.aborted || !foreground(window, input.lifecycleEpoch) ||
-      window.activeTabId !== tabId || window.hiddenTabIds.has(tabId)) return;
+  if (!window || input.signal?.aborted) {
+    recordContentFocus(tabId, "request-skipped", window, window ? "aborted" : "window-unknown");
+    return;
+  }
+  const blocker = foregroundBlocker(window, input.lifecycleEpoch);
+  if (blocker) { recordContentFocus(tabId, "request-skipped", window, blocker); return; }
+  if (window.activeTabId !== tabId || window.hiddenTabIds.has(tabId)) {
+    recordContentFocus(tabId, "request-skipped", window, "not-selected");
+    return;
+  }
   const projected = projections.find(item => item.windowId === tab.windowId &&
     item.windowGeneration === window.windowGeneration && item.topologyRevision === window.topologyRevision);
   const phase = projected?.tabPhases.find(item => item.tabId === tabId)?.phase;
@@ -62,11 +100,20 @@ export function requestChromiumContentFocus(input: ContentFocusState, tabId: str
     // Hiding the previous Role can leave the focused HWND without a Chromium
     // responder. One explicit selection hands input to local chrome until ready.
     window.host.focusLocalChrome?.();
+    recordContentFocus(tabId, "request-local-chrome", window, phase);
   }
   if (tab.specification.workspaceId || tab.webViews.size !== 0 || tab.roleViews.size !== 1 ||
-      !window.host.bindRuntimeWindowState) return;
+      !window.host.bindRuntimeWindowState) {
+    recordContentFocus(tabId, "request-skipped", window, tab.specification.workspaceId ? "workspace"
+      : tab.webViews.size !== 0 ? "web-surface" : tab.roleViews.size !== 1 ? `role-views-${tab.roleViews.size}`
+        : "state-stream-unavailable");
+    return;
+  }
   const slot = tab.specification.slots[0];
-  if (!slot?.owner || tab.specification.slots.length !== 1) return;
+  if (!slot?.owner || tab.specification.slots.length !== 1) {
+    recordContentFocus(tabId, "request-skipped", window, slot?.owner ? "multiple-slots" : "slot-unowned");
+    return;
+  }
   const { lifecycleEpoch, nativeGeneration } = window.host.readRuntimeWindowState!();
   const subscription: { dispose?: () => void } = {};
   const role = [...input.roles.values()].find(role => role.tabId === tabId);
@@ -76,7 +123,10 @@ export function requestChromiumContentFocus(input: ContentFocusState, tabId: str
     role,
     roleId: slot.role.id, ownerGeneration: role?.ownerGeneration ?? slot.owner.generation,
     cancel: () => {
-      if (tab.pendingContentFocus === claim) delete tab.pendingContentFocus;
+      if (tab.pendingContentFocus === claim) {
+        delete tab.pendingContentFocus;
+        recordContentFocus(tabId, "claim-released", window);
+      }
       subscription.dispose?.();
       input.signal?.removeEventListener("abort", claim.cancel);
     }
@@ -90,13 +140,17 @@ export function requestChromiumContentFocus(input: ContentFocusState, tabId: str
           observation.logicalWindowId !== window.host.logicalWindowId ||
           observation.nativeGeneration !== nativeGeneration ||
           observation.windowGeneration !== claim.windowGeneration ||
-          observation.lifecycleEpoch !== lifecycleEpoch) claim.cancel();
+          observation.lifecycleEpoch !== lifecycleEpoch) {
+        recordContentFocus(tabId, "claim-revoked", window, `native-${observation.source}`);
+        claim.cancel();
+      }
     });
   } catch (error) { claim.cancel(); throw error; }
   // Native subscriptions can synchronously deliver retirement.
   if (tab.pendingContentFocus !== claim) { subscription.dispose(); return; }
   input.signal?.addEventListener("abort", claim.cancel, { once: true });
   if (input.signal?.aborted) claim.cancel();
+  else recordContentFocus(tabId, "request-claimed", window, phase ?? "unprojected");
 }
 
 /** Recheck on every authoritative topology/readiness projection, including loading. */
@@ -108,31 +162,53 @@ export function handoffChromiumContentFocus(
   for (const [tabId, tab] of input.tabs) {
     const claim = tab.pendingContentFocus;
     if (!claim) continue;
-    const window = input.windows.get(tab.windowId);
+    const current = input.windows.get(tab.windowId);
     const projected = projections.find(item => item.windowId === tab.windowId);
-    if (input.signal?.aborted ||
-        (input.lifecycleEpoch !== undefined && input.lifecycleEpoch !== claim.lifecycleEpoch) ||
-        window !== claim.window ||
-        window.windowGeneration !== claim.windowGeneration ||
-        window.topologyRevision < claim.topologyRevision ||
-        tab.specification.attemptGeneration !== claim.attemptGeneration ||
-        window.activeTabId !== tabId || window.hiddenTabIds.has(tabId) ||
-        !foreground(window, claim.lifecycleEpoch, claim.nativeGeneration)) { claim.cancel(); continue; }
+    const window = claim.window;
+    const revoked = input.signal?.aborted ? "aborted"
+      : input.lifecycleEpoch !== undefined && input.lifecycleEpoch !== claim.lifecycleEpoch ? "lifecycle-epoch"
+        : current !== window ? "window-replaced"
+          : window.windowGeneration !== claim.windowGeneration ? "window-generation"
+            : window.topologyRevision < claim.topologyRevision ? "topology-regressed"
+              : tab.specification.attemptGeneration !== claim.attemptGeneration ? "attempt-generation"
+                : window.activeTabId !== tabId || window.hiddenTabIds.has(tabId) ? "deselected"
+                  : foregroundBlocker(window, claim.lifecycleEpoch, claim.nativeGeneration);
+    if (revoked) {
+      recordContentFocus(tabId, "claim-revoked", window, revoked);
+      claim.cancel();
+      continue;
+    }
     if (!projected || projected.topologyRevision !== window.topologyRevision ||
         projected.windowGeneration !== window.windowGeneration) continue;
     const phase = projected.tabPhases.find(item => item.tabId === tabId)?.phase;
     const roles = [...input.roles.values()].filter(role => role.windowId === tab.windowId && role.tabId === tabId);
-    if (claim.role && !roles.includes(claim.role)) { claim.cancel(); continue; }
+    if (claim.role && !roles.includes(claim.role)) {
+      recordContentFocus(tabId, "claim-revoked", window, "role-replaced");
+      claim.cancel();
+      continue;
+    }
     if (phase === "loading" || phase === "activating" || phase === "attaching") continue;
     claim.cancel();
     if (phase !== "ready" || roles.length !== 1 || tab.specification.workspaceId ||
-        tab.webViews.size !== 0) continue;
+        tab.webViews.size !== 0) {
+      recordContentFocus(tabId, "handoff-skipped", window, phase !== "ready" ? `phase-${phase ?? "unprojected"}`
+        : `ineligible-roles-${roles.length}`);
+      continue;
+    }
     const role = roles[0]!;
     const owner = owners.find(item => item.roleId === role.roleId);
     if (role.roleId !== claim.roleId || role.ownerGeneration !== claim.ownerGeneration ||
         owner?.state !== "running" || owner.owner.tabId !== tabId ||
-        owner.owner.generation !== role.ownerGeneration ||
-        !input.ports.surfaces.readProjection(role.roleId, role.generation).visible) continue;
+        owner.owner.generation !== role.ownerGeneration) {
+      recordContentFocus(tabId, "handoff-skipped", window, owner?.state !== "running"
+        ? `owner-${owner?.state ?? "missing"}` : "owner-changed");
+      continue;
+    }
+    if (!input.ports.surfaces.readProjection(role.roleId, role.generation).visible) {
+      recordContentFocus(tabId, "handoff-skipped", window, "surface-hidden");
+      continue;
+    }
     input.ports.surfaces.focusVisible(role.roleId, role.generation);
+    recordContentFocus(tabId, "handoff-focused", window);
   }
 }

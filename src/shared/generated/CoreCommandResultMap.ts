@@ -59,6 +59,7 @@ import type { RuntimeWindowZoomReceiptRecord } from "./RuntimeWindowZoomReceiptR
 import type { BrowserTabReloadReceiptRecord } from "./BrowserTabReloadReceiptRecord";
 import type { RuntimeWindowStopRequestRecord } from "./RuntimeWindowStopRequestRecord";
 import type { RuntimeRestoreSessionRecord } from "./RuntimeRestoreSessionRecord";
+import type { WindowMemoryRecord } from "./WindowMemoryRecord";
 import type { StateGameRecord } from "./StateGameRecord";
 import type { StateGameWindowRecord } from "./StateGameWindowRecord";
 import type { StateLaunchWorkspaceRecord } from "./StateLaunchWorkspaceRecord";
@@ -159,6 +160,8 @@ type TypedCoreCommandResultMap = {
   quickAccessRecentClear: QuickAccessPreferencesRecord;
   runtimeRestoreSessionGet: RuntimeRestoreSessionRecord;
   runtimeRestoreSessionReplace: RuntimeRestoreSessionRecord;
+  windowMemoryGet: WindowMemoryRecord;
+  mainWindowMemoryReplace: WindowMemoryRecord;
   legalAcceptanceStatus: LegalAcceptanceStatusRecord;
   legalAcceptanceAccept: LegalAcceptanceStatusRecord;
   systemFontsList: SystemFontFamilyRecord[];

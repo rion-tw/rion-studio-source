@@ -107,6 +107,8 @@ async function setVisiblePreferences(): Promise<void> {
   await setSwitch("Show macro tools button", false);
   await setSwitch("Show running macro badges", false);
   await setSwitch("Show macro click markers", false);
+  await setSwitch("Dim skill effects", true);
+  await setSwitch("Hide hit effects", true);
 }
 
 async function expectVisiblePreferences(): Promise<void> {
@@ -121,6 +123,8 @@ async function expectVisiblePreferences(): Promise<void> {
   await expectSwitch("Show macro tools button", false);
   await expectSwitch("Show running macro badges", false);
   await expectSwitch("Show macro click markers", false);
+  await expectSwitch("Dim skill effects", true);
+  await expectSwitch("Hide hit effects", true);
 }
 
 async function expectPersistedPreferences(): Promise<void> {
@@ -135,6 +139,12 @@ async function expectPersistedPreferences(): Promise<void> {
     showClickMarkers: false,
     showRunningBadges: false,
     showToolButton: false
+  });
+  expect((await rendererCall("getGameBrowserSettings")).effects).toEqual({
+    enabled: true,
+    level: "medium",
+    dimBrightSkills: true,
+    hideHitEffects: true
   });
 }
 

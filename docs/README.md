@@ -47,6 +47,7 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [Live Tab Tearout](validation/runbooks/runtime-tab-tearout.md) | Active runbook | Native tab-drag journeys, failure paths, and platform validation limits |
 
 | [Chromium Extensions](extensions.md) | Active, additive capability | Extension packages, role leases, store presentation, and native validation |
+| [Game Effect Dimming](game-effects.md) | Active | Role-page WebGL effect dimming, its settings, and its draw rules |
 
 ## Machine-owned registries
 

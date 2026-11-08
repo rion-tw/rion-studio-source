@@ -99,3 +99,4 @@ include!("behavior_61_saved_workspace_tab_after_role_delete.rs");
 include!("behavior_62_workspace_web_failure_recovery.rs");
 include!("behavior_62_controlled_reload_interrupted_recovery.rs");
 include!("behavior_63_controlled_reload_retained_document.rs");
+include!("behavior_64_window_memory_and_game_effects.rs");

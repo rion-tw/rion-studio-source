@@ -51,6 +51,7 @@ include!("app/section_31_extensions.rs");
 
 include!("app/section_33_fresh_session.rs");
 include!("app/section_34_workspace_slot_loading.rs");
+include!("app/section_35_window_memory.rs");
 include!("app/section_32_session_recovery.rs");
 include!("app/section_32_session_recovery_execute.rs");
 

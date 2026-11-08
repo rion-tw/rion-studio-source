@@ -14,7 +14,7 @@ use crate::{
         GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowRoleSlotRecord, GameWindowTabRecord,
         GameWindowSaveRuntimeInputRecord,
         GameWindowUpdateInputRecord, LegalAcceptanceRecord, MacroBadgePositionRecord,
-        MacroActivationMode, MacroCreateInputRecord, MacroOverlaySettingsRecord, MacroRepeat, MacroSettingsRecord, MacroStepDefinition,
+        MacroActivationMode, MacroCreateInputRecord, MacroOverlaySettingsRecord, GameEffectSettingsRecord, MacroRepeat, MacroSettingsRecord, MacroStepDefinition,
         MacroShortcutSourceScope, MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord,
         RoleCreateInputRecord,
         QuickAccessItemRefRecord, QuickAccessPreferencesRecord,
@@ -43,6 +43,7 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
             background: "material".to_owned(),
             gap: 4,
         },
+        effects: GameEffectSettingsRecord::default(),
     }
 }
 

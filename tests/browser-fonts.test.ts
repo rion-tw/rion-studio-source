@@ -68,7 +68,8 @@ describe("browser font settings normalization", () => {
       },
       macroBadgePosition: DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
       macroOverlay: DEFAULT_GAME_BROWSER_SETTINGS.macroOverlay,
-      workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
+      workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS,
+      effects: DEFAULT_GAME_BROWSER_SETTINGS.effects
     });
   });
 

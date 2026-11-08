@@ -24,6 +24,7 @@ fn runtime_window_zoom_command(
         window_generation: window.window_generation,
         topology_revision: window.revision,
         action: action.to_owned(),
+        zoom_factor: None,
     }
 }
 

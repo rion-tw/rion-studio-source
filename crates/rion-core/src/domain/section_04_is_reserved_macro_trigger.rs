@@ -301,6 +301,11 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
             "workspace gap is invalid".to_owned(),
         ));
     }
+    one_of(
+        &settings.effects.level,
+        &["none", "light", "medium", "heavy", "hidden"],
+        "game effect level",
+    )?;
     Ok(())
 }
 
@@ -401,6 +406,12 @@ pub fn normalize_game_browser_settings(
     }
     if !matches!(settings.workspace.gap, 1 | 2 | 4 | 6 | 8 | 12 | 16) {
         settings.workspace.gap = 4;
+    }
+    if !matches!(
+        settings.effects.level.as_str(),
+        "none" | "light" | "medium" | "heavy" | "hidden"
+    ) {
+        settings.effects.level = "medium".to_owned();
     }
     settings
 }

@@ -170,3 +170,31 @@ export function resolveTrustedInputClickPoint(
     zoomFactor
   });
 }
+
+/** Exact isolated-world overlay refresh submission evidence. */
+export function requireOverlayRefreshSubmission(
+  value: unknown,
+  live: ChromiumRoleOverlayFrameIdentity,
+  expected: ChromiumRoleOverlayFrameIdentity,
+  refreshId: string
+): void {
+  const record = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+  const exactKeys = record ? Object.keys(record).sort() : [];
+  if (
+    !sameOverlayFrame(live, expected) ||
+    exactKeys.length !== 3 ||
+    exactKeys[0] !== "frameToken" ||
+    exactKeys[1] !== "refreshId" ||
+    exactKeys[2] !== "status" ||
+    record?.frameToken !== expected.frameToken ||
+    record?.refreshId !== refreshId ||
+    record?.status !== "submitted"
+  ) {
+    fail(
+      "ELECTRON_ROLE_OVERLAY_REFRESH_SUBMISSION_FAILED",
+      "Chromium did not return the exact overlay refresh submission receipt."
+    );
+  }
+}

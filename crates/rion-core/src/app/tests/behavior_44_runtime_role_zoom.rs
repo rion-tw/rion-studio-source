@@ -60,6 +60,14 @@ fn runtime_role_zoom_is_exact_replayable_and_preserves_workspace_siblings() {
             let slots = &committed.tabs.iter().find(|tab| tab.id == tab_id).unwrap().role_slots;
             assert_eq!(slots.iter().find(|slot| slot.role_id == first).unwrap().browser_zoom_percent, Some(next * 100.0));
             assert_eq!(slots.iter().find(|slot| slot.role_id == second).unwrap().browser_zoom_percent, Some(125.0));
+            // The Workspace owns the saved viewport zoom for its next launch.
+            let saved: Value = core.invoke(CoreCommand::WorkspaceGet {
+                id: workspace["id"].as_str().unwrap().to_owned(),
+            }).unwrap();
+            let saved_zoom = |role: &str| saved["slots"].as_array().unwrap().iter()
+                .find(|slot| slot["roleId"] == role).unwrap()["browserZoomPercent"].as_f64();
+            assert_eq!(saved_zoom(&first), Some(next * 100.0), "{platform}");
+            assert_eq!(saved_zoom(&second), Some(125.0), "{platform}");
             let (replay, effects) = drive_command_with(Arc::clone(&core), command, role_zoom_effect_result);
             assert_eq!(replay.unwrap(), receipt);
             assert!(effects.is_empty());

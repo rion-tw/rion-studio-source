@@ -64,6 +64,10 @@ impl AppCore {
             && before.browser_runtime.roles.iter().any(|role|
                 role.role_id == request.role_id && role.owner.tab_id == request.tab_id
                 && role.owner.generation == request.owner_generation);
+        let workspace_id = window
+            .and_then(|window| window.tabs.iter().find(|tab| tab.id == request.tab_id))
+            .filter(|tab| tab.tab_type == "workspace")
+            .map(|tab| tab.source_id.clone());
         let mut revision = window.map_or(request.topology_revision, |window| window.revision);
         let (status, failure_code) = if !exact {
             (Status::Superseded, Some("RUNTIME_ROLE_ZOOM_STALE".to_owned()))
@@ -87,6 +91,17 @@ impl AppCore {
                     match committed {
                         Ok(commit) if commit.status == crate::RuntimeCommitStatus::Applied => {
                             revision = commit.revision;
+                            if let Some(workspace_id) = workspace_id.as_deref() {
+                                // The Workspace owns each viewport's saved zoom, so the next
+                                // launch restores it in any Game Window, saved or transient.
+                                let _ = self.mutate_state(
+                                    StateMutation::WorkspaceSetRoleBrowserZoom {
+                                        workspace_id: workspace_id.to_owned(),
+                                        role_id: request.role_id.clone(),
+                                        browser_zoom_percent: zoom_factor_percent(next),
+                                    },
+                                );
+                            }
                             match self.project_embedded_runtime_snapshot_without_persistence(Some(&request.operation_id)) {
                                 Err(error) => (Status::Indeterminate, Some(error.code().to_owned())),
                                 Ok(_) => match self.persist_runtime_ui_windows(std::slice::from_ref(&request.window_id)) {

@@ -109,7 +109,11 @@ describe("Chromium Macro native-effect exact replacement source", () => {
     ] = await Promise.all([
       source("src/electron/main/chromiumRuntimeBootstrap.ts"),
       source("src/electron/main/windowsChromiumTrustedInputContract.ts"),
-      source("src/electron/main/index.ts"),
+      // The macOS composition moved beside index.ts; read both as one main owner.
+      Promise.all([
+        source("src/electron/main/index.ts"),
+        source("src/electron/main/macosAppKitTrustedInputComposition.ts")
+      ]).then(parts => parts.join("\n")),
       source("src/electron/main/windowsChromiumTrustedInputRuntime.ts"),
       source("src/electron/main/chromiumCdpInputTransport.ts"),
       source("src/electron/main/chromiumCdpInputSession.ts"),

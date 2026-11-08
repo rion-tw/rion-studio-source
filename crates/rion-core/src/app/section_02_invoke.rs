@@ -430,6 +430,12 @@ impl AppCore {
                 serde_json::to_value(session)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
+            CoreCommand::WindowMemoryGet => serde_json::to_value(self.window_memory()?)
+                .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::MainWindowMemoryReplace { record } => {
+                serde_json::to_value(self.replace_main_window_memory(record)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
             CoreCommand::LegalAcceptanceStatus => {
                 let acceptance = self.read_legal_acceptance_fail_closed()?;
                 serde_json::to_value(crate::legal::status(
@@ -956,12 +962,14 @@ impl AppCore {
                 window_generation,
                 topology_revision,
                 action,
+                zoom_factor,
             } => serde_json::to_value(self.apply_runtime_window_zoom_action(
                 operation_id,
                 window_id,
                 window_generation,
                 topology_revision,
                 action,
+                zoom_factor,
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserWindowsRuntimeWindowPlacement { event } => {

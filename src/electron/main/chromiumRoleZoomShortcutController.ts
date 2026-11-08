@@ -7,8 +7,9 @@ import type { ElectronFocusedRuntimeShortcutTarget } from "./electronFocusedAppl
 type Role = ChromiumRuntimeExecutorSnapshot["roles"][number];
 
 export function createChromiumRoleZoomShortcut(core: ElectronCoreCommandPort,
-  runtime: () => { focusedRole: () => Role | null; snapshot: () => ChromiumRuntimeExecutorSnapshot } | null) {
-  const controller = new ChromiumRoleZoomShortcutController({ core,
+  runtime: () => { focusedRole: () => Role | null; snapshot: () => ChromiumRuntimeExecutorSnapshot } | null,
+  onApplied?: (roleId: string, surfaceGeneration: number) => void) {
+  const controller = new ChromiumRoleZoomShortcutController({ core, ...(onApplied ? { onApplied } : {}),
     focusedRole: () => runtime()?.focusedRole() ?? null,
     snapshot: () => {
       const current = runtime();
@@ -26,6 +27,8 @@ export class ChromiumRoleZoomShortcutController {
     core: ElectronCoreCommandPort;
     focusedRole: () => Role | null;
     snapshot: () => ChromiumRuntimeExecutorSnapshot;
+    /** Presentation-only follow-up of an exact applied receipt. */
+    onApplied?: (roleId: string, surfaceGeneration: number) => void;
   }) {}
 
   async execute(target: ElectronFocusedRuntimeShortcutTarget, action: "in" | "out" | "reset"): Promise<boolean> {
@@ -59,6 +62,7 @@ export class ChromiumRoleZoomShortcutController {
         throw new RionBridgeError({ code: receipt.failureCode ?? "ELECTRON_RUNTIME_ROLE_ZOOM_NOT_APPLIED",
           message: "Core did not confirm the exact focused Role zoom." });
       }
+      try { this.input.onApplied?.(role.roleId, role.generation); } catch { /* indicator only */ }
     };
     const prior = this.#lanes.get(target.windowId);
     const operation = prior ? prior.then(begin) : begin();

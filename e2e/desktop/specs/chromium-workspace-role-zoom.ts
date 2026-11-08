@@ -6,6 +6,7 @@ import { clickMacosVisibleRoleControl } from "../support/macos-appkit-ui";
 import { pressVisibleMacosApplicationShortcut, pressVisibleWindowsApplicationShortcut } from "../support/native-application-actions";
 import { focusWindowsRuntimeNativeWindow } from "../support/windows-runtime-foreground";
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
+import { rendererCall } from "../support/renderer-bridge";
 
 export async function verifyWorkspaceRoleZoom(input: {
   platform: "macos" | "windows"; mainWindowHandle: string; windowId: string;
@@ -52,6 +53,11 @@ export async function verifyWorkspaceRoleZoom(input: {
         expect(surface.appliedZoomFactor).toBe(base * initial.nativeWindow.windowZoomFactor);
       }
       expect((await electronDesktopE2eApplicationShortcutRuntime(input.otherWindowId)).roleSurfaces).toEqual(other.roleSurfaces);
+      // The Workspace record owns the viewport zoom its next launch restores.
+      const runtime = await rendererCall("getEmbeddedRuntimeState");
+      const workspaceId = runtime.tabs.find(tab => tab.windowId === input.windowId && tab.name === input.tabName)?.sourceId;
+      const saved = (await rendererCall("listLaunchWorkspaces")).find(workspace => workspace.id === workspaceId);
+      expect(saved?.slots.find(slot => slot.roleId === role.id)?.browserZoomPercent).toBe(Math.round((1 + delta) * 100));
     }
   }
 }

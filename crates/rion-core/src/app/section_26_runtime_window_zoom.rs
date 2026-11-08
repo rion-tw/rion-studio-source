@@ -42,10 +42,15 @@ fn runtime_window_zoom_error(code: &'static str, message: &'static str) -> CoreE
 }
 
 fn runtime_window_zoom_factor(current: f64, action: &str) -> f64 {
+    runtime_window_zoom_target(current, action, None)
+}
+
+fn runtime_window_zoom_target(current: f64, action: &str, restore: Option<f64>) -> f64 {
     let candidate = match action {
         "in" => current + RUNTIME_WINDOW_ZOOM_STEP,
         "out" => current - RUNTIME_WINDOW_ZOOM_STEP,
         "reset" => DEFAULT_RUNTIME_WINDOW_ZOOM_FACTOR,
+        "restore" => restore.unwrap_or(current),
         _ => current,
     };
     ((candidate * 100.0).round() / 100.0)
@@ -241,17 +246,28 @@ impl AppCore {
         window_generation: u64,
         topology_revision: u64,
         action: String,
+        restore_zoom_factor: Option<f64>,
     ) -> CoreResult<crate::model::RuntimeWindowZoomReceiptRecord> {
         self.validate_runtime_ui_action_identity(&operation_id, &[&window_id])?;
-        if !matches!(action.as_str(), "in" | "out" | "reset") {
+        let restore_valid = restore_zoom_factor.is_some_and(|factor| {
+            factor.is_finite()
+                && (MIN_RUNTIME_WINDOW_ZOOM_FACTOR..=MAX_RUNTIME_WINDOW_ZOOM_FACTOR).contains(&factor)
+        });
+        if !matches!(action.as_str(), "in" | "out" | "reset" | "restore")
+            || (action == "restore") != restore_valid
+            || (action != "restore" && restore_zoom_factor.is_some())
+        {
             return Err(runtime_window_zoom_error(
                 "RUNTIME_WINDOW_ZOOM_ACTION_INVALID",
                 "The runtime-window zoom action is invalid.",
             ));
         }
-        let fingerprint = format!(
-            "{window_id}:{window_generation}:{topology_revision}:{action}"
-        );
+        let fingerprint = match restore_zoom_factor {
+            Some(factor) => format!(
+                "{window_id}:{window_generation}:{topology_revision}:{action}:{factor}"
+            ),
+            None => format!("{window_id}:{window_generation}:{topology_revision}:{action}"),
+        };
         let _lane = self.embedded_runtime_sequence.acquire()?;
         if let Some(receipt) =
             self.cached_runtime_window_zoom_receipt(&operation_id, &fingerprint)?
@@ -293,7 +309,8 @@ impl AppCore {
         let previous_zoom_factor = window
             .window_zoom_factor
             .unwrap_or(DEFAULT_RUNTIME_WINDOW_ZOOM_FACTOR);
-        let next_zoom_factor = runtime_window_zoom_factor(previous_zoom_factor, &action);
+        let next_zoom_factor =
+            runtime_window_zoom_target(previous_zoom_factor, &action, restore_zoom_factor);
         if window.window_generation != window_generation || window.revision != topology_revision {
             return self.runtime_window_zoom_terminal(RuntimeWindowZoomTerminal {
                 operation_id,
@@ -571,6 +588,11 @@ impl AppCore {
             Ok(_) => ("applied", None),
             Err(error) => ("indeterminate", Some(error.code().to_owned())),
         };
+        if status == "applied" {
+            // Window memory is a convenience for the next launch; it never
+            // changes the terminal outcome of the zoom the user just made.
+            let _ = self.remember_window_zoom(&window_id, next_zoom_factor);
+        }
         self.runtime_window_zoom_terminal(RuntimeWindowZoomTerminal {
             operation_id,
             fingerprint,

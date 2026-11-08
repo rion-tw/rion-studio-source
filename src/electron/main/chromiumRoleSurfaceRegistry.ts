@@ -45,6 +45,7 @@ import {
   deferred,
   fail,
   overlayRefreshSource,
+  requireOverlayRefreshSubmission,
   resolveTrustedInputClickPoint,
   sameBounds,
   sameOverlayFrame,
@@ -55,6 +56,7 @@ import {
   validateTabId,
   validateZoomFactor
 } from "./chromiumRoleSurfaceRegistrySupport";
+import { CHROMIUM_ROLE_PAGE_PRESENTATION_CHANNEL } from "../ipc/chromiumRolePagePresentationProtocol";
 import type {
   ChromiumFailedRoleCreation as FailedRoleCreation,
   ChromiumRoleCreationConfigurationStep as RoleCreationConfigurationStep,
@@ -582,26 +584,9 @@ export class ChromiumRoleSurfaceRegistry {
       ));
     }
     return Promise.resolve(execution).then((value) => {
-      const live = this.currentOverlayFrame(expected.roleId, expected.generation);
-      const record = value && typeof value === "object" && !Array.isArray(value)
-        ? value as Record<string, unknown>
-        : null;
-      const exactKeys = record ? Object.keys(record).sort() : [];
-      if (
-        !sameOverlayFrame(live, expected) ||
-        exactKeys.length !== 3 ||
-        exactKeys[0] !== "frameToken" ||
-        exactKeys[1] !== "refreshId" ||
-        exactKeys[2] !== "status" ||
-        record?.frameToken !== expected.frameToken ||
-        record?.refreshId !== refreshId ||
-        record?.status !== "submitted"
-      ) {
-        fail(
-          "ELECTRON_ROLE_OVERLAY_REFRESH_SUBMISSION_FAILED",
-          "Chromium did not return the exact overlay refresh submission receipt."
-        );
-      }
+      requireOverlayRefreshSubmission(
+        value, this.currentOverlayFrame(expected.roleId, expected.generation), expected, refreshId
+      );
       return Object.freeze({
         roleId: expected.roleId,
         generation: expected.generation,
@@ -1033,6 +1018,15 @@ export class ChromiumRoleSurfaceRegistry {
         "The exact visible Chromium role cannot accept foreground focus.");
     }
     record.contents.focus();
+  }
+
+  /** Presentation-only page message; a retired or replaced surface drops it. */
+  sendPagePresentation(roleId: string, generation: number, message: unknown): boolean {
+    const record = this.#recordsByRole.get(roleId);
+    if (!record || record.generation !== generation || record.destroyed ||
+      record.state !== "active" || record.contents.isDestroyed()) return false;
+    record.contents.send(CHROMIUM_ROLE_PAGE_PRESENTATION_CHANNEL, message);
+    return true;
   }
 
   setZoomFactor(roleId: string, generation: number, zoomFactor: number): void {

@@ -100,11 +100,13 @@ import {
 } from "./macosRuntimeMenuBoundary";
 import { MacosAppKitInputSurfaceAttachmentCoordinator } from
   "./macosAppKitInputSurfaceAttachmentCoordinator";
-import { MacosAppKitTrustedInputAdapter } from
-  "./macosAppKitTrustedInputAdapter";
-import { ChromiumTrustedInputCoordinator } from
-  "./chromiumTrustedInputCoordinator";
-import { ChromiumCdpInputTransport } from "./chromiumCdpInputTransport";
+import { createMacosAppKitTrustedInput } from "./macosAppKitTrustedInputComposition";
+import { RememberedWindowZoomRestorer } from "./chromiumRuntimeLaunchMemory";
+import { fitMainWindowMemory, readMainWindowMemory, trackMainWindowMemory } from "./electronMainWindowMemory";
+import {
+  createElectronRolePagePresentation,
+  type ElectronRolePagePresentationComposition
+} from "./electronRolePagePresentationComposition";
 import { CoreRendererEventBridge } from "./coreRendererEventBridge";
 import { createElectronCoreApiDispatcher } from "./coreApiDispatcher";
 import { createChromiumRoleFontApiDispatcher } from
@@ -214,6 +216,7 @@ let applicationIcon: ReturnType<typeof initializeIcon> | null = null;
 let quickMenu: ElectronQuickMenuComposition | null = null;
 let runtimeTabDrag: ReturnType<typeof createRuntimeTabDragBootstrap> | null = null;
 let disposeOperationalLogHooks: (() => void) | null = null;
+let rolePages: ElectronRolePagePresentationComposition | null = null;
 const identities = new RendererIdentityRegistry((contents) =>
   BrowserWindow.fromWebContents(contents as Electron.WebContents)
 );
@@ -250,6 +253,7 @@ function createMacosAppKitAdapter(
       core: coreClient,
       onTabDrag: input => runtimeTabDrag?.receive(input),
       onDividerTerminal: (id, gesture) => hostFactory?.retireWorkspaceDividerGesture(id, gesture),
+      onDividerReceipt: (event, receipt) => rolePages?.presentation.showWorkspaceDivider(event, receipt),
       preparePassiveEventDispatch: captured => capturePassiveAppKitHosts(hostFactory, captured),
       ...callbacks,
       onError: revealShellError
@@ -283,59 +287,9 @@ function createMacosAppKitAdapter(
       lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,
       rendererActions: eventBridge,
       nativeAttachments: attachments,
-      createTrustedInput: (surfaces, _preflightAutomaticInputContext,
-        onRecoveryProof, embeddedInput) => {
-        const cdp = new ChromiumCdpInputTransport({ platform: "darwin", surfaces });
-        const native = new MacosAppKitTrustedInputAdapter({
-          hosts: {
-            resolve: (roleId, generation) => {
-              const binding = attachments!.resolveOwnedInputHost(roleId, generation);
-              return binding ? Object.freeze({ identity: binding.identity,
-                native: binding.native }) : null;
-            }
-          },
-          surfaces,
-          cdp,
-          clicks: { resolve: (request, frame) =>
-            surfaces.resolveTrustedInputClick(request, frame) },
-          nowMs: addon.macroInputEpochMillis,
-          compatibility: surfaces
-        });
-        const disposeInput = () => { try { native.dispose(); } finally { cdp.dispose(); } };
-        try {
-          native.register(ipcMain);
-        } catch (error) { disposeInput(); throw error; }
-        const coordinator = new ChromiumTrustedInputCoordinator({
-          native,
-          surfaces,
-          embeddedInput,
-          platform: "darwin",
-          nowMs: addon.macroInputEpochMillis,
-          onRecoveryProof
-        });
-        return {
-          execute: (request) => coordinator.execute(request),
-          observeMacroKey: coordinator.observeMacroKey.bind(coordinator),
-          retireSurface: coordinator.retireSurface.bind(coordinator),
-          retireSurfaceForDestruction: coordinator.retireSurfaceForDestruction.bind(coordinator),
-          resumeAfterDocumentReplacement: (roleId, generation) =>
-            coordinator.resumeAfterDocumentReplacement(roleId, generation),
-          prepareControlledDocumentReplacement: (lease) =>
-            coordinator.prepareControlledDocumentReplacement(lease),
-          confirmControlledDocumentReplacementNeutral: (lease) =>
-            coordinator.confirmControlledDocumentReplacementNeutral(lease),
-          resumeControlledDocumentReplacement: (lease, nextDocumentInstanceId) =>
-            coordinator.resumeControlledDocumentReplacement(
-              lease,
-              nextDocumentInstanceId
-            ),
-          supersedeControlledDocumentReplacement: (lease, submitted) =>
-            coordinator.supersedeControlledDocumentReplacement(lease, submitted),
-          dispose: async () => {
-            try { await coordinator.dispose(); } finally { disposeInput(); }
-          }
-        };
-      },
+      createTrustedInput: (surfaces, _preflight, onRecoveryProof, embeddedInput) =>
+        createMacosAppKitTrustedInput({ addon, attachments: attachments!, ipcMain, surfaces,
+          onRecoveryProof, embeddedInput }),
       drainEvents: async () => {
         try {
           await eventBridge.dispose();
@@ -501,7 +455,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
   // The renderer mirrors this exact decision through getWindowsMicaEnabled, so
   // the translucent surfaces and the native backdrop can never disagree.
   windowsMicaEnabled = windowsMicaSupported(platform(), release());
-  const window = new BrowserWindow(buildMainWindowOptions(
+  const options = buildMainWindowOptions(
     platform(),
     buildMainRendererWebPreferences({
       preloadPath: join(import.meta.dirname, "../preload/index.cjs"),
@@ -509,7 +463,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
     }),
     windowsMicaEnabled,
     applicationIcon?.path
-  ));
+  );
+  const remembered = await readMainWindowMemory(activeCore());
+  const frame = fitMainWindowMemory(remembered, screen.getAllDisplays().map(display => display.workArea),
+    { width: options.minWidth ?? 960, height: options.minHeight ?? 640 });
+  const window = new BrowserWindow(frame ? { ...options, ...frame, center: false } : options);
+  trackMainWindowMemory(window, activeCore(), remembered);
   revealElectronMainWindowOnStartupReady(window);
   mainWindow = window;
   const identity = identities.registerMainWindow(window, ++rendererGeneration);
@@ -765,7 +724,12 @@ async function bootstrapReadyPhase(
   });
   const extensionSessions = createChromiumExtensionSessions(core, runtimeLogs);
   abandonExtensionReleases = () => extensionSessions.abandonNativeReleases();
+  rolePages = createElectronRolePagePresentation({
+    core, ipcMain, snapshot: () => chromiumRuntime?.snapshot() ?? null
+  });
+  await rolePages.start();
   chromiumRuntime = await ChromiumRuntimeBootstrap.start({
+    presentation: rolePages.bootstrapPort,
     core,
     ipcMain,
     platform: runtimePlatform,
@@ -1122,6 +1086,7 @@ async function bootstrapReadyPhase(
     settleWindowProjection: windowId => chromiumRuntime!.settleWindowProjection(windowId),
     observeWindowProgress: id => observeChromiumRuntimeWindowProgress(chromiumRuntime, restoredTabAppKit?.events, id),
     core: activeCore(),
+    rememberedZoom: new RememberedWindowZoomRestorer(activeCore()),
     launchCompletions: chromiumLaunchCompletions,
     settleNativeEvents: async () => {
       await restoredTabAppKit?.events.settleCurrentEvents();
@@ -1286,8 +1251,12 @@ async function bootstrapReadyPhase(
       toggleRuntimeWindowFullscreen: (target) =>
         runtimeActionServices.toggleRuntimeWindowFullscreen(target),
       zoomRuntimeWindow: (target, action) =>
-        runtimeActionServices.zoomRuntimeWindow(target, action),
-      zoomFocusedRuntimeRole: createChromiumRoleZoomShortcut(activeCore(), () => chromiumRuntime)
+        runtimeActionServices.zoomRuntimeWindow(target, action).then((receipt) => {
+          rolePages?.presentation.showWindowZoom(receipt.windowId, receipt.nextZoomFactor);
+          return receipt;
+        }),
+      zoomFocusedRuntimeRole: createChromiumRoleZoomShortcut(activeCore(), () => chromiumRuntime,
+        (roleId, generation) => rolePages?.presentation.showRoleZoom(roleId, generation))
     });
   const { executeShortcut: executeNativeApplicationShortcut, executeQuickAccess: executeNativeQuickAccessShortcut } =
     createElectronApplicationMenuDispatch(focusedApplicationShortcuts, revealShellError);

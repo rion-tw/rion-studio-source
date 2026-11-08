@@ -1,4 +1,8 @@
 import { inspectLaunchWindowFence, type LaunchWindowRevision } from "./chromiumRuntimeLaunchWindowFence";
+import {
+  launchMemoryEntry, rememberedLaunchGeometry, restoreRememberedWindowZoom,
+  type LaunchMemoryKey, type RememberedWindowZoomRestorer
+} from "./chromiumRuntimeLaunchMemory";
 import { pendingInitialPresentationMatches } from "./chromiumRuntimeSnapshot";
 import {
   captureEmptyAppKitFullscreenOwner, emptyWindowRegistrationReceiptTarget,
@@ -95,6 +99,7 @@ export interface ChromiumRuntimeLaunchCoordinatorInput {
   readonly readDisplayTopology: () => MaybePromise<DisplayTopologySnapshotRecord>;
   readonly readNativeSnapshot: () => ChromiumRuntimeLaunchNativeSnapshot;
   readonly launchCompletions?: ChromiumRuntimeLaunchCompletionPort;
+  readonly rememberedZoom?: Pick<RememberedWindowZoomRestorer, "schedule">;
 }
 
 export interface ChromiumRuntimeExistingTabActivationFence {
@@ -554,6 +559,8 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
           "The restored Game Window changed while committing its presentation."
         );
       }
+      const zoom = launchMemoryEntry(presented.core.state.windowMemory, `window:${windowId}`);
+      if (zoom) void restoreRememberedWindowZoom(this.#input.core, windowId, zoom.windowZoomFactor).catch(() => undefined);
     }, [`window:${window.id}`, ...window.tabs.map(tab => `${tab.tabType}:${tab.sourceId}`)]);
   }
 
@@ -1001,6 +1008,12 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
       restore !== undefined
     );
     this.#rememberTarget(validated.logicalWindow, resolved.target);
+    const zoomKey: LaunchMemoryKey | null = restore ? null
+      : resolved.reason === "requested-empty-saved-game-window" ? `window:${resolved.target.windowId}`
+      : resolved.reason.endsWith("new-game-window") ? `${sourceType}:${sourceId}` : null;
+    const zoom = zoomKey && launchMemoryEntry(afterCore.state.windowMemory, zoomKey);
+    if (zoom) this.#input.rememberedZoom?.schedule(admission.operationId,
+      admission.completion === "completed", resolved.target.windowId, zoom.windowZoomFactor);
     // Observe an already acknowledged effect without making cached admission
     // metadata a prerequisite for later host reuse.
     try {
@@ -1156,7 +1169,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     if (destination.kind === "new-window") {
       return {
         reason: "requested-new-game-window",
-        target: this.#newTarget(snapshot)
+        target: this.#newTarget(snapshot, `${sourceType}:${sourceId}`)
       };
     }
     if (destination.kind === "game-window") {
@@ -1227,7 +1240,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     }
     return {
       reason: "new-game-window",
-      target: this.#newTarget(snapshot)
+      target: this.#newTarget(snapshot, `${sourceType}:${sourceId}`)
     };
   }
 
@@ -1340,7 +1353,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     return target;
   }
 
-  #newTarget(snapshot: CoherentLaunchSnapshot): EmbeddedLaunchTargetRecord {
+  #newTarget(snapshot: CoherentLaunchSnapshot, memoryKey?: LaunchMemoryKey): EmbeddedLaunchTargetRecord {
     const topology = snapshot.app.displayTopology;
     const primaryId = Number(topology.primaryDisplayId);
     const display = displayById(topology, primaryId);
@@ -1384,7 +1397,12 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         width,
         height
       },
-      presentation: "normal"
+      presentation: "normal",
+      // A source reopens where its last transient window was, on that display.
+      ...(memoryKey && rememberedLaunchGeometry(
+        launchMemoryEntry(snapshot.core.state.windowMemory, memoryKey), topology,
+        this.#input.readNativeSnapshot().windows.map(window => window.bounds)
+      ))
     };
     if (!targetMatchesDisplay(target, topology)) {
       throw launchError(

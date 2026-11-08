@@ -11,5 +11,6 @@ import type { StateGameWindowRecord } from "./StateGameWindowRecord";
 import type { StateLaunchWorkspaceRecord } from "./StateLaunchWorkspaceRecord";
 import type { StateMacroRecord } from "./StateMacroRecord";
 import type { StateRoleRecord } from "./StateRoleRecord";
+import type { WindowMemoryRecord } from "./WindowMemoryRecord";
 
-export type CoreStateSnapshotRecord = { revision: number, games: Array<StateGameRecord>, roles: Array<StateRoleRecord>, launchWorkspaces: Array<StateLaunchWorkspaceRecord>, gameWindows: Array<StateGameWindowRecord>, macros: Array<StateMacroRecord>, gameBrowserSettings?: GameBrowserSettingsRecord, macroSettings?: MacroSettingsRecord, runtimeWindowPreferences?: RuntimeWindowPreferencesRecord, quickAccessPreferences?: QuickAccessPreferencesRecord, runtimeRestoreSession?: RuntimeRestoreSessionRecord, legalAcceptance?: LegalAcceptanceRecord, logLevel?: LogLevel, };
+export type CoreStateSnapshotRecord = { revision: number, games: Array<StateGameRecord>, roles: Array<StateRoleRecord>, launchWorkspaces: Array<StateLaunchWorkspaceRecord>, gameWindows: Array<StateGameWindowRecord>, macros: Array<StateMacroRecord>, gameBrowserSettings?: GameBrowserSettingsRecord, macroSettings?: MacroSettingsRecord, runtimeWindowPreferences?: RuntimeWindowPreferencesRecord, quickAccessPreferences?: QuickAccessPreferencesRecord, runtimeRestoreSession?: RuntimeRestoreSessionRecord, windowMemory?: WindowMemoryRecord, legalAcceptance?: LegalAcceptanceRecord, logLevel?: LogLevel, };

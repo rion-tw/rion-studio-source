@@ -7,6 +7,8 @@ pub struct GameBrowserSettingsRecord {
     #[serde(default)]
     pub macro_overlay: MacroOverlaySettingsRecord,
     pub workspace: WorkspaceAppearanceSettingsRecord,
+    #[serde(default)]
+    pub effects: GameEffectSettingsRecord,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -22,6 +24,41 @@ pub struct GameBrowserSettingsPatchRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub workspace: Option<WorkspaceAppearanceSettingsRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub effects: Option<GameEffectSettingsRecord>,
+}
+
+/// Game-page WebGL effect dimming. Disabled pages receive no shader hooks at
+/// all; an enabled page applies later level changes without a reload.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameEffectSettingsRecord {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_game_effect_level")]
+    #[ts(type = "\"none\" | \"light\" | \"medium\" | \"heavy\" | \"hidden\"")]
+    pub level: String,
+    #[serde(default = "default_true")]
+    pub dim_bright_skills: bool,
+    #[serde(default)]
+    pub hide_hit_effects: bool,
+}
+
+fn default_game_effect_level() -> String {
+    "medium".to_owned()
+}
+
+impl Default for GameEffectSettingsRecord {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            level: default_game_effect_level(),
+            dim_bright_skills: true,
+            hide_hit_effects: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

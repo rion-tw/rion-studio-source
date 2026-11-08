@@ -125,7 +125,7 @@ describe("generated Rust core contracts", () => {
       ]);
 
     expect(command).toContain(
-      '{ "type": "browserRuntimeWindowZoom", operationId: string, windowId: string, windowGeneration: number, topologyRevision: number, action: "in" | "out" | "reset"'
+      '{ "type": "browserRuntimeWindowZoom", operationId: string, windowId: string, windowGeneration: number, topologyRevision: number, action: "in" | "out" | "reset" | "restore", zoomFactor?: number'
     );
     expect(resultMap).toContain(
       "browserRuntimeWindowZoom: RuntimeWindowZoomReceiptRecord"

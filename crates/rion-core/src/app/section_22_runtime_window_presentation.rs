@@ -20,7 +20,9 @@ impl AppCore {
         }
         let saved = self.read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?;
         let Some(saved) = saved.iter().find(|saved| saved.id == window_id) else {
-            // Changing an unsaved host must not create a saved Game Window.
+            // Changing an unsaved host must not create a saved Game Window; it
+            // only becomes its launch sources' remembered placement.
+            let _ = self.remember_transient_window_placement(window);
             return Ok(true);
         };
         let placement = window.placement.clone().ok_or_else(|| {

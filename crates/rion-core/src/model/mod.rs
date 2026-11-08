@@ -32,3 +32,4 @@ include!("section_22_compatible_modifier_evidence.rs");
 mod retired_performance_tests;
 
 include!("section_23_runtime_tab_drag.rs");
+include!("section_24_window_memory.rs");

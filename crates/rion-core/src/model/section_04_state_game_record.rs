@@ -495,6 +495,9 @@ pub struct CoreStateSnapshotRecord {
     pub runtime_restore_session: Option<RuntimeRestoreSessionRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub window_memory: Option<WindowMemoryRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub legal_acceptance: Option<LegalAcceptanceRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]

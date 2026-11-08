@@ -85,6 +85,12 @@ impl AppCore {
         let state = self.read_typed_snapshot()?;
         let Some(saved) = state.game_windows.iter()
             .find(|window| window.id == event.window_id) else {
+                // It still becomes its launch sources' remembered placement.
+                if let Some(window) = self.browser_runtime.snapshot()?.windows.get(&event.window_id)
+                    && window.revision == committed_revision
+                {
+                    let _ = self.remember_transient_window_placement(window);
+                }
                 return Ok("notRequired".to_owned());
             };
         let batch = self.commit_runtime_window_snapshot_batch_inner(vec![

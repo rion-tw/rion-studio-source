@@ -515,6 +515,7 @@ fn read_scalar(connection: &Connection, key: &str) -> CoreResult<Option<Value>> 
             | "runtimeWindowPreferences"
             | "quickAccessPreferences"
             | "runtimeRestoreSession"
+            | "windowMemory"
             | "logLevel"
     ) {
         connection
@@ -629,6 +630,7 @@ fn replace_scalar(connection: &mut Connection, key: &str, value: Value) -> CoreR
             | "runtimeWindowPreferences"
             | "quickAccessPreferences"
             | "runtimeRestoreSession"
+            | "windowMemory"
             | "legalAcceptance"
             | "logLevel"
     ) {

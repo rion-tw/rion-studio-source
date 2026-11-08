@@ -1,5 +1,6 @@
 import { drainChromiumShutdownInput } from "./chromiumShutdownInputDrain";
 import type { RuntimeWindowProjectionProgress } from "./runtimeWindowProjectionFence";
+import type { ChromiumRuntimeBootstrapPresentationPort } from "./chromiumRolePagePresentation";
 import { ChromiumSessionRecoveryExecutor } from "./chromiumSessionRecoveryExecutor";
 import type {
   BrowserRuntimeRegistrationRecord,
@@ -317,6 +318,8 @@ export interface MacosAppKitRuntimeBootstrapAdapter {
 }
 
 export interface ChromiumRuntimeBootstrapInput {
+  /** Presentation-only page messages and Windows divider receipts. */
+  readonly presentation?: ChromiumRuntimeBootstrapPresentationPort;
   readonly appKit?: MacosAppKitRuntimeBootstrapAdapter;
   readonly chromiumVersion: string;
   readonly core: ChromiumRuntimeCorePort;
@@ -676,7 +679,7 @@ export class ChromiumRuntimeBootstrap {
               return nativeActionIngress.run(() => input.core.invoke({
                 type: "browserWorkspaceDividerPointer",
                 event
-              }));
+              }).then(receipt => (input.presentation?.divider(event, receipt), receipt)));
             },
             onRuntimeWindowPlacement: (host) => {
               requireNativeActionIngress();
@@ -778,6 +781,7 @@ export class ChromiumRuntimeBootstrap {
       navigationFailureReporter,
       input.onRoleSurfaceCreationFailure
     );
+    input.presentation?.attachSurfaces(surfaces);
     const contentWebSurfaces = new ChromiumGlobalWebSurfaceRegistry(
       globalWebSessions,
       input.views,

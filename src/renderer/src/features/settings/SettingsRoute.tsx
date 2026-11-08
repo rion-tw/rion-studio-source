@@ -41,6 +41,7 @@ import { readSettingsSection, type SettingsSectionId } from "./settingsNavigatio
 
 import { settingsSectionDescriptionKeys, settingsSectionTitleKeys } from "./settingsPresentation";
 
+import { GameEffectsSettingsRows } from "./GameEffectsSettingsRows";
 import { MacroOverlaySettingsRows, ReadOnlyValue, createPortableExportAvailability, createPortableImportAvailability } from "./MacroBadgePositionSettingsRows";
 
 import { PortableExportDialog, PortableImportDialog, formatPortableExportResult, formatPortableImportResult, formatUpdateStatus } from "./PortableSettingsDialogs";
@@ -177,7 +178,8 @@ function SettingsViewBase({
       ...(patch.macroOverlay ? {
         macroOverlay: { ...normalizedSettings.macroOverlay, ...patch.macroOverlay }
       } : {}),
-      ...(patch.workspace ? { workspace: patch.workspace } : {})
+      ...(patch.workspace ? { workspace: patch.workspace } : {}),
+      ...(patch.effects ? { effects: patch.effects } : {})
     });
   });
 
@@ -507,6 +509,15 @@ function SettingsViewBase({
 
         {activeSection === "interface" ? (
           <>
+            <SettingsSection title={t("settings.gameEffects")}>
+              <GameEffectsSettingsRows
+                settings={gameBrowserSettings}
+                t={t}
+                onError={onError}
+                onSave={saveNonFontPatch}
+              />
+            </SettingsSection>
+
             <SettingsSection title={t("settings.workspace")}>
               <SettingsRow
                 title={t("settings.workspaceBackground")}

@@ -241,6 +241,10 @@ pub enum CoreCommand {
     RuntimeRestoreSessionReplace {
         session: RuntimeRestoreSessionRecord,
     },
+    WindowMemoryGet,
+    MainWindowMemoryReplace {
+        record: MainWindowMemoryRecord,
+    },
     LegalAcceptanceStatus,
     LegalAcceptanceAccept {
         input: LegalAcceptDocumentsInputRecord,
@@ -570,8 +574,12 @@ pub enum CoreCommand {
         window_generation: u64,
         #[ts(type = "number")]
         topology_revision: u64,
-        #[ts(type = "\"in\" | \"out\" | \"reset\"")]
+        // `restore` applies a remembered absolute `zoomFactor`.
+        #[ts(type = "\"in\" | \"out\" | \"reset\" | \"restore\"")]
         action: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "zoomFactor")]
+        zoom_factor: Option<f64>,
     },
     BrowserRuntimeRoleZoom { request: RuntimeRoleZoomRequestRecord },
     RuntimeTabDrag {

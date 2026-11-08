@@ -14,6 +14,7 @@ import {
   DEFAULT_MACRO_BADGE_POSITION,
   normalizeMacroBadgePositionSettings
 } from "./macroOverlay";
+import { DEFAULT_GAME_EFFECT_SETTINGS, normalizeGameEffectSettings } from "./gameEffects";
 
 export const browserFontSlots = ["cjk", "latin", "numeric", "monospace", "math"] as const;
 const browserFontCjkVariants = ["auto", "tc", "sc", "jp"] as const;
@@ -217,7 +218,8 @@ export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
   fonts: DEFAULT_BROWSER_FONT_SETTINGS,
   macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
   macroOverlay: DEFAULT_MACRO_OVERLAY_SETTINGS,
-  workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
+  workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS,
+  effects: DEFAULT_GAME_EFFECT_SETTINGS
 };
 
 export function normalizeGameBrowserSettings(
@@ -233,7 +235,8 @@ export function normalizeGameBrowserSettings(
       fallback.macroBadgePosition
     ),
     macroOverlay: normalizeMacroOverlaySettings(input.macroOverlay, fallback.macroOverlay),
-    workspace: normalizeWorkspaceAppearanceSettings(input.workspace, fallback.workspace)
+    workspace: normalizeWorkspaceAppearanceSettings(input.workspace, fallback.workspace),
+    effects: normalizeGameEffectSettings(input.effects, fallback.effects)
   };
 }
 

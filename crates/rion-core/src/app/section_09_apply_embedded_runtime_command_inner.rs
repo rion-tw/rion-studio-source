@@ -501,6 +501,7 @@ impl AppCore {
         let patch_macro_badge_position = patch.macro_badge_position.is_some();
         let patch_macro_overlay = patch.macro_overlay.is_some();
         let patch_workspace = patch.workspace.is_some();
+        let patch_effects = patch.effects.is_some();
         let mut candidate = settings.clone();
         if let Some(macro_badge_position) = patch.macro_badge_position {
             candidate.macro_badge_position = macro_badge_position;
@@ -519,6 +520,9 @@ impl AppCore {
         if let Some(workspace) = patch.workspace {
             candidate.workspace = workspace;
         }
+        if let Some(effects) = patch.effects {
+            candidate.effects = effects;
+        }
         let candidate = normalize_game_browser_settings(candidate);
         validate_game_browser_settings(&candidate)?;
         if patch_macro_badge_position {
@@ -529,6 +533,9 @@ impl AppCore {
         }
         if patch_workspace {
             settings.workspace = candidate.workspace;
+        }
+        if patch_effects {
+            settings.effects = candidate.effects;
         }
         self.commit_game_browser_settings(previous, settings)
     }

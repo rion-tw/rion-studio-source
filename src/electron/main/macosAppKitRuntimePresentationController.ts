@@ -81,7 +81,14 @@ export class MacosAppKitRuntimePresentationController {
         throw presentationError("ELECTRON_MACOS_APPKIT_PRESENTATION_BUSY",
           "Another event-bound AppKit presentation request is still active.");
       }
-      if (nativePresentation(this.#input.native) !== "normal") {
+      const current = nativePresentation(this.#input.native);
+      // A staged normal frame that already fills the work area is reported by
+      // AppKit as zoomed. That is exactly a staged maximized mode (and a valid
+      // start for fullscreen), so it never counts as a foreign mode change.
+      if (current === request.presentation) {
+        return Promise.resolve(this.#verifiedProjection(request, readProjection));
+      }
+      if (current === "fullscreen") {
         throw presentationError("ELECTRON_MACOS_APPKIT_PRESENTATION_READBACK_MISMATCH",
           "The staged AppKit host changed mode before its owned native submission.");
       }

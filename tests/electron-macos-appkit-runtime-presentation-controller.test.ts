@@ -182,6 +182,41 @@ describe("macOS AppKit runtime presentation controller", () => {
     expect(controller.observeWindowPlacement("fullscreen")).toBe(false);
   });
 
+  it("treats a staged host whose normal frame already fills the work area as maximized", async () => {
+    // AppKit reports such a frame as zoomed; restoring a saved maximized
+    // window must not fail every launch with a foreign-mode error.
+    const { controller, native, readProjection } = fixture();
+    native.maximized = true;
+    await expect(controller.setInitialPresentation({
+      presentation: "maximized", topologyRevision: 4, windowGeneration: 3, windowId: "window-1"
+    })).resolves.toMatchObject({ presentation: "maximized" });
+    expect(native.maximize).not.toHaveBeenCalled();
+    expect(readProjection).toHaveBeenCalled();
+    expect(controller.suppressWindowStateEvent()).toBe(false);
+  });
+
+  it("still enters fullscreen from a zoomed staged frame", async () => {
+    const { controller, native } = fixture();
+    native.maximized = true;
+    const operation = controller.setInitialPresentation({
+      presentation: "fullscreen", topologyRevision: 4, windowGeneration: 3, windowId: "window-1"
+    });
+    expect(native.setFullScreen.mock.calls).toEqual([[true]]);
+    native.maximized = false;
+    native.fullScreen = true;
+    expect(controller.observeWindowPlacement("fullscreen")).toBe(true);
+    await expect(operation).resolves.toMatchObject({ presentation: "fullscreen" });
+  });
+
+  it("rejects a staged maximized host that is already fullscreen", async () => {
+    const { controller, native } = fixture();
+    native.fullScreen = true;
+    await expect(controller.setInitialPresentation({
+      presentation: "maximized", topologyRevision: 4, windowGeneration: 3, windowId: "window-1"
+    })).rejects.toMatchObject({ code: "ELECTRON_MACOS_APPKIT_PRESENTATION_READBACK_MISMATCH" });
+    expect(native.maximize).not.toHaveBeenCalled();
+  });
+
   it("preserves initial submission errors without attempting an unowned fullscreen exit", async () => {
     const { controller, native, prepareFullscreen } = fixture();
     const failure = new Error("native fullscreen failed");

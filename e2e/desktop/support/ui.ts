@@ -207,11 +207,21 @@ export async function setInputValue(selector: string, value: string): Promise<vo
 
 /** Replace a controlled numeric field without an intermediate empty value. */
 export async function setNumericInputValue(input: ChainablePromiseElement, value: string): Promise<void> {
-  await input.waitForClickable({ timeout: 10_000 });
-  await input.click();
-  // WebdriverIO maps Ctrl to Command on macOS and Control on Windows.
-  await browser.keys([Key.Ctrl, "a"]);
-  await browser.keys(value);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await input.waitForClickable({ timeout: 10_000 });
+    await input.click();
+    // A just-closed Radix Select restores focus to its trigger asynchronously;
+    // typing before the field owns focus sends the digits to that trigger.
+    const focused = await browser.waitUntil(
+      async () => await input.isFocused(),
+      { timeout: 2_000, interval: 50 }
+    ).catch(() => false);
+    if (!focused) continue;
+    // WebdriverIO maps Ctrl to Command on macOS and Control on Windows.
+    await browser.keys([Key.Ctrl, "a"]);
+    await browser.keys(value);
+    if (await input.getValue() === value && await input.isFocused()) break;
+  }
   await expect(input).toHaveValue(value);
 }
 

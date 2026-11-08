@@ -253,7 +253,6 @@ function createMacosAppKitAdapter(
       core: coreClient,
       onTabDrag: input => runtimeTabDrag?.receive(input),
       onDividerTerminal: (id, gesture) => hostFactory?.retireWorkspaceDividerGesture(id, gesture),
-      onDividerReceipt: (event, receipt) => rolePages?.presentation.showWorkspaceDivider(event, receipt),
       preparePassiveEventDispatch: captured => capturePassiveAppKitHosts(hostFactory, captured),
       ...callbacks,
       onError: revealShellError

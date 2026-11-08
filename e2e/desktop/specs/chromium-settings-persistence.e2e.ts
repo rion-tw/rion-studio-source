@@ -67,6 +67,10 @@ async function setSwitch(label: string, checked: boolean): Promise<void> {
   const expectedState = checked ? "checked" : "unchecked";
   await control.waitForEnabled({ timeout: 10_000 });
   if ((await control.getAttribute("data-state")) !== expectedState) {
+    // A default top-aligned scroll can leave the switch under the fixed
+    // window drag region; center it so the visible click reaches it.
+    await control.scrollIntoView({ block: "center" });
+    await control.waitForClickable({ timeout: 10_000 });
     await control.click();
   }
   await browser.waitUntil(async () =>

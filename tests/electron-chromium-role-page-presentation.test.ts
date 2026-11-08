@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type {
-  BrowserWorkspaceDividerPointerReceiptRecord,
-  BrowserWorkspaceDividerPointerRecord,
   DisplayTopologySnapshotRecord,
   GameBrowserSettingsRecord,
   SourceWindowMemoryRecord
@@ -50,27 +48,6 @@ describe("Chromium role page presentation", () => {
     presentation.showRoleZoom("role-a", 3);
     presentation.showRoleZoom("role-a", 99);
     expect(send.mock.calls).toEqual([["role-a", 3, { type: "zoomIndicator", label: "110%" }]]);
-  });
-
-  it("labels every viewport's share while a divider moves and hides it at the end", () => {
-    const { send, presentation } = presenter();
-    const event = { eventId: "event-1", windowId: "window-1", tabId: "tab-1", phase: "move" } as
-      BrowserWorkspaceDividerPointerRecord;
-    const receipt = {
-      eventId: "event-1", status: "applied",
-      workspaceSlots: [
-        { id: "a", roleId: "role-a", rect: { x: 0, y: 0, width: 0.375, height: 1 } },
-        { id: "b", roleId: "role-b", rect: { x: 0.375, y: 0, width: 0.625, height: 1 } }
-      ]
-    } as unknown as BrowserWorkspaceDividerPointerReceiptRecord;
-    presentation.showWorkspaceDivider(event, receipt);
-    presentation.showWorkspaceDivider({ ...event, phase: "end" }, receipt);
-    expect(send.mock.calls).toEqual([
-      ["role-a", 3, { type: "resizeIndicator", label: "37.5% × 100%" }],
-      ["role-b", 4, { type: "resizeIndicator", label: "62.5% × 100%" }],
-      ["role-a", 3, { type: "resizeIndicatorHide" }],
-      ["role-b", 4, { type: "resizeIndicatorHide" }]
-    ]);
     for (const [, , message] of send.mock.calls) {
       expect(isChromiumRolePagePresentationMessage(message)).toBe(true);
     }

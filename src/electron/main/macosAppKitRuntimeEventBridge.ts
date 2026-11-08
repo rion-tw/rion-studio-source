@@ -10,7 +10,6 @@ import type {
   AppKitRuntimeHostObservationRecord,
   AppKitWorkspaceAppearanceObservationReceiptRecord,
   BrowserWorkspaceDividerPointerPhase,
-  BrowserWorkspaceDividerPointerReceiptRecord,
   BrowserWorkspaceDividerPointerRecord,
   CoreEffectRequest,
   CoreEvent,
@@ -42,11 +41,6 @@ interface AppKitCoreCommandPort extends ElectronCoreCommandPort {
 export interface MacosAppKitRuntimeEventBridgeInput {
   readonly onTabDrag?: (input: import("./runtimeTabDragController").RuntimeTabDragInput) => void;
   readonly onDividerTerminal?: (identity: AppKitRuntimeHostIdentity, gestureId: string) => void;
-  /** Presentation-only: viewport ratio indicators follow exact receipts. */
-  readonly onDividerReceipt?: (
-    event: BrowserWorkspaceDividerPointerRecord,
-    receipt: BrowserWorkspaceDividerPointerReceiptRecord
-  ) => void;
   readonly core: AppKitCoreCommandPort;
   readonly preparePassiveEventDispatch?: (
     capturedHosts: readonly AppKitRuntimeHostObservationRecord[]
@@ -1197,7 +1191,6 @@ implements MacosAppKitRendererActionPort {
           );
         }
         gesture.currentTopologyRevision = receipt.topologyRevision;
-        try { this.#input.onDividerReceipt?.(coreEvent, receipt); } catch { /* indicator only */ }
         if (receipt.status === "superseded" || receipt.status === "cancelled") {
           gesture.terminal = true;
           this.#workspaceDividerGestures.delete(gesture.gestureId);

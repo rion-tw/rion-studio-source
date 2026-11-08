@@ -80,8 +80,7 @@ export function createElectronRolePagePresentation(
   return Object.freeze({
     presentation,
     bootstrapPort: Object.freeze<ChromiumRuntimeBootstrapPresentationPort>({
-      attachSurfaces: (registry) => { surfaces = registry; },
-      divider: (event, receipt) => presentation.showWorkspaceDivider(event, receipt)
+      attachSurfaces: (registry) => { surfaces = registry; }
     }),
     start: () => {
       if (!unsubscribe && !disposed) {

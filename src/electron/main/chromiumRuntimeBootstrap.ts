@@ -679,7 +679,7 @@ export class ChromiumRuntimeBootstrap {
               return nativeActionIngress.run(() => input.core.invoke({
                 type: "browserWorkspaceDividerPointer",
                 event
-              }).then(receipt => (input.presentation?.divider(event, receipt), receipt)));
+              }));
             },
             onRuntimeWindowPlacement: (host) => {
               requireNativeActionIngress();

@@ -34,7 +34,9 @@ interface TestCanvasCall {
 interface TestCanvasContext {
   calls: TestCanvasCall[];
   font: string;
+  fontGetCount: number;
   fontSetCount: number;
+  nativeQualityWriteCount: number;
   fontKerning?: string;
   fillText: (text: string) => void;
   measureText: (text: string) => { width: number };
@@ -56,30 +58,6 @@ interface RuntimeFixtureOptions {
 }
 
 type CanvasTextQualityProperty = "fontKerning" | "textRendering";
-
-function readCanvasTextQuality(
-  context: TestCanvasContext,
-  property: CanvasTextQualityProperty
-): string | undefined {
-  try {
-    return context[property];
-  } catch {
-    return undefined;
-  }
-}
-
-function writeCanvasTextQuality(
-  context: TestCanvasContext,
-  property: CanvasTextQualityProperty,
-  value: string | undefined
-): void {
-  if (value === undefined) return;
-  try {
-    context[property] = value;
-  } catch {
-    // Fixtures can model an engine exposing an unusable optional property.
-  }
-}
 
 function createFontStyleFixture(): {
   cssText: string;
@@ -180,9 +158,29 @@ function createRuntimeDocumentFixture(
   const createCanvasContextConstructor = (): (new () => TestCanvasContext) => {
     const fontKerningValues = new WeakMap<object, string>();
     const textRenderingValues = new WeakMap<object, string>();
+    // Native drawing and save/restore use Canvas internal state, never the
+    // page-visible accessors that the runtime may virtualize.
+    const qualityValues = (property: CanvasTextQualityProperty) =>
+      property === "fontKerning" ? fontKerningValues : textRenderingValues;
+    const nativeQuality = (
+      context: object,
+      property: CanvasTextQualityProperty
+    ): string | undefined =>
+      options.platform === "windows" && !options.canvasTextQualityAccessorsThrow
+        ? qualityValues(property).get(context) ?? "auto"
+        : undefined;
+    const writeNativeQuality = (
+      context: object,
+      property: CanvasTextQualityProperty,
+      value: string | undefined
+    ): void => {
+      if (value !== undefined) qualityValues(property).set(context, value);
+    };
     class FixtureCanvasContext implements TestCanvasContext {
       readonly calls: TestCanvasCall[] = [];
+      fontGetCount = 0;
       fontSetCount = 0;
+      nativeQualityWriteCount = 0;
       private nativeFont = "10px sans-serif";
       private readonly nativeStack: Array<{
         font: string;
@@ -191,6 +189,7 @@ function createRuntimeDocumentFixture(
       }> = [];
 
       get font(): string {
+        this.fontGetCount += 1;
         return this.nativeFont;
       }
 
@@ -217,8 +216,8 @@ function createRuntimeDocumentFixture(
       save(): void {
         this.nativeStack.push({
           font: this.nativeFont,
-          fontKerning: readCanvasTextQuality(this, "fontKerning"),
-          textRendering: readCanvasTextQuality(this, "textRendering")
+          fontKerning: nativeQuality(this, "fontKerning"),
+          textRendering: nativeQuality(this, "textRendering")
         });
       }
 
@@ -226,24 +225,24 @@ function createRuntimeDocumentFixture(
         const restored = this.nativeStack.pop();
         if (!restored) return;
         this.nativeFont = restored.font;
-        writeCanvasTextQuality(this, "fontKerning", restored.fontKerning);
-        writeCanvasTextQuality(this, "textRendering", restored.textRendering);
+        writeNativeQuality(this, "fontKerning", restored.fontKerning);
+        writeNativeQuality(this, "textRendering", restored.textRendering);
       }
 
       resetState(): void {
         this.nativeFont = "10px sans-serif";
         this.nativeStack.length = 0;
-        writeCanvasTextQuality(this, "fontKerning", "auto");
-        writeCanvasTextQuality(this, "textRendering", "auto");
+        writeNativeQuality(this, "fontKerning", "auto");
+        writeNativeQuality(this, "textRendering", "auto");
       }
 
       private recordTextCall(method: TestCanvasCall["method"], text: string): void {
         this.calls.push({
           font: this.nativeFont,
-          fontKerning: readCanvasTextQuality(this, "fontKerning"),
+          fontKerning: nativeQuality(this, "fontKerning"),
           method,
           text,
-          textRendering: readCanvasTextQuality(this, "textRendering")
+          textRendering: nativeQuality(this, "textRendering")
         });
         if (options.canvasTextMethodThrows === method) {
           throw new Error(`fixture ${method} failure`);
@@ -270,7 +269,8 @@ function createRuntimeDocumentFixture(
           get() {
             return fontKerningValues.get(this) ?? "auto";
           },
-          set(value: string) {
+          set(this: FixtureCanvasContext, value: string) {
+            this.nativeQualityWriteCount += 1;
             fontKerningValues.set(this, String(value));
           }
         },
@@ -279,7 +279,8 @@ function createRuntimeDocumentFixture(
           get() {
             return textRenderingValues.get(this) ?? "auto";
           },
-          set(value: string) {
+          set(this: FixtureCanvasContext, value: string) {
+            this.nativeQualityWriteCount += 1;
             textRenderingValues.set(this, String(value));
           }
         }

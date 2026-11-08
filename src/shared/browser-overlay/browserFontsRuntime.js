@@ -44,6 +44,19 @@
     "ui-serif"
   ]);
 
+  const CANVAS_TEXT_QUALITY = Object.freeze([
+    Object.freeze({
+      desired: "optimizeLegibility",
+      name: "textRendering",
+      values: new Set(["auto", "optimizeSpeed", "optimizeLegibility", "geometricPrecision"])
+    }),
+    Object.freeze({
+      desired: "normal",
+      name: "fontKerning",
+      values: new Set(["auto", "normal", "none"])
+    })
+  ]);
+
   const injectedDescriptor = Object.getOwnPropertyDescriptor(
     globalThis,
     INJECTED_PAYLOAD_KEY
@@ -77,6 +90,7 @@
     version: VERSION
   };
   const canvasContexts = new WeakMap();
+  const canvasQualityRecords = new WeakMap();
   const canvasFontParser = (() => {
     try {
       return document.createElement("span").style;
@@ -194,8 +208,15 @@
     return rewritten;
   }
 
-  function synchronizeCanvasContext(context, fontDescriptor) {
-    const nativeFont = fontDescriptor.get.call(context);
+  function canvasFontTracked(context) {
+    return state.canvasFontsActive || canvasContexts.has(context);
+  }
+
+  function synchronizeCanvasContext(
+    context,
+    fontDescriptor,
+    nativeFont = fontDescriptor.get.call(context)
+  ) {
     let record = canvasContexts.get(context);
     if (!record) {
       record = {
@@ -218,27 +239,161 @@
     return record;
   }
 
-  function applyCanvasFont(context, fontDescriptor, record) {
-    const nativeFont = fontDescriptor.get.call(context);
+  function applyCanvasFont(
+    context,
+    fontDescriptor,
+    record,
+    nativeFont = fontDescriptor.get.call(context)
+  ) {
     if (record.revision === state.canvasRevision && nativeFont === record.effectiveFont) {
       return record;
     }
     const desiredFont = rewriteCanvasFont(record.originalFont);
-    if (nativeFont !== desiredFont) fontDescriptor.set.call(context, desiredFont);
-    record.effectiveFont = fontDescriptor.get.call(context);
+    if (nativeFont === desiredFont) {
+      record.effectiveFont = nativeFont;
+    } else {
+      fontDescriptor.set.call(context, desiredFont);
+      record.effectiveFont = fontDescriptor.get.call(context);
+    }
     record.revision = state.canvasRevision;
     return record;
   }
 
+  // Default font mode never rewrites Canvas text. Once a context holds neither
+  // a rewritten font nor a saved font frame, forget it so every later font,
+  // draw, save, and restore call takes the native path without serializing
+  // the Canvas font.
+  function releaseInactiveCanvasContext(context, record) {
+    if (
+      !state.canvasFontsActive &&
+      record.savedFonts.length === 0 &&
+      record.effectiveFont === record.originalFont
+    ) {
+      canvasContexts.delete(context);
+    }
+  }
+
   function prepareCanvasContext(context, fontDescriptor) {
     try {
-      return applyCanvasFont(
+      const nativeFont = fontDescriptor.get.call(context);
+      const record = applyCanvasFont(
         context,
         fontDescriptor,
-        synchronizeCanvasContext(context, fontDescriptor)
+        synchronizeCanvasContext(context, fontDescriptor, nativeFont),
+        nativeFont
       );
+      releaseInactiveCanvasContext(context, record);
+      return record;
     } catch {
       return undefined;
+    }
+  }
+
+  function canvasTextQualityHooks(prototype) {
+    const hooks = [];
+    for (const quality of CANVAS_TEXT_QUALITY) {
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, quality.name);
+      if (
+        typeof descriptor?.get === "function" &&
+        typeof descriptor?.set === "function" &&
+        descriptor.configurable !== false
+      ) {
+        hooks.push({ descriptor, quality, supported: true });
+      }
+    }
+    return hooks;
+  }
+
+  // Text quality stays applied in native Canvas state instead of being set and
+  // restored around every draw: each native textRendering/fontKerning change
+  // rebuilds the context font and discards its shaping cache, which made
+  // text-heavy scenes reshape every glyph run on every frame. The page keeps
+  // observing its own values through virtual accessors. A native value other
+  // than the applied one means Canvas reset its state (resize or reset()), so
+  // native state is the page's value again.
+  function synchronizeCanvasQuality(context, hooks) {
+    const record = canvasQualityRecords.get(context);
+    if (!record?.applied) return record;
+    for (const hook of hooks) {
+      if (!hook.supported || hook.descriptor.get.call(context) === hook.quality.desired) {
+        continue;
+      }
+      for (const current of hooks) {
+        if (current.supported) {
+          record.values[current.quality.name] = current.descriptor.get.call(context);
+        }
+      }
+      record.applied = false;
+      record.savedQuality = [];
+      break;
+    }
+    return record;
+  }
+
+  function prepareCanvasQuality(context, hooks) {
+    try {
+      let record = synchronizeCanvasQuality(context, hooks);
+      if (!state.canvasTextQualityActive) {
+        if (!record) return;
+        if (record.applied) {
+          for (const hook of hooks) {
+            if (hook.supported) {
+              hook.descriptor.set.call(context, record.values[hook.quality.name]);
+            }
+          }
+          record.applied = false;
+        }
+        if (record.savedQuality.length === 0) canvasQualityRecords.delete(context);
+        return;
+      }
+      if (record?.applied) return;
+      if (!record) {
+        record = { applied: false, savedQuality: [], values: {} };
+        canvasQualityRecords.set(context, record);
+      }
+      for (const hook of hooks) {
+        if (!hook.supported) continue;
+        const pageValue = hook.descriptor.get.call(context);
+        record.values[hook.quality.name] = pageValue;
+        if (pageValue === hook.quality.desired) continue;
+        hook.descriptor.set.call(context, hook.quality.desired);
+        if (hook.descriptor.get.call(context) !== hook.quality.desired) {
+          hook.supported = false;
+          hook.descriptor.set.call(context, pageValue);
+        }
+      }
+      record.applied = true;
+    } catch {
+      // Optional typography must not block native text drawing.
+    }
+  }
+
+  function canvasQualityFrame(context, hooks) {
+    if (hooks.length === 0 || !canvasQualityRecords.has(context)) return undefined;
+    try {
+      const record = synchronizeCanvasQuality(context, hooks);
+      return { record, values: record.applied ? { ...record.values } : null };
+    } catch {
+      return undefined;
+    }
+  }
+
+  function restoreCanvasQuality(context, hooks, frame) {
+    if (!frame) return;
+    try {
+      const { record } = frame;
+      if (record.savedQuality.length > 0) {
+        const values = record.savedQuality.pop();
+        if (values) {
+          record.values = values;
+          record.applied = true;
+        } else {
+          record.applied = false;
+        }
+      }
+      synchronizeCanvasQuality(context, hooks);
+    } catch {
+      // Native restore already completed; optional typography stays native.
     }
   }
 
@@ -265,12 +420,26 @@
       return;
     }
 
-    const originals = new Map([["font", fontDescriptor], ...methodDescriptors]);
+    const qualityHooks = canvasTextQualityHooks(prototype);
+    const originals = new Map([
+      ["font", fontDescriptor],
+      ...methodDescriptors,
+      ...qualityHooks.map((hook) => [hook.quality.name, hook.descriptor])
+    ]);
+    const prepareCanvasQualityIfTracked = (context) => {
+      if (
+        qualityHooks.length > 0 &&
+        (state.canvasTextQualityActive || canvasQualityRecords.has(context))
+      ) {
+        prepareCanvasQuality(context, qualityHooks);
+      }
+    };
     const applied = [];
     try {
       Object.defineProperty(prototype, "font", {
         ...fontDescriptor,
         get() {
+          if (!canvasFontTracked(this)) return fontDescriptor.get.call(this);
           try {
             return synchronizeCanvasContext(this, fontDescriptor).originalFont;
           } catch {
@@ -278,17 +447,26 @@
           }
         },
         set(value) {
+          if (!canvasFontTracked(this)) {
+            fontDescriptor.set.call(this, value);
+            return;
+          }
           let record;
           try {
             record = synchronizeCanvasContext(this, fontDescriptor);
+            // synchronizeCanvasContext proves native state equals the
+            // effective font whenever the record keeps its revision.
             if (
               record.revision === state.canvasRevision &&
-              record.requestedFont === String(value) &&
-              fontDescriptor.get.call(this) === record.effectiveFont
+              record.requestedFont === String(value)
             ) {
               return;
             }
-            fontDescriptor.set.call(this, record.originalFont);
+            // Reapply the page font first so an invalid value keeps the page
+            // font rather than a rewritten one; skip it when nothing is rewritten.
+            if (record.effectiveFont !== record.originalFont) {
+              fontDescriptor.set.call(this, record.originalFont);
+            }
           } catch {
             fontDescriptor.set.call(this, value);
             return;
@@ -298,10 +476,42 @@
           record.requestedFont = String(value);
           record.effectiveFont = record.originalFont;
           record.revision = -1;
-          applyCanvasFont(this, fontDescriptor, record);
+          applyCanvasFont(this, fontDescriptor, record, record.originalFont);
+          releaseInactiveCanvasContext(this, record);
         }
       });
       applied.push("font");
+
+      for (const hook of qualityHooks) {
+        const name = hook.quality.name;
+        Object.defineProperty(prototype, name, {
+          ...hook.descriptor,
+          get() {
+            try {
+              const record = synchronizeCanvasQuality(this, qualityHooks);
+              if (record?.applied && hook.supported) return record.values[name];
+            } catch {
+              // Report the native value or native error below.
+            }
+            return hook.descriptor.get.call(this);
+          },
+          set(value) {
+            try {
+              const record = synchronizeCanvasQuality(this, qualityHooks);
+              if (record?.applied && hook.supported) {
+                // Canvas enum attributes ignore unknown values.
+                const next = String(value);
+                if (hook.quality.values.has(next)) record.values[name] = next;
+                return;
+              }
+            } catch {
+              // Let the native setter apply or report the value below.
+            }
+            hook.descriptor.set.call(this, value);
+          }
+        });
+        applied.push(name);
+      }
 
       for (const name of ["fillText", "strokeText", "measureText"]) {
         const descriptor = methodDescriptors.get(name);
@@ -309,67 +519,9 @@
         Object.defineProperty(prototype, name, {
           ...descriptor,
           value(...args) {
-            prepareCanvasContext(this, fontDescriptor);
-            let restoreTextRendering = false;
-            let previousTextRendering;
-            let restoreFontKerning = false;
-            let previousFontKerning;
-            if (state.canvasTextQualityActive) {
-              try {
-                if ("textRendering" in this) {
-                  previousTextRendering = this.textRendering;
-                  if (previousTextRendering !== "optimizeLegibility") {
-                    this.textRendering = "optimizeLegibility";
-                    restoreTextRendering = true;
-                  }
-                }
-              } catch {
-                if (restoreTextRendering) {
-                  try {
-                    this.textRendering = previousTextRendering;
-                  } catch {
-                    // An optional typography property must not block native text drawing.
-                  }
-                  restoreTextRendering = false;
-                }
-              }
-              try {
-                if ("fontKerning" in this) {
-                  previousFontKerning = this.fontKerning;
-                  if (previousFontKerning !== "normal") {
-                    this.fontKerning = "normal";
-                    restoreFontKerning = true;
-                  }
-                }
-              } catch {
-                if (restoreFontKerning) {
-                  try {
-                    this.fontKerning = previousFontKerning;
-                  } catch {
-                    // An optional typography property must not block native text drawing.
-                  }
-                  restoreFontKerning = false;
-                }
-              }
-            }
-            try {
-              return nativeMethod.apply(this, args);
-            } finally {
-              if (restoreFontKerning) {
-                try {
-                  this.fontKerning = previousFontKerning;
-                } catch {
-                  // Preserve the native result when an optional property cannot be restored.
-                }
-              }
-              if (restoreTextRendering) {
-                try {
-                  this.textRendering = previousTextRendering;
-                } catch {
-                  // Preserve the native result when an optional property cannot be restored.
-                }
-              }
-            }
+            if (canvasFontTracked(this)) prepareCanvasContext(this, fontDescriptor);
+            prepareCanvasQualityIfTracked(this);
+            return nativeMethod.apply(this, args);
           }
         });
         applied.push(name);
@@ -380,9 +532,18 @@
       Object.defineProperty(prototype, "save", {
         ...saveDescriptor,
         value(...args) {
-          const record = prepareCanvasContext(this, fontDescriptor);
+          const record = canvasFontTracked(this)
+            ? prepareCanvasContext(this, fontDescriptor)
+            : undefined;
+          // Apply before the native frame is saved, so the matching restore
+          // keeps native state applied for save/draw/restore render loops.
+          prepareCanvasQualityIfTracked(this);
+          const qualityFrame = canvasQualityFrame(this, qualityHooks);
           const result = nativeSave.apply(this, args);
-          if (record) record.savedFonts.push(record.originalFont);
+          if (record && canvasContexts.get(this) === record) {
+            record.savedFonts.push(record.originalFont);
+          }
+          qualityFrame?.record.savedQuality.push(qualityFrame.values);
           return result;
         }
       });
@@ -393,22 +554,33 @@
       Object.defineProperty(prototype, "restore", {
         ...restoreDescriptor,
         value(...args) {
+          const fontTracked = canvasFontTracked(this);
+          const qualityFrame = canvasQualityFrame(this, qualityHooks);
+          if (!fontTracked && !qualityFrame) return nativeRestore.apply(this, args);
           let record;
-          try {
-            record = synchronizeCanvasContext(this, fontDescriptor);
-          } catch {
-            // Let the native method report invalid receivers or state.
+          if (fontTracked) {
+            try {
+              record = synchronizeCanvasContext(this, fontDescriptor);
+            } catch {
+              // Let the native method report invalid receivers or state.
+            }
           }
           const result = nativeRestore.apply(this, args);
           if (record?.savedFonts.length) {
-            record.originalFont = record.savedFonts.pop();
-            record.requestedFont = record.originalFont;
-            record.effectiveFont = fontDescriptor.get.call(this);
-            record.revision = -1;
-            applyCanvasFont(this, fontDescriptor, record);
-          } else {
+            try {
+              record.originalFont = record.savedFonts.pop();
+              record.requestedFont = record.originalFont;
+              record.effectiveFont = fontDescriptor.get.call(this);
+              record.revision = -1;
+              applyCanvasFont(this, fontDescriptor, record, record.effectiveFont);
+              releaseInactiveCanvasContext(this, record);
+            } catch {
+              // Native restore already completed; the next draw resynchronizes.
+            }
+          } else if (fontTracked) {
             prepareCanvasContext(this, fontDescriptor);
           }
+          restoreCanvasQuality(this, qualityHooks, qualityFrame);
           return result;
         }
       });

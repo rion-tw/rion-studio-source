@@ -3,7 +3,7 @@ import type { GameWindow, Role } from "../../../src/shared/types";
 import { rendererCall } from "../support/renderer-bridge";
 import { clickEntityMenuAction, setEditorName, submitEditor, waitForRoute } from "../support/ui";
 import { closeVisibleRuntimeWindow } from "../support/native-runtime-tabs";
-import { exerciseTabContentFocus } from "./chromium-tab-content-focus";
+import { exerciseTabContentFocus, exerciseWindowedTabContentFocus } from "./chromium-tab-content-focus";
 import { pressVisibleWindowsApplicationShortcut, withMacosAnsiInputSource } from "../support/native-application-actions";
 import { electronDesktopE2eFullscreenToolbarRuntime, electronDesktopE2eProbe } from "../support/electron-driver";
 
@@ -45,7 +45,10 @@ export async function runTabFocusRegression(input: {
   for (const role of roles) tabIds.push(await input.launchRole(role, window));
   const failures: unknown[] = [];
   try {
-    const exercise = () => exerciseTabContentFocus({ ...input, roles, tabIds, windowId: window.id });
+    const exercise = async () => {
+      await exerciseTabContentFocus({ ...input, roles, tabIds, windowId: window.id });
+      await exerciseWindowedTabContentFocus({ ...input, roles, tabIds, windowId: window.id });
+    };
     if (input.platform === "macos") await withMacosAnsiInputSource(exercise);
     else await exercise();
   } catch (error) { failures.push(error); }

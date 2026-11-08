@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ shortcut: vi.fn(), windows: vi.fn(), rawKey: vi.fn(), receipt: vi.fn(),
-  waitEvent: vi.fn(), events: vi.fn(), state: vi.fn(), cursor: vi.fn(), write: vi.fn() }));
+  waitEvent: vi.fn(), events: vi.fn(), state: vi.fn(), cursor: vi.fn(), write: vi.fn(),
+  tabPoint: vi.fn(), tabPointer: vi.fn() }));
 vi.mock("@wdio/globals", async () => ({ expect: (await import("vitest")).expect,
   browser: { waitUntil: async (condition: () => Promise<boolean>) => { expect(await condition()).toBe(true); } } }));
 vi.mock("node:fs/promises", () => ({ writeFile: mocks.write }));
@@ -16,6 +17,9 @@ vi.mock("../e2e/desktop/support/electron-role-surface", () => ({
   clickVisibleElectronCanvasWithPointer: vi.fn(), clickVisibleElectronPageElementWithPointer: vi.fn()
 }));
 vi.mock("../e2e/desktop/support/windows-runtime-foreground", () => ({ focusWindowsRuntimeNativeWindow: vi.fn() }));
+vi.mock("../e2e/desktop/support/native-tab-tearout", () => ({
+  nativeTabPoint: mocks.tabPoint, nativeTabPointer: mocks.tabPointer
+}));
 vi.mock("../e2e/desktop/support/fixture", () => ({
   fixtureCursor: mocks.cursor, fixtureEvents: mocks.events, fixtureState: mocks.state, waitFixtureEvent: mocks.waitEvent
 }));
@@ -29,6 +33,8 @@ const tabIds = ["tab-alpha", "tab-beta"];
 const roles = [{ name: "Alpha", launchUrl: "http://fixture/role/alpha" },
   { name: "Beta", launchUrl: "http://fixture/role/beta" }];
 type Subject = { exerciseTabContentFocus(input: { platform: "macos" | "windows";
+  windowId: string; mainWindowHandle: string; roles: typeof roles; tabIds: string[] }): Promise<void>;
+  exerciseWindowedTabContentFocus(input: { platform: "macos" | "windows";
   windowId: string; mainWindowHandle: string; roles: typeof roles; tabIds: string[] }): Promise<void> };
 type Event = { code: string; isTrusted: boolean; activeElementId: string; targetId: string;
   roleId: string; kind: string; modifiers: { alt: boolean; control: boolean; meta: boolean; shift: boolean } };
@@ -50,6 +56,8 @@ let lastKey: string;
 let platform: "macos" | "windows";
 let lastCursor: number;
 const run = () => subject.exerciseTabContentFocus({ platform, windowId: "window", mainWindowHandle: "main", roles, tabIds });
+const runWindowed = () => subject.exerciseWindowedTabContentFocus({ platform, windowId: "window",
+  mainWindowHandle: "main", roles, tabIds });
 
 beforeEach(async () => {
   vi.resetAllMocks();
@@ -69,6 +77,10 @@ beforeEach(async () => {
   mocks.events.mockImplementation(async () => [event(activeTab === tabIds[0] ? "alpha" : "beta", "Escape", "keydown"),
     event(activeTab === tabIds[0] ? "alpha" : "beta", "Escape", "keyup")]);
   mocks.state.mockImplementation(async () => neutral());
+  mocks.tabPoint.mockImplementation(async ({ tabId }: { tabId: string }) => ({ x: 10, y: 10, tabId }));
+  mocks.tabPointer.mockImplementation(async (_platform: string, phase: string, point: { tabId: string }) => {
+    if (phase === "end") activeTab = point.tabId;
+  });
   mocks.receipt.mockImplementation(async (_input, receive: (signal: AbortSignal) => Promise<unknown>) => {
     lastKey = "KeyY";
     return receive(new AbortController().signal);
@@ -262,4 +274,46 @@ it("keeps Windows on its original Digit3 sender and strict receiver path", async
   expect(mocks.waitEvent.mock.calls.every(([input]) => !Object.hasOwn(input, "signal"))).toBe(true);
   expect(mocks.state.mock.calls.every(args => args.length === 0)).toBe(true);
   expect(mocks.write).toHaveBeenCalledOnce();
+});
+
+it.each(["windows", "macos"] as const)(
+  "selects windowed tabs by real tab clicks and Ctrl+Tab before each content key on %s", async (current) => {
+    platform = current;
+    mocks.events.mockImplementation(async () => []);
+    await runWindowed();
+    expect(mocks.tabPoint.mock.calls.map(([input]) => input)).toEqual(["tab-alpha", "tab-alpha", "tab-beta"]
+      .map(tabId => ({ platform: current, mainWindowHandle: "main", windowId: "window", tabId,
+        tabName: tabId === "tab-alpha" ? "Alpha" : "Beta", focus: true })));
+    expect(mocks.tabPointer.mock.calls.map(([, phase]) => phase)).toEqual(
+      ["start", "end", "start", "end", "start", "end"]);
+    expect((current === "macos" ? mocks.shortcut : mocks.windows).mock.calls
+      .filter(([input]) => input.command === "nextTab")).toHaveLength(1);
+    expect(mocks.waitEvent.mock.calls.filter(([input]) => input.kind === "keydown")
+      .map(([input]) => input.roleId)).toEqual(["alpha", "beta", "alpha", "beta"]);
+    if (current === "macos") {
+      expect(mocks.receipt.mock.calls.map(([input]) => input.runtimeTabName)).toEqual(["Alpha", "Beta", "Alpha", "Beta"]);
+    } else {
+      expect(mocks.windows.mock.calls.filter(([input]) => input.command === "digit3Tap")).toHaveLength(4);
+    }
+    expect(mocks.write).toHaveBeenCalledOnce();
+  });
+
+it("fails a windowed selection whose content key reaches another Role", async () => {
+  platform = "windows";
+  mocks.events.mockImplementation(async () => [event("beta", "Digit3", "keydown")]);
+  await expect(runWindowed()).rejects.toThrow();
+  expect(mocks.write).not.toHaveBeenCalled();
+});
+
+it("fails a windowed selection that lost the Role's DOM focus target", async () => {
+  platform = "windows";
+  mocks.events.mockImplementation(async () => []);
+  const wait = mocks.waitEvent.getMockImplementation()!;
+  mocks.waitEvent.mockImplementation(async (input: { roleId: string; kind: string }) => {
+    const value = await wait(input) as Event;
+    if (input.kind === "keydown") value.activeElementId = "document-body";
+    return value;
+  });
+  await expect(runWindowed()).rejects.toThrow();
+  expect(mocks.write).not.toHaveBeenCalled();
 });

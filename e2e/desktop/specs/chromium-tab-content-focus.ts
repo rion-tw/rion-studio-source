@@ -8,6 +8,7 @@ import { fixtureCursor, fixtureEvents, fixtureState, waitFixtureEvent } from "..
 import { focusVisibleMacosAppKitRuntime, pressVisibleMacosApplicationShortcut, withVisibleMacosRoleKeyReceipt, pressVisibleWindowsApplicationShortcut } from "../support/native-application-actions";
 
 import { focusWindowsRuntimeNativeWindow } from "../support/windows-runtime-foreground";
+import { nativeTabPoint, nativeTabPointer } from "../support/native-tab-tearout";
 
 /** Native keys only after switching: selecting a ChromeDriver page can hide a missing responder handoff. */
 export async function exerciseTabContentFocus(input: {
@@ -115,4 +116,72 @@ export async function exerciseTabContentFocus(input: {
     JSON.stringify(evidence, null, 2));
   await shortcut("toggleFullscreen");
   await waitPresentation("normal");
+}
+
+/**
+ * Windowed selection must hand keyboard input to the selected Role without a
+ * page click. A real tab-strip click first moves native focus into the host's
+ * own chrome, unlike keyboard selection from an already focused Role. Runs
+ * after exerciseTabContentFocus has established each Role's DOM focus target.
+ */
+export async function exerciseWindowedTabContentFocus(input: {
+  platform: "macos" | "windows"; windowId: string; mainWindowHandle: string; roles: readonly Role[];
+  tabIds: readonly string[];
+}): Promise<void> {
+  const processId = (await electronDesktopE2eProbe()).processId;
+  const nativeWindowHandle = (await electronDesktopE2eFullscreenToolbarRuntime(input.windowId)).nativeWindowHandle;
+  const nextTab = () => input.platform === "macos"
+    ? pressVisibleMacosApplicationShortcut({ command: "nextTab", processId, runtimeWindowId: input.windowId,
+      targetMode: "focused-runtime" })
+    : pressVisibleWindowsApplicationShortcut({ command: "nextTab", processId, nativeWindowHandle,
+      targetMode: "focused-runtime" });
+  const first = { role: input.roles[0]!, tabId: input.tabIds[0]!, element: "tab-focus-input" };
+  const last = { role: input.roles.at(-1)!, tabId: input.tabIds.at(-1)!, element: "game-input-canvas" };
+  expect((await electronDesktopE2eFullscreenToolbarRuntime(input.windowId)).presentation).toBe("normal");
+  const evidence: unknown[] = [];
+  for (const step of [
+    { method: "click" as const, ...first },
+    { method: "nextTab" as const, ...last },
+    { method: "click" as const, ...first },
+    { method: "click" as const, ...last }
+  ]) {
+    if (step.method === "click") {
+      const point = await nativeTabPoint({ platform: input.platform, mainWindowHandle: input.mainWindowHandle,
+        windowId: input.windowId, tabId: step.tabId, tabName: step.role.name, focus: true });
+      try { await nativeTabPointer(input.platform, "start", point, point); }
+      finally { await nativeTabPointer(input.platform, "end", point, point); }
+    } else {
+      await nextTab();
+    }
+    await browser.waitUntil(async () => {
+      const inspection = await electronDesktopE2eFullscreenToolbarRuntime(input.windowId);
+      return (await electronDesktopE2eApplicationShortcutRuntime(input.windowId)).nativeWindow.activeTabId === step.tabId &&
+        inspection.surfaces.some(surface => surface.tabId === step.tabId && surface.visible);
+    }, { timeout: 20_000, timeoutMsg: `Windowed ${step.method} did not project the selected visible surface` });
+    const fixtureId = new URL(step.role.launchUrl).pathname.split("/").at(-1)!;
+    const keyCursor = await fixtureCursor();
+    const receiveKey = async (signal?: AbortSignal) => {
+      const key = await waitFixtureEvent({ afterSequence: keyCursor, kind: "keydown", roleId: fixtureId,
+        ...(signal ? { signal } : {}) });
+      expect(key).toMatchObject({ code: input.platform === "macos" ? "KeyY" : "Digit3", isTrusted: true,
+        activeElementId: step.element });
+      await waitFixtureEvent({ afterSequence: keyCursor, kind: "keyup", roleId: fixtureId,
+        ...(signal ? { signal } : {}) });
+      const others = (await fixtureEvents({ afterSequence: keyCursor })).filter(event =>
+        event.kind === "keydown" && event.roleId !== fixtureId);
+      expect(others).toEqual([]);
+      return key;
+    };
+    const key = input.platform === "macos"
+      ? await withVisibleMacosRoleKeyReceipt({ code: "KeyY", processId,
+        runtimeWindowId: input.windowId, runtimeTabName: step.role.name }, receiveKey)
+      : await (async () => {
+        await pressVisibleWindowsApplicationShortcut({ command: "digit3Tap", processId,
+          nativeWindowHandle, targetMode: "focused-runtime" });
+        return receiveKey();
+      })();
+    evidence.push({ method: step.method, tabId: step.tabId, key });
+  }
+  await writeFile(resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "chromium-tab-content-focus-windowed.json"),
+    JSON.stringify(evidence, null, 2));
 }

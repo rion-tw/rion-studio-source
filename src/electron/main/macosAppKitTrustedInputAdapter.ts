@@ -7,6 +7,7 @@ import { chromiumDomModifierMask, parseChromiumModifierProjectionObservation,
   parseTrustedInputDomReceipt } from
   "./chromiumTrustedInputDomReceipt";
 import { chromiumCdpModifierMask } from "./chromiumCdpInputDescriptors";
+import { NUMPAD_MACRO_KEY_CODES } from "../../shared/macroKeys";
 import { reconcileChromiumTrustedInputReceipts } from
   "./chromiumTrustedInputReceiptReconciliation";
 import {
@@ -143,6 +144,7 @@ export const MACOS_APPKIT_TRUSTED_KEY_CODES = Object.freeze([
   "F22",
   "F23",
   "F24",
+  ...NUMPAD_MACRO_KEY_CODES,
   "ControlLeft", "ControlRight", "AltLeft", "AltRight", "ShiftLeft",
   "ShiftRight", "MetaLeft", "MetaRight"
 ] as const);

@@ -578,6 +578,42 @@ it("records a modified middle click as a macro shortcut", () => {
       .toBe("false");
   });
 
+it("records numpad keys as macro shortcuts but not as key steps", () => {
+    const selectedMacro = macro({
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
+    });
+    const router = createMemoryRouter([{
+      path: "/macros/:id/edit",
+      element: <MacroEditorRoute
+        games={[game()]}
+        isSaving={false}
+        macros={[selectedMacro]}
+        roles={[role()]}
+        t={t}
+        onSave={vi.fn()}
+      />
+    }], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.click(screen.getAllByRole("button", { name: "Record" })[0]);
+    fireEvent.keyDown(window, { code: "Numpad7", key: "7" });
+    const shortcutSelector = screen.getAllByRole("combobox", { name: /^(Modifiers|Key)$/ })[1];
+    expect(shortcutSelector.textContent).toContain("Num 7");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Record" })[0]);
+    fireEvent.keyDown(window, { code: "NumpadAdd", key: "+", ctrlKey: true });
+    expect(screen.getAllByRole("combobox", { name: /^(Modifiers|Key)$/ })[1].textContent)
+      .toContain("Num +");
+
+    const keySelectors = () => screen.getAllByRole("combobox", { name: /^Key$/ });
+    const stepKeyBefore = keySelectors().at(-1)?.textContent;
+    expect(stepKeyBefore).toContain("F2");
+    fireEvent.click(getKeyStepRecordButton());
+    fireEvent.keyDown(window, { code: "Numpad1", key: "1" });
+    expect(keySelectors().at(-1)?.textContent).toBe(stepKeyBefore);
+    expect(keySelectors().at(-1)?.textContent).not.toContain("Num 1");
+  });
+
 it("states the real 24-hour maximum when a loop wait is out of range", () => {
     const selectedMacro = macro({ repeat: { type: "loop", intervalMs: 86_400_001 } });
     const router = createMemoryRouter([{

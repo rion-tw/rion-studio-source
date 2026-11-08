@@ -7,6 +7,7 @@ interface CompatibleKeyDescriptor {
   readonly shiftedKey?: string;
   readonly modifiers: number;
   readonly location: 0 | 1 | 2;
+  readonly isKeypad?: true;
   readonly windowsVirtualKeyCode: number;
   readonly autoRepeat: boolean;
 }

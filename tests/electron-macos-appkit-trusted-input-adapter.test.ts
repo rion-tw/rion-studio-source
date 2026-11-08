@@ -2,6 +2,7 @@ import { compatibleModifierEvidenceForTest } from "./helpers/compatibleInputRece
 import type { ChromiumCompatibleInputPort } from "../src/electron/main/chromiumCompatibleInput";
 import type { BrowserAction } from "../src/shared/generated";
 import { describe, expect, it, vi } from "vitest";
+import { NUMPAD_MACRO_KEY_CODES } from "../src/shared/macroKeys";
 
 import { commonMacroKeyCodes } from
   "../src/renderer/src/features/macros/macroUtils";
@@ -742,6 +743,7 @@ describe("macOS AppKit trusted-input adapter", () => {
     expect(commonMacroKeyCodes.every((code) => supported.has(code))).toBe(true);
     expect(MACOS_APPKIT_TRUSTED_KEY_CODES).toEqual([
       ...commonMacroKeyCodes,
+      ...NUMPAD_MACRO_KEY_CODES,
       "ControlLeft", "ControlRight", "AltLeft", "AltRight",
       "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"
     ]);
@@ -763,7 +765,7 @@ describe("macOS AppKit trusted-input adapter", () => {
     }
   });
 
-  it.each(["Numpad0"])(
+  it.each(["NumLock", "PrintScreen"])(
     "rejects unsupported Core DOM code %s before preload arming or native submission",
     async (code) => {
       const subject = harness();

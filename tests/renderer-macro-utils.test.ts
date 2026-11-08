@@ -13,11 +13,13 @@ import {
   getMacroTargetOptions,
   getMacroPartialStartCounts,
   isMacroKeyCodeSupportedForCreation,
+  isMacroTriggerKeyCodeSupported,
   isMacroIntervalPreset,
   isValidMacroInterval,
   MACRO_INTERVAL_OPTIONS,
   MACRO_INTERVAL_PRESETS,
   selectableMacroKeyCodes,
+  selectableMacroTriggerKeyCodes,
   summarizeMacroSteps
 } from "../src/renderer/src/features/macros/macroUtils";
 import type { Translator } from "../src/renderer/src/i18n";
@@ -92,6 +94,22 @@ describe("macroUtils", () => {
     expect(removedCodes.some((code) => commonMacroKeyCodes.includes(code as typeof commonMacroKeyCodes[number]))).toBe(false);
     expect(commonMacroKeyCodes).toContain("KeyA");
     expect(commonMacroKeyCodes).toContain("F2");
+  });
+
+  it("accepts the numpad for shortcut triggers without adding it to key steps", () => {
+    for (const code of ["Numpad0", "Numpad9", "NumpadAdd", "NumpadSubtract",
+      "NumpadMultiply", "NumpadDivide", "NumpadDecimal", "NumpadEnter"]) {
+      expect(isMacroTriggerKeyCodeSupported(code)).toBe(true);
+      expect(selectableMacroTriggerKeyCodes()).toContain(code);
+      expect(isMacroKeyCodeSupportedForCreation(code)).toBe(false);
+      expect(selectableMacroKeyCodes()).not.toContain(code);
+    }
+    expect(isMacroTriggerKeyCodeSupported("KeyA")).toBe(true);
+    expect(isMacroTriggerKeyCodeSupported("NumLock")).toBe(false);
+    expect(formatMacroShortcut({ code: "Numpad1", ctrl: false, alt: false, shift: false, meta: false }, t))
+      .toBe("Num 1");
+    expect(formatMacroShortcut({ code: "NumpadAdd", ctrl: true, alt: false, shift: false, meta: false }, t))
+      .toBe("Ctrl+Num +");
   });
 
   it("offers CDP-backed F21-F24 creation on macOS and Windows", () => {

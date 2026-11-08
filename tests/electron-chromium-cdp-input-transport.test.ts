@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { NUMPAD_MACRO_KEY_CODES } from "../src/shared/macroKeys";
 import { commonMacroKeyCodes } from
   "../src/renderer/src/features/macros/macroUtils";
 import { ChromiumCdpInputSession } from
@@ -89,8 +90,26 @@ describe("in-process CDP Input session", () => {
           .not.toHaveProperty("nativeVirtualKeyCode");
       }
     }
-    expect(() => chromiumCdpKeyDescriptor(effect("Numpad0"), "win32"))
+    expect(() => chromiumCdpKeyDescriptor(effect("NumLock"), "win32"))
       .toThrow("Unsupported Chromium CDP key code");
+  });
+
+  it("describes numpad shortcut keys with keypad identity instead of a side location", () => {
+    for (const platform of ["darwin", "win32"] as const) {
+      for (const code of NUMPAD_MACRO_KEY_CODES) {
+        const descriptor = chromiumCdpKeyDescriptor(effect(code), platform);
+        expect(descriptor).toMatchObject({ code, isKeypad: true, location: 0 });
+      }
+    }
+    expect(chromiumCdpKeyDescriptor(effect("Numpad7"), "win32"))
+      .toMatchObject({ key: "7", windowsVirtualKeyCode: 0x67 });
+    expect(chromiumCdpKeyDescriptor(effect("NumpadAdd"), "win32"))
+      .toMatchObject({ key: "+", windowsVirtualKeyCode: 0x6b });
+    expect(chromiumCdpKeyDescriptor(effect("NumpadDivide"), "darwin"))
+      .toMatchObject({ key: "/", windowsVirtualKeyCode: 0x6f });
+    expect(chromiumCdpKeyDescriptor(effect("NumpadEnter"), "win32"))
+      .toMatchObject({ key: "Enter", windowsVirtualKeyCode: 0x0d });
+    expect(chromiumCdpKeyDescriptor(effect("Digit7"), "win32")).not.toHaveProperty("isKeypad");
   });
 
   it("derives side, repeat, shifted key and modifier mask from active codes", () => {

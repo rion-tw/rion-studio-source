@@ -8,6 +8,8 @@ export interface ChromiumCdpKeyDescriptor {
   readonly key: string;
   readonly modifiers: number;
   readonly location: 0 | 1 | 2;
+  /** CDP reads location as left/right bits; numpad identity uses isKeypad. */
+  readonly isKeypad?: true;
   readonly windowsVirtualKeyCode: number;
   readonly autoRepeat: boolean;
 }
@@ -39,7 +41,11 @@ const BASE_KEYS: Readonly<Record<string, readonly [string, number]>> = Object.fr
   ControlLeft: ["Control", 0x11], ControlRight: ["Control", 0x11],
   AltLeft: ["Alt", 0x12], AltRight: ["Alt", 0x12],
   ShiftLeft: ["Shift", 0x10], ShiftRight: ["Shift", 0x10],
-  MetaLeft: ["Meta", 0x5b], MetaRight: ["Meta", 0x5c]
+  MetaLeft: ["Meta", 0x5b], MetaRight: ["Meta", 0x5c],
+  // Numpad keys keep their NumLock-on identity; DOM code stays physical.
+  NumpadDecimal: [".", 0x6e], NumpadAdd: ["+", 0x6b],
+  NumpadSubtract: ["-", 0x6d], NumpadMultiply: ["*", 0x6a],
+  NumpadDivide: ["/", 0x6f], NumpadEnter: ["Enter", 0x0d]
 });
 
 const SHIFTED: Readonly<Record<string, string>> = Object.freeze({
@@ -74,6 +80,10 @@ function baseDescriptor(code: string): readonly [string, number] | null {
     const digit = code.slice(5);
     return [digit, digit.charCodeAt(0)];
   }
+  if (/^Numpad[0-9]$/u.test(code)) {
+    const digit = code.slice(6);
+    return [digit, 0x60 + Number(digit)];
+  }
   const functionMatch = /^F([1-9]|1[0-9]|2[0-4])$/u.exec(code);
   if (functionMatch) {
     const number = Number(functionMatch[1]);
@@ -102,6 +112,7 @@ export function chromiumCdpKeyDescriptor(
     modifiers,
     location: MODIFIER_CODES.has(effect.code)
       ? effect.code.endsWith("Left") ? 1 : 2 : 0,
+    ...(effect.code.startsWith("Numpad") ? { isKeypad: true as const } : {}),
     windowsVirtualKeyCode: base[1],
     // A native key code lets Chromium redispatch unhandled input to OS menus.
     // Omit it: explicit DOM identity must remain confined to this Role page.

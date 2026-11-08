@@ -174,7 +174,13 @@
     });
   }
 
+  const NUMPAD_OPERATOR_LABELS = {
+    NumpadAdd: "Num +", NumpadDecimal: "Num .", NumpadDivide: "Num /",
+    NumpadEnter: "Num Enter", NumpadMultiply: "Num *", NumpadSubtract: "Num -"
+  };
+
   function formatCode(code) {
+    if (Object.hasOwn(NUMPAD_OPERATOR_LABELS, code)) return NUMPAD_OPERATOR_LABELS[code];
     return String(code)
       .replace(/^Key/, "")
       .replace(/^Digit/, "")

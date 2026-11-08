@@ -1,3 +1,4 @@
+import { NUMPAD_MACRO_KEY_CODES } from "../../shared/macroKeys";
 import type { ChromiumViewInputIdentity, ChromiumViewInputObservation } from "./chromiumViewInputSubmission";
 import type { ChromiumRoleOverlayFrameIdentity } from
   "./chromiumRoleSurfaceRegistry";
@@ -22,7 +23,7 @@ export const WINDOWS_CHROMIUM_TRUSTED_KEY_CODES = Object.freeze([
   "KeyV", "KeyW", "KeyX", "KeyY", "KeyZ", "F1", "F2", "F3", "F4",
   "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14",
   "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23",
-  "F24"
+  "F24", ...NUMPAD_MACRO_KEY_CODES
 ] as const);
 
 /** Direct View receipts bind public Electron ownership and native parent evidence. */

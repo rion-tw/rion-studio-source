@@ -59,7 +59,8 @@
         const modifiers = key.modifiers | compatibleObservedModifierMask();
         const event = new window.KeyboardEvent(key.type === "keyUp" ? "keyup" : "keydown", {
           code: key.code, key: (modifiers & 8) !== 0 ? key.shiftedKey ?? key.key : key.key,
-          location: key.location, repeat: key.autoRepeat,
+          // DOM_KEY_LOCATION_NUMPAD; Core descriptors carry it as isKeypad.
+          location: key.isKeypad === true ? 3 : key.location, repeat: key.autoRepeat,
           // Constructor fields cross isolated-world wrappers; expando overrides do not.
           keyCode: key.windowsVirtualKeyCode, which: key.windowsVirtualKeyCode,
           altKey: (modifiers & 1) !== 0, ctrlKey: (modifiers & 2) !== 0,

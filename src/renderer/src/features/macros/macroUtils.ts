@@ -10,7 +10,8 @@ import type {
 } from "../../../../shared/types";
 import {
   canonicalizeMacroKeyModifiers,
-  isMacroModifierCode
+  isMacroModifierCode,
+  NUMPAD_MACRO_KEY_CODES
 } from "../../../../shared/macroKeys";
 import { macroDependsOn } from "../../../../shared/macroDependencies";
 import { MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
@@ -203,7 +204,29 @@ export function selectableMacroKeyCodes(
     : supported;
 }
 
+/** Shortcut triggers also accept the numpad; Macro key steps do not. */
+export const macroTriggerKeyCodes: readonly string[] = Object.freeze([
+  ...commonMacroKeyCodes,
+  ...NUMPAD_MACRO_KEY_CODES
+]);
+
+export function isMacroTriggerKeyCodeSupported(code: string): boolean {
+  return macroTriggerKeyCodes.includes(code);
+}
+
+export function selectableMacroTriggerKeyCodes(currentCode?: string): readonly string[] {
+  return currentCode && !macroTriggerKeyCodes.includes(currentCode)
+    ? [currentCode, ...macroTriggerKeyCodes]
+    : macroTriggerKeyCodes;
+}
+
 const codeLabels: Record<string, string> = {
+  NumpadAdd: "Num +",
+  NumpadDecimal: "Num .",
+  NumpadDivide: "Num /",
+  NumpadEnter: "Num Enter",
+  NumpadMultiply: "Num *",
+  NumpadSubtract: "Num -",
   Backspace: "Backspace",
   Enter: "Enter",
   Equal: "=",

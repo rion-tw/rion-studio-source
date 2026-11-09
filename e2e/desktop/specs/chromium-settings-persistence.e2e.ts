@@ -90,6 +90,47 @@ async function expectSwitch(label: string, checked: boolean): Promise<void> {
   );
 }
 
+function sliderThumb(label: string) {
+  return $(`span[role='slider'][aria-label='${label}']`);
+}
+
+/** Moves a visible stepped slider with its keyboard steps until it reaches `step`. */
+async function setSlider(label: string, step: number): Promise<void> {
+  const value = String(step);
+  const thumb = await sliderThumb(label);
+  await thumb.waitForDisplayed({ timeout: 10_000 });
+  await thumb.scrollIntoView({ block: "center" });
+  await thumb.waitForClickable({ timeout: 10_000 });
+  await thumb.click();
+  await browser.waitUntil(async () => await thumb.isFocused(), {
+    timeout: 5_000,
+    timeoutMsg: `${label} did not take keyboard focus`
+  });
+  let current = await thumb.getAttribute("aria-valuenow");
+  for (let attempt = 0; attempt < 4 && current !== value; attempt++) {
+    const before = current;
+    await browser.keys("ArrowRight");
+    // One key, one step: wait for it before deciding on another.
+    await browser.waitUntil(async () => await thumb.getAttribute("aria-valuenow") !== before, {
+      timeout: 5_000,
+      timeoutMsg: `${label} did not step from ${before}`
+    });
+    current = await thumb.getAttribute("aria-valuenow");
+  }
+  await browser.waitUntil(async () => await thumb.getAttribute("aria-valuenow") === value, {
+    timeout: 10_000,
+    timeoutMsg: `${label} did not reach step ${value}`
+  });
+}
+
+async function expectSlider(label: string, step: number): Promise<void> {
+  const thumb = await sliderThumb(label);
+  await browser.waitUntil(async () => await thumb.getAttribute("aria-valuenow") === String(step), {
+    timeout: 10_000,
+    timeoutMsg: `${label} did not restore visibly at step ${step}`
+  });
+}
+
 async function setVisiblePreferences(): Promise<void> {
   const light = await $("button=Light");
   await light.waitForClickable({ timeout: 10_000 });
@@ -113,6 +154,8 @@ async function setVisiblePreferences(): Promise<void> {
   await setSwitch("Show macro click markers", false);
   await setSwitch("Dim skill effects", true);
   await setSwitch("Hide hit effects", true);
+  // Steps are 100%, 75%, 50%, 25%.
+  await setSlider("Effect density", 2);
 }
 
 async function expectVisiblePreferences(): Promise<void> {
@@ -129,6 +172,7 @@ async function expectVisiblePreferences(): Promise<void> {
   await expectSwitch("Show macro click markers", false);
   await expectSwitch("Dim skill effects", true);
   await expectSwitch("Hide hit effects", true);
+  await expectSlider("Effect density", 2);
 }
 
 async function expectPersistedPreferences(): Promise<void> {
@@ -148,7 +192,8 @@ async function expectPersistedPreferences(): Promise<void> {
     enabled: true,
     level: "medium",
     dimBrightSkills: true,
-    hideHitEffects: true
+    hideHitEffects: true,
+    density: 50
   });
 }
 

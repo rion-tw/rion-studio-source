@@ -6,6 +6,7 @@ import { SettingsRow } from "../../components/ui/patterns";
 import type { TranslationKey, Translator } from "../../i18n";
 import { normalizeGameBrowserSettings } from "../../../../shared/browserFonts";
 import {
+  GAME_EFFECT_DENSITIES,
   GAME_EFFECT_LEVELS,
   gameEffectSettingsEqual,
   type GameEffectLevel,
@@ -45,7 +46,7 @@ export function GameEffectsSettingsRows({ settings, t, onError, onSave }: GameEf
     if (!savingRef.current && !queuedRef.current) setDraft(persisted);
     // The persisted record identity changes with every snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [persisted.enabled, persisted.level, persisted.dimBrightSkills, persisted.hideHitEffects]);
+  }, [persisted.enabled, persisted.level, persisted.dimBrightSkills, persisted.hideHitEffects, persisted.density]);
 
   function save(next: GameEffectSettings): void {
     if (savingRef.current) {
@@ -79,6 +80,7 @@ export function GameEffectsSettingsRows({ settings, t, onError, onSave }: GameEf
   }
 
   const levelIndex = Math.max(0, GAME_EFFECT_LEVELS.indexOf(draft.level));
+  const densityIndex = Math.max(0, GAME_EFFECT_DENSITIES.indexOf(draft.density));
 
   return (
     <>
@@ -123,6 +125,32 @@ export function GameEffectsSettingsRows({ settings, t, onError, onSave }: GameEf
               />
               <output className="w-14 shrink-0 text-right text-xs font-semibold text-muted-foreground">
                 {t(gameEffectLevelLabelKeys[draft.level])}
+              </output>
+            </div>
+          </div>
+        }
+      />
+      <SettingsRow
+        title={t("settings.gameEffectsDensity")}
+        description={t("settings.gameEffectsDensityDescription")}
+        control={
+          <div className="grid w-full min-w-[240px] gap-1.5 sm:w-[320px]">
+            <div className="flex items-center gap-3">
+              <Slider
+                aria-label={t("settings.gameEffectsDensity")}
+                aria-valuetext={`${draft.density}%`}
+                disabled={!draft.enabled}
+                max={GAME_EFFECT_DENSITIES.length - 1}
+                min={0}
+                step={1}
+                value={[densityIndex]}
+                onValueChange={([index]) => {
+                  const density = typeof index === "number" ? GAME_EFFECT_DENSITIES[index] : undefined;
+                  if (density) update({ density });
+                }}
+              />
+              <output className="w-14 shrink-0 text-right text-xs font-semibold text-muted-foreground">
+                {`${draft.density}%`}
               </output>
             </div>
           </div>

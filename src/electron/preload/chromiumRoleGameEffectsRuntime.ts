@@ -16,14 +16,20 @@
  * - Every wrapper forwards the game's call even when bookkeeping fails; a
  *   throwing wrapper once stopped the game from presenting frames.
  *
- * Returns a setter for live changes. Brightness 1 with both extras off is a
- * pure pass-through.
+ * - Density: an effect texture drawn more than DENSITY_THRESHOLD times in the
+ *   previous frames is a particle cloud. Only its first copies per frame draw
+ *   (a stable prefix, never a modulo), and additive survivors brighten to keep
+ *   the cloud's total light. Effects drawn a few times are untouched.
+ *
+ * Returns a setter for live changes. Brightness and density 1 with both
+ * extras off is a pure pass-through.
  */
 export function installChromiumRoleGameEffectsRuntime(initial: {
   brightness: number;
   dimBrightSkills: boolean;
   hideHitEffects: boolean;
-}): (brightness: number, dimBrightSkills: boolean, hideHitEffects: boolean) => void {
+  density?: number;
+}): (brightness: number, dimBrightSkills: boolean, hideHitEffects: boolean, density?: number) => void {
   const ADD = 0x8006, REVERSE_SUBTRACT = 0x800b, SRC_ALPHA = 0x302, ONE = 1, ONE_MINUS_DST_COLOR = 0x307;
   const TRIANGLES = 4;
   const BRIGHT_FACTOR = 0.3;
@@ -35,6 +41,11 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   const PARTICLE_STACK: Record<string, number> = { sfx_sklpsypsychicbomb: 1 };
   // Copies of a stacked particle texture drawn per frame; the rest are skipped.
   const PARTICLE_STACK_LIMIT = 48;
+  // Copies of one effect texture per frame that always draw; only clouds
+  // repeating beyond this are thinned by the density setting.
+  const DENSITY_THRESHOLD = 8;
+  // Largest brightening of a thinned cloud's survivors (1 / lowest density).
+  const MAX_GAIN = 4;
   // `length:sampleHash` of hit-effect textures (Firebird 13, Spirit Bomb 6).
   const HIDDEN_TEXTURES = new Set([
     "8192:1704021625", "8192:139922809", "8192:660439607", "8192:898630727", "8192:1311350170",
@@ -66,15 +77,17 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   let brightness = 1;
   let dimBrightSkills = true;
   let hideHitEffects = false;
-  const clamp = (value: number) => Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1;
+  let density = 1;
+  const clamp = (value: number, low: number) => Number.isFinite(value) ? Math.min(1, Math.max(low, value)) : 1;
   let passThrough = true;
-  const apply = (nextBrightness: number, nextDim: boolean, nextHide: boolean) => {
-    brightness = clamp(Number(nextBrightness));
+  const apply = (nextBrightness: number, nextDim: boolean, nextHide: boolean, nextDensity?: number) => {
+    brightness = clamp(Number(nextBrightness), 0);
     dimBrightSkills = nextDim === true;
     hideHitEffects = nextHide === true;
-    passThrough = brightness >= 1 && !dimBrightSkills && !hideHitEffects;
+    density = clamp(Number(nextDensity ?? 1), 0.25);
+    passThrough = brightness >= 1 && !dimBrightSkills && !hideHitEffects && density >= 1;
   };
-  apply(initial.brightness, initial.dimBrightSkills, initial.hideHitEffects);
+  apply(initial.brightness, initial.dimBrightSkills, initial.hideHitEffects, initial.density);
 
   // ---- Texture identification (bright list, Boss warnings, hidden hits) ----
   // Identification runs on the game's main thread while a skill or Boss
@@ -244,9 +257,10 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
 uniform mediump vec3 fmsFx;
 void main() {
   fms_main();
-  if (fmsFx.y > 0.0 || fmsFx.z > 0.5) {
+  if (fmsFx.y != 0.0 || fmsFx.z > 0.5) {
     mediump float b = 1.0 - fmsFx.y;
-    if (fmsFx.x > 0.5) gl_FragColor.a *= b; else gl_FragColor *= b;
+    if (b > 1.0) gl_FragColor.rgb *= b;
+    else if (fmsFx.x > 0.5) gl_FragColor.a *= b; else gl_FragColor *= b;
     if (fmsFx.z > 0.5 && fmsFx.x > 0.5) gl_FragColor.rgb *= gl_FragColor.a;
   }
 }
@@ -313,7 +327,9 @@ void main() {
     // Boss ground warnings always draw exactly as the game intends.
     if (warning) return IDENTITY;
     const bright = dimBrightSkills && (darken || brightTexture);
-    if (brightness >= 1 && !hidden && !bright) return IDENTITY;
+    const dimming = brightness < 1 || bright;
+    const thin = density < 1 && texture !== null;
+    if (!dimming && !hidden && !thin) return IDENTITY;
     if (hidden) return SKIP;
     let level = brightness;
     frameEffects++;
@@ -321,17 +337,30 @@ void main() {
     const stackPower = drawMode === TRIANGLES || !dimBrightSkills
       ? undefined
       : PARTICLE_STACK[(texture && brightTextures.get(texture)) ?? ""];
-    const power = drawMode === TRIANGLES ? 1 : stackPower;
-    if (texture && power) {
+    // Copy division belongs to dimming; undimmed effects keep their light.
+    const power = !dimming ? undefined : drawMode === TRIANGLES ? 1 : stackPower;
+    if (texture && (power || thin)) {
       const sofar = (counts.get(texture) ?? 0) + 1;
       counts.set(texture, sofar);
       // Stacked particles: only the first copies draw, and together they keep
       // the total brightness the whole stack had.
       if (stackPower && sofar > PARTICLE_STACK_LIMIT) return SKIP;
-      // A newly appearing effect has no previous count yet.
-      let copies = Math.max(smoothed.get(texture) ?? 1, sofar);
+      // A newly appearing effect has no previous count yet and draws in full.
+      const previous = smoothed.get(texture) ?? 1;
+      let kept = Infinity;
+      if (thin && previous > DENSITY_THRESHOLD) {
+        kept = Math.max(DENSITY_THRESHOLD, Math.ceil(previous * density));
+        if (sofar > kept) return SKIP;
+      }
+      let copies = Math.max(previous, sofar);
       if (stackPower) copies = Math.min(copies, PARTICLE_STACK_LIMIT);
-      if (copies > 1) level *= copies ** -power;
+      const drawn = Math.min(copies, kept);
+      if (power) {
+        if (drawn > 1) level *= drawn ** -power;
+      } else if (additive && drawn < copies) {
+        // Survivors carry the skipped copies' light.
+        level *= Math.min(copies / drawn, MAX_GAIN);
+      }
     }
     // 1/4096 precision: stacked particles are dimmed to ~1/1000 each.
     fxReduce = Math.round((1 - level) * 4096) / 4096;
@@ -339,8 +368,9 @@ void main() {
     // invisible effect from writing depth over the scene behind it.
     if (fxReduce >= 1) return SKIP;
     fxAlphaOnly = state.src === SRC_ALPHA ? 1 : 0;
-    // Darkening effects only fade their alpha; they never switch to screen.
-    fxScreen = additive && !darken ? 1 : 0;
+    // Darkening effects only fade their alpha; they never switch to screen,
+    // and undimmed effects keep the game's own additive blending.
+    fxScreen = additive && !darken && dimming ? 1 : 0;
     return APPLY;
   };
 

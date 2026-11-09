@@ -124,6 +124,7 @@ fn game_effect_settings_patch_validate_and_default_for_older_records() {
         level: "heavy".to_owned(),
         dim_bright_skills: false,
         hide_hit_effects: true,
+        density: 50,
     };
     let patched: GameBrowserSettingsRecord = serde_json::from_value(
         core.invoke(CoreCommand::GameBrowserSettingsPatch {
@@ -143,7 +144,19 @@ fn game_effect_settings_patch_validate_and_default_for_older_records() {
         validate_game_browser_settings(&invalid).unwrap_err().code(),
         "CORE_INPUT_INVALID"
     );
-    assert_eq!(normalize_game_browser_settings(invalid).effects.level, "medium");
+    assert_eq!(normalize_game_browser_settings(invalid.clone()).effects.level, "medium");
+    invalid.effects.level = "heavy".to_owned();
+    invalid.effects.density = 33;
+    assert_eq!(
+        validate_game_browser_settings(&invalid).unwrap_err().code(),
+        "CORE_INPUT_INVALID"
+    );
+    assert_eq!(normalize_game_browser_settings(invalid).effects.density, 100);
+    // Effect records written before density existed draw every particle.
+    let mut older = serde_json::to_value(&patched.effects).unwrap();
+    older.as_object_mut().unwrap().remove("density");
+    let older: crate::model::GameEffectSettingsRecord = serde_json::from_value(older).unwrap();
+    assert_eq!(older.density, 100);
     // Records written before effects existed deserialize to the disabled default.
     let mut legacy = serde_json::to_value(&defaults).unwrap();
     legacy.as_object_mut().unwrap().remove("effects");

@@ -44,10 +44,18 @@ pub struct GameEffectSettingsRecord {
     pub dim_bright_skills: bool,
     #[serde(default)]
     pub hide_hit_effects: bool,
+    /// Percent of a repeated effect particle's copies drawn per frame.
+    #[serde(default = "default_game_effect_density")]
+    #[ts(type = "100 | 75 | 50 | 25")]
+    pub density: u32,
 }
 
 fn default_game_effect_level() -> String {
     "medium".to_owned()
+}
+
+fn default_game_effect_density() -> u32 {
+    100
 }
 
 impl Default for GameEffectSettingsRecord {
@@ -57,6 +65,7 @@ impl Default for GameEffectSettingsRecord {
             level: default_game_effect_level(),
             dim_bright_skills: true,
             hide_hit_effects: false,
+            density: default_game_effect_density(),
         }
     }
 }

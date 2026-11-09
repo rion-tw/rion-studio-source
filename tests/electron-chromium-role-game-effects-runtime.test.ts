@@ -244,6 +244,49 @@ describe("Chromium role game-effects runtime", () => {
     expect(applied.at(-1)).toBe(reduceFor(48));
   });
 
+  it("thins repeated particle clouds to a stable prefix and brightens the survivors", () => {
+    const { calls, gl } = installFakeWebGl();
+    let frame = () => undefined as unknown;
+    vi.stubGlobal("requestAnimationFrame", (callback: () => unknown) => { frame = callback; return 0; });
+    installChromiumRoleGameEffectsRuntime({ brightness: 1, dimBrightSkills: false, hideHitEffects: false, density: 0.5 });
+    effectState(gl);
+    const cloud = { texture: "cloud" }, single = { texture: "single" };
+    const drawFrame = () => {
+      calls.length = 0;
+      gl.bindTexture!(TEXTURE_2D, single);
+      gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+      gl.bindTexture!(TEXTURE_2D, cloud);
+      for (let copy = 0; copy < 40; copy++) gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+      frame();
+    };
+    // A newly appearing cloud draws in full; later frames keep half of it.
+    drawFrame();
+    expect(draws(calls)).toBe(41);
+    for (let index = 0; index < 12; index++) drawFrame();
+    expect(draws(calls)).toBe(21);
+    // Survivors double their light; undimmed effects keep the game's blending.
+    const [alphaOnly, reduce, screen] = uniforms(calls).at(-1) as number[];
+    expect([alphaOnly, screen]).toEqual([1, 0]);
+    expect(reduce).toBeCloseTo(-1, 2);
+    expect(calls.some(call => call.name === "blendFuncSeparate")).toBe(false);
+  });
+
+  it("never thins Boss ground warnings", async () => {
+    const { calls, gl } = installFakeWebGl();
+    let frame = () => undefined as unknown;
+    vi.stubGlobal("requestAnimationFrame", (callback: () => unknown) => { frame = callback; return 0; });
+    installChromiumRoleGameEffectsRuntime({ brightness: 1, dimBrightSkills: false, hideHitEffects: false, density: 0.25 });
+    await identifiedTexture(gl, "sfx_attackcast", 5);
+    effectState(gl);
+    for (let index = 0; index < 5; index++) {
+      calls.length = 0;
+      for (let copy = 0; copy < 30; copy++) gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+      frame();
+    }
+    expect(draws(calls)).toBe(30);
+    expect(uniforms(calls)).toEqual([]);
+  });
+
   it("keeps a pass-through page free of classification and uniform writes", () => {
     const { calls, gl } = installFakeWebGl();
     installChromiumRoleGameEffectsRuntime({ brightness: 1, dimBrightSkills: false, hideHitEffects: false });

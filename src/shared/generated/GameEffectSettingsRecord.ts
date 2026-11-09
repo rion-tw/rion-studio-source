@@ -4,4 +4,8 @@
  * Game-page WebGL effect dimming. Disabled pages receive no shader hooks at
  * all; an enabled page applies later level changes without a reload.
  */
-export type GameEffectSettingsRecord = { enabled: boolean, level: "none" | "light" | "medium" | "heavy" | "hidden", dimBrightSkills: boolean, hideHitEffects: boolean, };
+export type GameEffectSettingsRecord = { enabled: boolean, level: "none" | "light" | "medium" | "heavy" | "hidden", dimBrightSkills: boolean, hideHitEffects: boolean, 
+/**
+ * Percent of a repeated effect particle's copies drawn per frame.
+ */
+density: 100 | 75 | 50 | 25, };

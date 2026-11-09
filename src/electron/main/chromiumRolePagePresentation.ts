@@ -31,7 +31,8 @@ function percentLabel(factor: number): string {
 
 function sameRuntimeSettings(left: GameEffectRuntimeSettings, right: GameEffectRuntimeSettings): boolean {
   return left.enabled === right.enabled && left.brightness === right.brightness &&
-    left.dimBrightSkills === right.dimBrightSkills && left.hideHitEffects === right.hideHitEffects;
+    left.dimBrightSkills === right.dimBrightSkills && left.hideHitEffects === right.hideHitEffects &&
+    left.density === right.density;
 }
 
 /**

@@ -33,7 +33,9 @@ export interface ChromiumRolePagePresentationPorts {
   readonly isMainFrame: boolean;
 }
 
-type EffectsSetter = (brightness: number, dimBrightSkills: boolean, hideHitEffects: boolean) => void;
+type EffectsSetter = (
+  brightness: number, dimBrightSkills: boolean, hideHitEffects: boolean, density: number
+) => void;
 
 /** The indicator runtime is idempotent; each message re-asserts it once. */
 export function assembleRuntimeIndicatorScript(message: ChromiumRolePagePresentationMessage): string {
@@ -58,7 +60,8 @@ function installEffects(
     args: [{
       brightness: settings.brightness,
       dimBrightSkills: settings.dimBrightSkills,
-      hideHitEffects: settings.hideHitEffects
+      hideHitEffects: settings.hideHitEffects,
+      density: settings.density
     }]
   });
   return typeof setter === "function" ? setter as EffectsSetter : null;
@@ -80,7 +83,7 @@ export function installChromiumRolePagePresentation(ports: ChromiumRolePagePrese
       if (!isGameEffectRuntimeSettings(settings)) return;
       // A page hooked earlier keeps its hooks; disabling makes them a pass-through.
       try {
-        setEffects?.(settings.brightness, settings.dimBrightSkills, settings.hideHitEffects);
+        setEffects?.(settings.brightness, settings.dimBrightSkills, settings.hideHitEffects, settings.density);
       } catch {
         // The main-world runtime is presentation-only.
       }

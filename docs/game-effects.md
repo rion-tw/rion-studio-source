@@ -1,14 +1,16 @@
 # Game Effect Dimming
 
 Settings → Interface → Game effects lowers the brightness of WebGL skill
-effects (Flyff Universe findings, 2026-10). It changes how effect draws blend
-and skips draws that would be invisible; it never reduces what the game loads.
+effects (Flyff Universe findings, 2026-10) and can thin repeated particle
+clouds. It changes how effect draws blend and skips draws that would be
+invisible or exceed the chosen density; it never reduces what the game loads.
 
 ## Ownership and topology
 
 - Rust owns `GameBrowserSettingsRecord.effects`
-  (`enabled`, `level`, `dimBrightSkills`, `hideHitEffects`). Records written
-  before the field existed deserialize to the disabled default.
+  (`enabled`, `level`, `dimBrightSkills`, `hideHitEffects`, `density`).
+  Records written before a field existed deserialize to its default (disabled,
+  density 100).
 - Electron main follows Core `stateChanged` events through one coalescing
   `gameBrowserSettingsGet` lane and caches the page projection
   (`src/shared/gameEffects.ts`).
@@ -28,6 +30,24 @@ Screen blending saturates stacked effects, so the setting uses discrete stops
 instead of a percentage: Original `1`, Light `0.7`, Medium `0.25`, Heavy `0.08`,
 Hidden `0`. Original leaves ordinary effects untouched and applies only the
 bright-skill list, darkening effects, and hidden hit effects.
+
+## Density
+
+Density is generic, never a skill list: Flyff draws each particle with its own
+draw call, so frame cost follows the copies of one texture per frame (Retina
+doubles fill cost), not texture size; Elementor Sandstorm's pack is 11.5 KB.
+Stops are 100/75/50/25 %.
+
+- Only effect-program draws are counted. A texture drawn more than 8 times per
+  frame (smoothed over earlier frames) is a cloud; a newly appearing cloud
+  draws in full for its first frame.
+- A cloud draws only its first `max(8, ceil(copies × density))` copies per
+  frame, a stable prefix instead of a modulo, so survivors do not flicker as
+  particles die.
+- Additive survivors brighten by `copies / drawn` (at most 4×) through a
+  negative `fmsFx.y`, keeping the cloud's light; dimmed mesh effects divide by
+  the drawn count instead. Undimmed thinning keeps the game's own blending.
+- Boss ground warnings are never thinned.
 
 ## Draw rules
 

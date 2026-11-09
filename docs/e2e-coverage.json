@@ -1819,7 +1819,7 @@
         "success",
         "restart"
       ],
-      "description": "Through visible macOS Chromium Preferences and Interface controls, select the Light theme, change Game Window close-button and startup-restore behavior, hide every in-game Macro UI control, enable skill-effect dimming with hidden hit effects, and prove a visible delay-only Macro start/stop remains available without conflating this Settings verdict with trusted-input delivery. Restart into the same profile and verify every setting plus the retained AppKit Chromium host persisted."
+      "description": "Through visible macOS Chromium Preferences and Interface controls, select the Light theme, change Game Window close-button and startup-restore behavior, hide every in-game Macro UI control, enable skill-effect dimming with hidden hit effects and step the visible effect-density slider to 50%, and prove a visible delay-only Macro start/stop remains available without conflating this Settings verdict with trusted-input delivery. Restart into the same profile and verify every setting plus the retained AppKit Chromium host persisted."
     },
     {
       "id": "CHROMIUM-WINDOWS-SETTINGS-PERSIST-006",
@@ -1845,7 +1845,7 @@
         "success",
         "restart"
       ],
-      "description": "Through visible Windows Chromium Preferences and Interface controls, select the Light theme, change Game Window close-button and startup-restore behavior, hide every in-game Macro UI control, enable skill-effect dimming with hidden hit effects, and prove a visible delay-only Macro start/stop remains available without using that Settings journey to claim native input delivery. Restart into the same profile and verify every setting plus the Windows bundled-Chromium host persisted. Inspect the live game toolbar after launch and restart: its resolved theme and language must match Preferences, close buttons must have no visible layout, and the launcher must remain visible."
+      "description": "Through visible Windows Chromium Preferences and Interface controls, select the Light theme, change Game Window close-button and startup-restore behavior, hide every in-game Macro UI control, enable skill-effect dimming with hidden hit effects and step the visible effect-density slider to 50%, and prove a visible delay-only Macro start/stop remains available without using that Settings journey to claim native input delivery. Restart into the same profile and verify every setting plus the Windows bundled-Chromium host persisted. Inspect the live game toolbar after launch and restart: its resolved theme and language must match Preferences, close buttons must have no visible layout, and the launcher must remain visible."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-SYSTEM-SETTINGS-013",

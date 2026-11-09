@@ -306,6 +306,11 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
         &["none", "light", "medium", "heavy", "hidden"],
         "game effect level",
     )?;
+    if !matches!(settings.effects.density, 100 | 75 | 50 | 25) {
+        return Err(CoreError::InvalidInput(
+            "game effect density is invalid".to_owned(),
+        ));
+    }
     Ok(())
 }
 
@@ -412,6 +417,9 @@ pub fn normalize_game_browser_settings(
         "none" | "light" | "medium" | "heavy" | "hidden"
     ) {
         settings.effects.level = "medium".to_owned();
+    }
+    if !matches!(settings.effects.density, 100 | 75 | 50 | 25) {
+        settings.effects.density = 100;
     }
     settings
 }

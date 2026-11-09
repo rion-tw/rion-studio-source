@@ -57,16 +57,16 @@ describe("Chromium role page presentation", () => {
   it("broadcasts effect settings only when their runtime projection changes", () => {
     const { send, presentation } = presenter();
     expect(presentation.effectsForDocumentStart()).toEqual({
-      enabled: false, brightness: 1, dimBrightSkills: false, hideHitEffects: false
+      enabled: false, brightness: 1, dimBrightSkills: false, hideHitEffects: false, density: 1
     });
     const enabled: GameBrowserSettingsRecord = {
       ...DEFAULT_GAME_BROWSER_SETTINGS,
-      effects: { enabled: true, level: "heavy", dimBrightSkills: true, hideHitEffects: false }
+      effects: { enabled: true, level: "heavy", dimBrightSkills: true, hideHitEffects: false, density: 50 }
     };
     presentation.observeGameBrowserSettings(enabled);
     presentation.observeGameBrowserSettings({ ...enabled });
     expect(presentation.effectsForDocumentStart()).toEqual({
-      enabled: true, brightness: 0.08, dimBrightSkills: true, hideHitEffects: false
+      enabled: true, brightness: 0.08, dimBrightSkills: true, hideHitEffects: false, density: 0.5
     });
     expect(send).toHaveBeenCalledTimes(3);
     expect(send.mock.calls[0]![2]).toEqual({ type: "effects", settings: presentation.effectsForDocumentStart() });
@@ -92,7 +92,7 @@ describe("role page presentation composition", () => {
     await composition.start();
     settings = {
       ...DEFAULT_GAME_BROWSER_SETTINGS,
-      effects: { enabled: true, level: "light", dimBrightSkills: true, hideHitEffects: false }
+      effects: { enabled: true, level: "light", dimBrightSkills: true, hideHitEffects: false, density: 100 }
     };
     await composition.start();
     expect(log.mock.calls.map(([effects]) => effects.brightness)).toEqual([1, 0.7]);
@@ -116,19 +116,20 @@ describe("Chromium role page preload", () => {
   }
 
   it("never hooks WebGL on a page loaded while dimming is off", () => {
-    const { executeInMainWorld } = ports({ enabled: false, brightness: 1, dimBrightSkills: false, hideHitEffects: false });
+    const { executeInMainWorld } =
+      ports({ enabled: false, brightness: 1, dimBrightSkills: false, hideHitEffects: false, density: 1 });
     expect(executeInMainWorld).not.toHaveBeenCalled();
   });
 
   it("installs at document start when enabled and applies later changes live", () => {
     const { listeners, setter, executeInMainWorld } =
-      ports({ enabled: true, brightness: 0.25, dimBrightSkills: true, hideHitEffects: false });
+      ports({ enabled: true, brightness: 0.25, dimBrightSkills: true, hideHitEffects: false, density: 0.75 });
     expect(executeInMainWorld).toHaveBeenCalledTimes(1);
     listeners[0]!(undefined, {
       type: "effects",
-      settings: { enabled: false, brightness: 1, dimBrightSkills: false, hideHitEffects: false }
+      settings: { enabled: false, brightness: 1, dimBrightSkills: false, hideHitEffects: false, density: 1 }
     });
-    expect(setter).toHaveBeenCalledWith(1, false, false);
+    expect(setter).toHaveBeenCalledWith(1, false, false, 1);
   });
 
   it("runs indicators in the isolated overlay world and ignores malformed messages", () => {

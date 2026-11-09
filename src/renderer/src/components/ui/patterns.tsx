@@ -373,16 +373,18 @@ export function NavItem({
     className
   );
 
+  // The active page is announced to assistive technology, not only styled.
+  const current = active ? "page" as const : undefined;
   if (href) {
     return (
-      <a className={itemClassName} href={href}>
+      <a aria-current={current} className={itemClassName} href={href}>
         {content}
       </a>
     );
   }
 
   return (
-    <button className={itemClassName} type="button" onClick={onClick}>
+    <button aria-current={current} className={itemClassName} type="button" onClick={onClick}>
       {content}
     </button>
   );

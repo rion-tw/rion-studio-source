@@ -26,7 +26,7 @@ import type { Macro, MacroKeyModifier, MacroStep, MacroTrigger } from "../../../
 import { formatMacroCode, formatMacroIntervalPreset, formatMacroStep,
   isMacroIntervalPreset, isValidMacroInterval, MACRO_INTERVAL_CUSTOM_VALUE,
   MACRO_INTERVAL_OPTIONS, isMacroTriggerKeyCodeSupported,
-  isPureModifierCode, selectableMacroTriggerKeyCodes } from "./macroUtils";
+  isBareEscape, isPureModifierCode, selectableMacroTriggerKeyCodes } from "./macroUtils";
 
 import { MACRO_COMMAND_MAX_STEPS, parseMacroCommand, type MacroCommandIssue, type MacroCommandParseResult } from "./macroCommandParser";
 
@@ -458,6 +458,11 @@ export function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps
       event.preventDefault();
       event.stopPropagation();
 
+      // A bare Escape cancels recording; Escape stays selectable from the key list.
+      if (isBareEscape(event)) {
+        setIsRecording(false);
+        return;
+      }
       if (isPureModifierCode(event.code)) {
         return;
       }

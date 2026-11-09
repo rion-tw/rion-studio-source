@@ -227,7 +227,7 @@ function RoleForm({
                 >
                   <Select
                     value={form.gameId}
-                    disabled={isGameLocked}
+                    disabled={isGameLocked || isSaving}
                     onValueChange={(gameId) => {
                       const game = games.find((item) => item.id === gameId);
                       if (!game) return;
@@ -249,7 +249,7 @@ function RoleForm({
                   label={t("roleForm.launchUrl")}
                   description={t("roleForm.launchUrlDescription")}
                 >
-                  <Input id="role-launch-url" type="url" value={form.launchUrl} onChange={(event) => onChange((current) => ({ ...current, launchUrl: event.target.value }))} required maxLength={2048} pattern="https?://.+" placeholder={t("roleForm.launchUrl.customPlaceholder")} />
+                  <Input disabled={isSaving} id="role-launch-url" type="url" value={form.launchUrl} onChange={(event) => onChange((current) => ({ ...current, launchUrl: event.target.value }))} required maxLength={2048} pattern="https?://.+" placeholder={t("roleForm.launchUrl.customPlaceholder")} />
                 </FormField>
               </FormGrid>
             </Surface>
@@ -277,9 +277,12 @@ function RoleForm({
           <Surface className="grid gap-3 p-4" padding="none" variant="inset">
             <FieldHeader title={t("roleForm.cover")} description={t("roleForm.coverDescription")} />
 
+            {/* Opened by the visible cover button; named, but not a separate tab stop. */}
             <input
               ref={coverInputRef}
+              aria-label={t("roleForm.cover")}
               className="sr-only"
+              tabIndex={-1}
               type="file"
               accept="image/png,image/jpeg,image/webp,image/gif"
               onChange={(event) => void handleCoverImageChange(event)}

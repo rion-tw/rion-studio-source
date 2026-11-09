@@ -246,15 +246,16 @@ export function useMacroWorkflow({
         },
         { skippedCount: 0, startedCount: 0 }
       );
-      if (partialStart.skippedCount > 0) {
-        setNotice?.(
-          t("macros.partialStartNotice")
-            .replace("{started}", String(partialStart.startedCount))
-            .replace("{skipped}", String(partialStart.skippedCount))
-        );
-      }
+      const partialNotice = partialStart.skippedCount > 0
+        ? t("macros.partialStartNotice")
+          .replace("{started}", String(partialStart.startedCount))
+          .replace("{skipped}", String(partialStart.skippedCount))
+        : null;
+      if (partialNotice) setNotice?.(partialNotice);
 
-      reportMacroOperationFailures(successful.length, results, reportError, setNotice, t);
+      // A bulk failure summary must not erase which roles were skipped.
+      reportMacroOperationFailures(successful.length, results, reportError, setNotice && ((message) =>
+        setNotice(partialNotice && message ? `${partialNotice} ${message}` : message)), t);
       return successful.length > 0;
     } finally {
       finishBusy();

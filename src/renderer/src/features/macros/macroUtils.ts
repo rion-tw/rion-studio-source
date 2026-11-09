@@ -388,11 +388,13 @@ export function formatMacroShortcut(trigger: MacroTrigger | undefined, t: Transl
     return t("macros.noShortcut");
   }
 
+  // Same platform labels as the editor, so Win+F1 is not listed as Meta+F1.
+  const platform = getMacroDisplayPlatform();
   const parts = [
-    trigger.ctrl ? "Ctrl" : undefined,
-    trigger.alt ? "Alt" : undefined,
-    trigger.shift ? "Shift" : undefined,
-    trigger.meta ? "Meta" : undefined,
+    trigger.ctrl ? formatMacroModifierLabel("ctrl", t, platform) : undefined,
+    trigger.alt ? formatMacroModifierLabel("alt", t, platform) : undefined,
+    trigger.shift ? formatMacroModifierLabel("shift", t, platform) : undefined,
+    trigger.meta ? formatMacroModifierLabel("meta", t, platform) : undefined,
     "button" in trigger ? t("macroForm.mouseButton.middle") : formatMacroCode(trigger.code)
   ].filter((part): part is string => Boolean(part));
 
@@ -484,6 +486,11 @@ export function createClientId(): string {
 
 export function isPureModifierCode(code: string): boolean {
   return isMacroModifierCode(code);
+}
+
+/** Escape without modifiers ends a key recorder instead of being recorded. */
+export function isBareEscape(event: Pick<KeyboardEvent, "code" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey">): boolean {
+  return event.code === "Escape" && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
 }
 
 function getMacroDisplayPlatform(): "linux" | "mac" | "windows" {

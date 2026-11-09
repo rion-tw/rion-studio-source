@@ -146,6 +146,10 @@ function RolesView({
   onReorder
 }: RolesViewProps): JSX.Element {
   const [gameFilterId, setGameFilterId] = useState("all");
+  // Deleting the filtered game must not leave a blank filter showing "No matches".
+  useEffect(() => {
+    if (gameFilterId !== "all" && !games.some((game) => game.id === gameFilterId)) setGameFilterId("all");
+  }, [gameFilterId, games]);
   const [chromeImportOpen, setChromeImportOpen] = useState(false);
   const pageRef = useRef<HTMLElement | null>(null);
   const visibleRoles = gameFilterId === "all" ? filteredRoles : filteredRoles.filter((role) => role.gameId === gameFilterId);
@@ -268,7 +272,7 @@ function RolesView({
           t={t}
           onFilterChange={onFilterChange}
         />
-        <div className="flex min-w-0 flex-wrap items-center gap-2"><Select value={gameFilterId} onValueChange={setGameFilterId}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("roles.gameFilter.all")}</SelectItem>{games.map((game) => <SelectItem key={game.id} value={game.id}>{game.name}</SelectItem>)}</SelectContent></Select><p className="text-caption font-medium text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-2"><Select value={gameFilterId} onValueChange={setGameFilterId}><SelectTrigger className="w-44" aria-label={t("roleForm.game")}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("roles.gameFilter.all")}</SelectItem>{games.map((game) => <SelectItem key={game.id} value={game.id}>{game.name}</SelectItem>)}</SelectContent></Select><p className="text-caption font-medium text-muted-foreground">
           {t("roles.visibleCount")
             .replace("{visible}", String(visibleRoles.length))
             .replace("{total}", String(roles.length))}

@@ -1,6 +1,6 @@
 import { Check, Hand, ListChecks, Plus, Pointer, Repeat, Repeat1, Save } from "lucide-react";
 
-import { type FormEvent, type JSX, useMemo, useRef, useState } from "react";
+import { type FormEvent, type JSX, useEffect, useMemo, useRef, useState } from "react";
 
 import { useLocation, useNavigate, useParams } from "react-router";
 
@@ -144,6 +144,11 @@ function MacroEditor({
   ))
     ? t("macroForm.saveHint.invalidHoldDuration")
     : undefined;
+  // Core stores delays as whole milliseconds (u32); a negative or fractional
+  // value would otherwise only fail on save with an untranslated decode error.
+  const delayError = form.steps.some((step) => step.type === "delay" && !isValidMacroInterval(step.ms))
+    ? t("macroForm.saveHint.invalidInterval").replace("{max}", MACRO_DELAY_MAX_MS.toLocaleString("en-US"))
+    : undefined;
   const activationError = form.activationMode === "hold" && !form.trigger
     ? t("macroForm.saveHint.holdNeedsShortcut")
     : undefined;
@@ -168,9 +173,10 @@ function MacroEditor({
     !activationError &&
     !shortcutSourceError &&
     !holdDurationError &&
+    !delayError &&
     !macroStepError &&
     !shortcutConflict;
-  const saveHint = shortcutConflict ?? shortcutSourceError ?? activationError ?? holdDurationError ?? macroStepError ?? nameError ?? stepCountError ?? (
+  const saveHint = shortcutConflict ?? shortcutSourceError ?? activationError ?? holdDurationError ?? delayError ?? macroStepError ?? nameError ?? stepCountError ?? (
     form.executionMode !== "source_role" && form.roleIds.length === 0
       ? t(form.id ? "macroForm.saveHint.unassigned" : "macroForm.saveHint.needsRole")
       : form.steps.length === 0
@@ -292,6 +298,7 @@ function MacroForm({
   ];
   const [isCommandImportOpen, setIsCommandImportOpen] = useState(false);
   const [mindMapStepId, setMindMapStepId] = useState<string>();
+  const [keyboardMovedStepId, setKeyboardMovedStepId] = useState<string | null>(null);
   const isAtStepLimit = form.steps.length >= MACRO_MAX_STEPS;
   const stepDrag = usePointerDrag<string>({
     disabled: isSaving,
@@ -326,6 +333,15 @@ function MacroForm({
       steps: current.steps.map((step) => (step.id === stepId ? nextStep : step))
     }));
   }
+
+  // Reordering moves the DOM node, which drops focus; keep it on the moved handle.
+  useEffect(() => {
+    if (!keyboardMovedStepId) return;
+    setKeyboardMovedStepId(null);
+    document.querySelector<HTMLElement>(
+      `[data-macro-step-id="${CSS.escape(keyboardMovedStepId)}"] [data-macro-step-reorder-handle]`
+    )?.focus();
+  }, [form.steps, keyboardMovedStepId]);
 
   function moveStepById(stepId: string, targetStepId: string): void {
     update((current) => {
@@ -549,6 +565,12 @@ function MacroForm({
                           step={step}
                           t={t}
                           onReorderPointerDown={(event) => stepDrag.start(event, step.id)}
+                          onMove={(delta) => {
+                            const target = form.steps[index + delta];
+                            if (!target) return;
+                            moveStepById(step.id, target.id);
+                            setKeyboardMovedStepId(step.id);
+                          }}
                           onDuplicate={() => duplicateStep(step.id)}
                           onRemove={() => removeStep(step.id)}
                           onUpdate={(nextStep) => updateStep(step.id, nextStep)}

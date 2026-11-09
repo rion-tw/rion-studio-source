@@ -108,10 +108,10 @@ function GameEditor({
             />
           </FormField>
         </Surface>
-        {form.source === "builtin" ? <Surface className="flex items-center justify-between gap-3 p-4" variant="inset"><p className="text-xs text-muted-foreground">{t("games.form.builtinLocked")}</p><Button type="button" variant="outline" onClick={() => void resetBuiltin()}><RotateCcw size={15} />{t("games.reset.action")}</Button></Surface> : null}
+        {form.source === "builtin" ? <Surface className="flex items-center justify-between gap-3 p-4" variant="inset"><p className="text-xs text-muted-foreground">{t("games.form.builtinLocked")}</p><Button type="button" variant="outline" disabled={isSaving} onClick={() => void resetBuiltin()}><RotateCcw size={15} />{t("games.reset.action")}</Button></Surface> : null}
         <Surface className="grid gap-4 p-4" variant="inset">
           <FieldHeader title={t("games.form.urls")} description={t("games.form.urlsDescription")} />
-          <FormField htmlFor="game-launch-url" label={t("games.form.defaultLaunchUrl")}><Input id="game-launch-url" type="url" maxLength={2048} required value={form.defaultLaunchUrl} onChange={(e) => setForm({ ...form, defaultLaunchUrl: e.target.value })} /></FormField>
+          <FormField htmlFor="game-launch-url" label={t("games.form.defaultLaunchUrl")}><Input disabled={isSaving} id="game-launch-url" type="url" maxLength={2048} required value={form.defaultLaunchUrl} onChange={(e) => setForm({ ...form, defaultLaunchUrl: e.target.value })} /></FormField>
         </Surface>
       </div>
       <div className="grid gap-4">
@@ -148,7 +148,7 @@ function GameCoverEditor({ form, game, isSaving, t, onChange, onError }: { form:
       {coverUrl ? <img className="size-full object-cover" src={coverUrl} alt="" /> : <ImagePlus size={30} />}
     </div>
     {form.source === "custom" ? <>
-      <input ref={inputRef} aria-label={t("games.form.chooseCover")} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={isSaving} onChange={(event) => void change(event)} />
+      <input ref={inputRef} aria-label={t("games.form.chooseCover")} tabIndex={-1} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={isSaving} onChange={(event) => void change(event)} />
       <div className="flex gap-2">
         <Button className="flex-1" type="button" variant="outline" onClick={() => inputRef.current?.click()}><ImagePlus size={15} />{t("games.form.chooseCover")}</Button>
         {form.coverImageDataUrl ? <Button aria-label={t("games.form.removeCover")} title={t("games.form.removeCover")} type="button" variant="ghost" size="icon" onClick={() => onChange({ ...form, coverImageDataUrl: undefined })}><Trash2 size={15} /></Button> : null}
@@ -168,7 +168,7 @@ function GameIconEditor({ form, game, isSaving, t, onChange, onError }: { form: 
       onError(null);
     } catch (error) { onError(error); }
   }
-  return <Surface className="grid gap-3 p-4" variant="inset"><FieldHeader title={t("games.form.icon")} description={form.source === "builtin" ? t("games.form.iconBuiltin") : t("games.form.iconDescription")} /><div className="mx-auto grid aspect-square w-full max-w-52 place-items-center overflow-hidden rounded-xl bg-muted">{iconUrl ? <img className="size-full object-cover" src={iconUrl} alt="" /> : <ImagePlus size={30} />}</div>{form.source === "custom" ? <><input ref={inputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={isSaving} onChange={(event) => void change(event)} /><div className="flex gap-2"><Button className="flex-1" type="button" variant="outline" onClick={() => inputRef.current?.click()}><ImagePlus size={15} />{t("games.form.chooseIcon")}</Button>{form.iconImageDataUrl ? <Button aria-label={t("games.form.removeIcon")} title={t("games.form.removeIcon")} type="button" variant="ghost" size="icon" onClick={() => onChange({ ...form, iconImageDataUrl: undefined })}><Trash2 size={15} /></Button> : null}</div></> : null}</Surface>;
+  return <Surface className="grid gap-3 p-4" variant="inset"><FieldHeader title={t("games.form.icon")} description={form.source === "builtin" ? t("games.form.iconBuiltin") : t("games.form.iconDescription")} /><div className="mx-auto grid aspect-square w-full max-w-52 place-items-center overflow-hidden rounded-xl bg-muted">{iconUrl ? <img className="size-full object-cover" src={iconUrl} alt="" /> : <ImagePlus size={30} />}</div>{form.source === "custom" ? <><input ref={inputRef} aria-label={t("games.form.chooseIcon")} tabIndex={-1} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={isSaving} onChange={(event) => void change(event)} /><div className="flex gap-2"><Button className="flex-1" type="button" variant="outline" onClick={() => inputRef.current?.click()}><ImagePlus size={15} />{t("games.form.chooseIcon")}</Button>{form.iconImageDataUrl ? <Button aria-label={t("games.form.removeIcon")} title={t("games.form.removeIcon")} type="button" variant="ghost" size="icon" onClick={() => onChange({ ...form, iconImageDataUrl: undefined })}><Trash2 size={15} /></Button> : null}</div></> : null}</Surface>;
 }
 
 async function createSquareImage(file: File): Promise<string> {

@@ -162,7 +162,7 @@ export function DiagnosticsSettingsSection({
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("settings.logsLevelDescription")}</p>
             </div>
             <Select value={status?.currentLevel ?? "debug"} onValueChange={(value) => void run(() => window.rionStudio.setLogLevel(value as LogLevel))}>
-              <SelectTrigger className="w-32 settings-menu-control"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-32 settings-menu-control" aria-label={t("settings.logsLevel")}><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="info">Info</SelectItem><SelectItem value="debug">Debug</SelectItem></SelectContent>
             </Select>
           </div>
@@ -181,13 +181,13 @@ export function DiagnosticsSettingsSection({
                 <RefreshCw className={busy ? "animate-spin" : ""} size={14} />
                 {t("settings.logsRefresh")}
               </Button>
-              <Input className="min-w-44 w-auto" value={search} placeholder={t("settings.logsSearch")} onChange={(event) => setSearch(event.target.value)} />
+              <Input className="min-w-44 w-auto" aria-label={t("settings.logsSearch")} value={search} placeholder={t("settings.logsSearch")} onChange={(event) => setSearch(event.target.value)} />
               <Select value={level} onValueChange={(value) => setLevel(value as LogLevel | typeof ALL)}>
-                <SelectTrigger className="w-28 settings-menu-control"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-28 settings-menu-control" aria-label={t("settings.logsLevelFilter")}><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value={ALL}>{t("settings.logsAllLevels")}</SelectItem>{(["debug", "info", "warn", "error"] as const).map((item) => <SelectItem key={item} value={item}>{item.toUpperCase()}</SelectItem>)}</SelectContent>
               </Select>
               <Select value={source} onValueChange={(value) => setSource(value as LogSource | typeof ALL)}>
-                <SelectTrigger className="w-36 settings-menu-control"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-36 settings-menu-control" aria-label={t("settings.logsSourceFilter")}><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value={ALL}>{t("settings.logsAllSources")}</SelectItem>{(["main", "preload", "renderer", "ipc", "browser", "extension", "macro", "persistence", "update"] as const).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
               </Select>
               <Button type="button" variant={live ? "default" : "outline"} onClick={() => setLive((value) => !value)}>{t(live ? "settings.logsLiveOn" : "settings.logsLiveOff")}</Button>

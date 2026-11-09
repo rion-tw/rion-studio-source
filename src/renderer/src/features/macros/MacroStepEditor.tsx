@@ -21,7 +21,7 @@ import type { MacroActivationMode, MacroCallMode, MacroClickAnchor, MacroClickUn
 
 import { createClientId, formatMacroCode, formatMacroKeyCombination,
   formatMacroModifierLabel, isMacroKeyCodeSupportedForCreation,
-  type MacroTargetOption, isPureModifierCode, selectableMacroKeyCodes } from
+  type MacroTargetOption, isBareEscape, isPureModifierCode, selectableMacroKeyCodes } from
   "./macroUtils";
 
 import { AffixedInput, RecordingButton, TimeUnitSelect, fromDisplayTime, getTimeUnitMax, getTimeUnitStep, toDisplayTime } from "./MacroEditorControls";
@@ -39,6 +39,8 @@ interface MacroStepEditorProps {
   macroTargetOptions: MacroTargetOption[];
   onRemove: () => void;
   onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
+  /** Keyboard reorder from the grip handle: -1 moves up, 1 moves down. */
+  onMove?: (delta: -1 | 1) => void;
   onDuplicate: () => void;
   onUpdate: (step: MacroStep) => void;
   step: MacroStep;
@@ -54,6 +56,7 @@ export function MacroStepEditor({
   isSaving,
   macroTargetOptions,
   onDuplicate,
+  onMove,
   onRemove,
   onReorderPointerDown,
   onUpdate,
@@ -77,8 +80,16 @@ export function MacroStepEditor({
         variant="ghost"
         size="icon"
         aria-label={t("macroForm.dragStep")}
-        title={t("macroForm.dragStep")}
+        aria-keyshortcuts={onMove ? "ArrowUp ArrowDown" : undefined}
+        title={onMove ? `${t("macroForm.dragStep")} (↑ ${t("macroForm.moveUp")} / ↓ ${t("macroForm.moveDown")})`
+          : t("macroForm.dragStep")}
+        data-macro-step-reorder-handle=""
         onPointerDown={onReorderPointerDown}
+        onKeyDown={(event) => {
+          if (!onMove || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+          event.preventDefault();
+          onMove(event.key === "ArrowUp" ? -1 : 1);
+        }}
         disabled={isSaving}
       >
         <GripVertical size={14} />
@@ -730,6 +741,11 @@ function KeyRecorder({
       event.preventDefault();
       event.stopPropagation();
 
+      // A bare Escape cancels recording; Escape stays selectable from the key list.
+      if (isBareEscape(event)) {
+        onRecordingChange(false);
+        return;
+      }
       if (isPureModifierCode(event.code)) {
         return;
       }

@@ -38,12 +38,19 @@ draw call, so frame cost follows the copies of one texture per frame (Retina
 doubles fill cost), not texture size; Elementor Sandstorm's pack is 11.5 KB.
 Stops are 100/75/50/25 %.
 
-- Only effect-program draws are counted. A texture drawn more than 8 times per
-  frame (smoothed over earlier frames) is a cloud; a newly appearing cloud
-  draws in full for its first frame.
+- Only effect-program draws are counted. A particle texture drawn more than 8
+  times per frame (smoothed over earlier frames) is a cloud; a newly appearing
+  cloud draws in full for its first frame.
 - A cloud draws only its first `max(8, ceil(copies × density))` copies per
   frame, a stable prefix instead of a modulo, so survivors do not flicker as
   particles die.
+- Large-area effects stack a few big `TRIANGLES` layers instead (Sandstorm:
+  one to seven 360–2,700-vertex layers of one texture per frame). A mesh
+  texture drawn more than twice per frame keeps its first
+  `max(1, ceil(copies × density))` layers; meshes drawn once or twice are
+  untouched. Measured on M3 Max at 3024×1898 (2026-11-09): at 25 % about 70 %
+  of Sandstorm's effect draws were skipped and its lowest FPS rose from 61 to
+  106 without visible flicker.
 - Additive survivors brighten by `copies / drawn` (at most 4×) through a
   negative `fmsFx.y`, keeping the cloud's light; dimmed mesh effects divide by
   the drawn count instead. Undimmed thinning keeps the game's own blending.

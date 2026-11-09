@@ -305,6 +305,8 @@ function renderTabs(
   const focused = document.activeElement instanceof HTMLElement && tabs!.contains(document.activeElement)
     ? { tabId: document.activeElement.dataset.tabId, close: document.activeElement.dataset.runtimeTabClose !== undefined }
     : null;
+  const previousLeft = new Map([...tabs!.querySelectorAll<HTMLElement>(".runtime-tab[data-tab-id]")]
+    .map((item) => [item.dataset.tabId!, item.getBoundingClientRect().left] as const));
   tabs!.replaceChildren(...visibleTabs.map((tab) => {
     const item = document.createElement("div");
     item.className = "runtime-tab";
@@ -372,11 +374,26 @@ function renderTabs(
     item.addEventListener("contextmenu", (event) => openTabMenu(event, tab.tabId));
     return item;
   }));
+  animateTabShift(previousLeft);
   if (focused?.tabId) {
     const selector = focused.close ? "[data-runtime-tab-close]" : "[data-runtime-tab-activate]";
     [...tabs!.querySelectorAll<HTMLElement>(selector)]
       .find((element) => element.dataset.tabId === focused.tabId && !element.hidden)
       ?.focus({ preventScroll: true });
+  }
+}
+
+/** Presentation only: slide rebuilt tabs from their painted slot to Core's committed order. */
+function animateTabShift(previousLeft: ReadonlyMap<string, number>): void {
+  if (previousLeft.size === 0) return;
+  if (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  for (const item of tabs!.querySelectorAll<HTMLElement>(".runtime-tab[data-tab-id]")) {
+    const before = previousLeft.get(item.dataset.tabId!);
+    if (before === undefined || typeof item.animate !== "function") continue;
+    const deltaX = before - item.getBoundingClientRect().left;
+    if (Math.abs(deltaX) < 0.5) continue;
+    item.animate([{ transform: `translateX(${deltaX}px)` }, { transform: "none" }],
+      { duration: 160, easing: "cubic-bezier(0.2, 0, 0, 1)" });
   }
 }
 
@@ -412,6 +429,7 @@ function render(projection: WindowsRuntimeHostProjection): void {
     visibleTabs.map((tab) => [tab.tabId, tab.name, tab.active, tab.phase, tab.audioMuted])]);
   if (tabSignature !== renderedTabSignature) renderTabs(projection, visibleTabs, labels);
   renderedTabSignature = tabSignature;
+  tabDrag.sync(projection);
   tabToolbar.render(labels, projection.activeTabId);
   renderDividers(projection);
   document.documentElement.dataset.fullscreen = String(projection.fullscreen);

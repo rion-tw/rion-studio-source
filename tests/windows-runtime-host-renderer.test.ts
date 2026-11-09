@@ -422,6 +422,54 @@ describe("Windows runtime-host renderer", () => {
     expect(close.isConnected).toBe(false);
   });
 
+  it("slides tabs from their painted slots when Core commits a new order", async () => {
+    const submit = vi.fn();
+    let project!: (projection: WindowsRuntimeHostProjection) => void;
+    Object.assign(window, { rionStudioWindowsRuntimeHost: {
+      onProjection: (listener: typeof project) => { project = listener; return () => undefined; },
+      submit
+    } });
+    const animate = vi.fn(() => ({}) as Animation);
+    const restore = {
+      rect: HTMLElement.prototype.getBoundingClientRect,
+      animate: HTMLElement.prototype.animate,
+      animations: HTMLElement.prototype.getAnimations
+    };
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const index = this.classList.contains("runtime-tab") ? [...this.parentElement!.children].indexOf(this) : 0;
+      return new DOMRect(index * 180, 0, 180, 30);
+    };
+    HTMLElement.prototype.animate = animate as unknown as HTMLElement["animate"];
+    HTMLElement.prototype.getAnimations = () => [];
+    try {
+      await import("../src/renderer/src/runtime-windows-host");
+      const tab = (tabId: string, name: string) =>
+        ({ tabId, name, active: tabId === firstTabId, hidden: false, audioMuted: false, phase: "ready" as const });
+      const value: WindowsRuntimeHostProjection = {
+        windowId, windowMaximized: false, windowName: "", activeTabId: firstTabId,
+        alwaysShowToolbarInFullScreen: false,
+        contentBounds: { height: 600, width: 900, x: 0, y: 40 },
+        fullscreen: false, lifecycleEpoch: 4, moveTargets: [], projectionRevision: 5,
+        tabs: [tab(firstTabId, "First"), tab(secondTabId, "Second")],
+        toolbarVisible: true, topologyRevision: 8, windowGeneration: 2, workspaceDividers: []
+      };
+      project(value);
+      expect(animate).not.toHaveBeenCalled();
+      submit.mockClear();
+      project({ ...value, projectionRevision: 6, tabs: [tab(secondTabId, "Second"), tab(firstTabId, "First")] });
+      const slides = new Map(animate.mock.calls.map((call, index) => [
+        (animate.mock.contexts[index] as HTMLElement).dataset.tabId,
+        (call as unknown as [Keyframe[]])[0][0]!.transform
+      ]));
+      expect(slides).toEqual(new Map([[secondTabId, "translateX(180px)"], [firstTabId, "translateX(-180px)"]]));
+      expect(submit.mock.calls.every(([command]) => command.type === "tabDragGeometry")).toBe(true);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = restore.rect;
+      HTMLElement.prototype.animate = restore.animate;
+      HTMLElement.prototype.getAnimations = restore.animations;
+    }
+  });
+
   it("submits hover chrome only when fullscreen presentation can change", async () => {
     const submit = vi.fn();
     let project!: (projection: WindowsRuntimeHostProjection) => void;

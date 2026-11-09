@@ -221,9 +221,25 @@ body {
   background: var(--runtime-host-active);
 }
 
-.runtime-tab:has(.runtime-tab-activate[data-dragging="true"]) {
-  outline: 1px solid var(--runtime-host-drag-outline);
+.runtime-tab[data-drag-source] {
+  opacity: 0.35;
+}
+
+.runtime-tab-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--runtime-host-layer-menu);
+  color: var(--runtime-host-on-active);
   background: var(--runtime-host-drag-surface);
+  outline: 1px solid var(--runtime-host-drag-outline);
+  box-shadow: 0 6px 16px var(--runtime-host-shadow);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.runtime-tab-drag-ghost .runtime-tab-close {
+  opacity: 0;
 }
 
 .runtime-reveal-edge {

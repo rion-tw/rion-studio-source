@@ -57,10 +57,13 @@ export async function waitForTabDestruction(tabId: string): Promise<void> {
   }
 }
 
+/**
+ * The app rewrites the journal in place, so a read can land mid-write; the
+ * shared artifact wait treats partial JSON as "not yet" instead of failing.
+ */
 export async function runtimeEffectCursor(): Promise<number> {
-  const entries = JSON.parse(await readFile(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!,
-    "electron-core-flow-observations.json"), "utf8")) as Array<{ sequence: number }>;
-  return entries.at(-1)?.sequence ?? 0;
+  return waitForArtifact("electron-core-flow-observations.json", value =>
+    Array.isArray(value) ? (value as Array<{ sequence: number }>).at(-1)?.sequence ?? 0 : undefined);
 }
 
 /** Observe the restore controller's completion after every saved Window journal receipt. */
@@ -116,10 +119,12 @@ export async function waitForCreatedWorkspaceTab(sourceId: string, afterSequence
 
 /** Pair authoritative close completion with each original WebContents' native event. */
 export async function expectRoleSurfacesDestroyed(roleIds: readonly string[]): Promise<void> {
-  const events = JSON.parse(await readFile(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!,
-    "electron-role-surface-lifecycle-observations.json"), "utf8")) as Array<{
-      roleId?: string; webContentsId: number; sequence: number; stage: string; destroyed: boolean;
-    }>;
+  type SurfaceEvent = {
+    roleId?: string; webContentsId: number; sequence: number; stage: string; destroyed: boolean;
+  };
+  // One complete snapshot of the journal; a mid-write read is retried.
+  const events = await waitForArtifact("electron-role-surface-lifecycle-observations.json",
+    value => Array.isArray(value) ? value as SurfaceEvent[] : undefined);
   for (const roleId of roleIds) {
     const created = events.filter(event => event.roleId === roleId && event.stage === "created");
     if (!created.length || created.some(original => !events.some(event =>

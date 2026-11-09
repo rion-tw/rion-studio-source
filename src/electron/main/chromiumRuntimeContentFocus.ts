@@ -58,6 +58,11 @@ function foregroundBlocker(window: ChromiumRuntimeWindowRecord, epoch?: number,
   return null;
 }
 
+/** The Role slot that receives content focus: the first non-web slot in layout order. */
+function contentFocusSlot(tab: ChromiumRuntimeTabRecord) {
+  return tab.specification.slots.find(slot => !slot.web);
+}
+
 /**
  * Diagnostics only: each standalone content-focus decision is bounded
  * identity evidence in the runtime journal and never affects admission.
@@ -102,21 +107,20 @@ export function requestChromiumContentFocus(input: ContentFocusState, tabId: str
     window.host.focusLocalChrome?.();
     recordContentFocus(tabId, "request-local-chrome", window, phase);
   }
-  if (tab.specification.workspaceId || tab.webViews.size !== 0 || tab.roleViews.size !== 1 ||
-      !window.host.bindRuntimeWindowState) {
-    recordContentFocus(tabId, "request-skipped", window, tab.specification.workspaceId ? "workspace"
-      : tab.webViews.size !== 0 ? "web-surface" : tab.roleViews.size !== 1 ? `role-views-${tab.roleViews.size}`
-        : "state-stream-unavailable");
+  if (!window.host.bindRuntimeWindowState) {
+    recordContentFocus(tabId, "request-skipped", window, "state-stream-unavailable");
     return;
   }
-  const slot = tab.specification.slots[0];
-  if (!slot?.owner || tab.specification.slots.length !== 1) {
-    recordContentFocus(tabId, "request-skipped", window, slot?.owner ? "multiple-slots" : "slot-unowned");
+  // A standalone tab hands input to its only Role; a workspace hands it to its
+  // first Role slot in layout order. Web slots never take the game responder.
+  const slot = contentFocusSlot(tab);
+  if (!slot?.owner) {
+    recordContentFocus(tabId, "request-skipped", window, slot ? "slot-unowned" : "no-role-slot");
     return;
   }
   const { lifecycleEpoch, nativeGeneration } = window.host.readRuntimeWindowState!();
   const subscription: { dispose?: () => void } = {};
-  const role = [...input.roles.values()].find(role => role.tabId === tabId);
+  const role = [...input.roles.values()].find(role => role.tabId === tabId && role.roleId === slot.role.id);
   const claim: ChromiumContentFocusClaim = {
     window, windowGeneration: window.windowGeneration, topologyRevision: window.topologyRevision,
     lifecycleEpoch, nativeGeneration, attemptGeneration: tab.specification.attemptGeneration,
@@ -187,15 +191,23 @@ export function handoffChromiumContentFocus(
       claim.cancel();
       continue;
     }
-    if (phase === "loading" || phase === "activating" || phase === "attaching") continue;
-    claim.cancel();
-    if (phase !== "ready" || roles.length !== 1 || tab.specification.workspaceId ||
-        tab.webViews.size !== 0) {
-      recordContentFocus(tabId, "handoff-skipped", window, phase !== "ready" ? `phase-${phase ?? "unprojected"}`
-        : `ineligible-roles-${roles.length}`);
+    if (phase === "loading" || phase === "activating" || phase === "attaching") {
+      // A workspace keeps sibling Role slots interactive while others load, so
+      // a deferred handoff could take focus back from a slot the user already
+      // clicked. Only an already-ready workspace receives the selection handoff.
+      if (tab.specification.workspaceId) {
+        recordContentFocus(tabId, "claim-revoked", window, `workspace-${phase}`);
+        claim.cancel();
+      }
       continue;
     }
-    const role = roles[0]!;
+    claim.cancel();
+    const role = roles.find(item => item.roleId === claim.roleId);
+    if (phase !== "ready" || !role) {
+      recordContentFocus(tabId, "handoff-skipped", window, phase !== "ready" ? `phase-${phase ?? "unprojected"}`
+        : "role-missing");
+      continue;
+    }
     const owner = owners.find(item => item.roleId === role.roleId);
     if (role.roleId !== claim.roleId || role.ownerGeneration !== claim.ownerGeneration ||
         owner?.state !== "running" || owner.owner.tabId !== tabId ||

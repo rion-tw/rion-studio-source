@@ -5,9 +5,9 @@ import { effect, tab } from "./support/electronChromiumRuntimeEffectFixtures";
 import { createTab, harness, loadRoles } from "./support/electronChromiumRuntimeEffectExecutorHarness";
 
 type Phase = "loading" | "ready" | "failed";
-async function fixture(loaded = true) {
+async function fixture(loaded = true, firstTabRoleIds = ["role-1"]) {
   const subject = harness();
-  const tabs = [tab(), tab("tab-2", "window-1", ["role-2"])];
+  const tabs = [tab("tab-1", "window-1", firstTabRoleIds), tab("tab-2", "window-1", ["role-2"])];
   for (const specification of tabs) {
     await createTab(subject, specification);
     if (loaded) await loadRoles(subject, specification);
@@ -29,8 +29,8 @@ async function fixture(loaded = true) {
       logicalTabIds: tabs.map(tab => tab.tabId), hiddenTabIds: [], activeTabId: selected,
       tabs: tabs.map(tab => ({ tabId: tab.tabId, name: tab.name, phase,
         tabType: "role", audioMuted: false })),
-      roles: phase === "ready" ? tabs.map(tab => ({ roleId: tab.sourceId, tabId: tab.tabId,
-        ownerGeneration: 1, bounds: { x: 0, y: 44, width: 1000, height: 656 } })) : [],
+      roles: phase === "ready" ? tabs.flatMap(tab => tab.roles.map(view => ({ roleId: view.role.id,
+        tabId: tab.tabId, ownerGeneration: 1, bounds: { x: 0, y: 44, width: 1000, height: 656 } }))) : [],
       webSurfaces: [], workspaceDividers: [], workspaceAppearance: { background: "black", gap: 4 },
       windowVisible: true }]
   });
@@ -120,11 +120,24 @@ describe("AppKit tab activation content focus", () => {
     expect(subject.focusVisible).not.toHaveBeenCalled();
   });
 
-  it("excludes workspaces from the standalone responder policy", async () => {
-    const subject = await fixture();
+  it("hands a selected workspace to its first Role slot only", async () => {
+    const subject = await fixture(true, ["role-1", "role-3"]);
     subject.tabs[0]!.workspaceId = "workspace-1";
-    await subject.apply(subject.projection("tab-1"));
+    for (const id of ["tab-1", "tab-2", "tab-1"]) await subject.apply(subject.projection(id));
+    expect(subject.focusVisible.mock.calls).toEqual([["role-1", 1], ["role-2", 1], ["role-1", 1]]);
+    await subject.apply(subject.projection("tab-1", "ready", false));
+    expect(subject.focusVisible).toHaveBeenCalledTimes(3);
+  });
+
+  it("never defers a workspace handoff past loading, where a sibling slot may already own input", async () => {
+    const subject = await fixture(false, ["role-1", "role-3"]);
+    subject.tabs[0]!.workspaceId = "workspace-1";
+    await subject.apply(subject.projection("tab-1", "loading"));
+    for (const specification of subject.tabs) await loadRoles(subject, specification);
+    await subject.apply(subject.projection("tab-1", "ready", false));
     expect(subject.focusVisible).not.toHaveBeenCalled();
+    await subject.apply(subject.projection("tab-1"));
+    expect(subject.focusVisible).toHaveBeenCalledExactlyOnceWith("role-1", 1);
   });
 
   it("rejects older topology and native generation before acquiring focus", async () => {

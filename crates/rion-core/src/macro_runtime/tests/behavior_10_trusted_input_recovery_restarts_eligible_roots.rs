@@ -342,3 +342,80 @@ fn failed_recovery_blocks_new_input_until_the_role_relaunches() {
     runtime.allow_role_after_launch("r1");
     assert!(runtime.input_recovery_for_role("r1").unwrap().is_none());
 }
+
+#[test]
+fn unconfirmed_input_stop_reports_the_affected_role_instead_of_disappearing() {
+    let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+    let runtime = MacroRuntime::new(Arc::new(move |batch| {
+        let _ = events.send(batch);
+    }));
+    let mut start = request(vec![MacroStepDefinition::Key {
+        id: "key".to_owned(),
+        code: "Enter".to_owned(),
+        modifiers: None,
+        action: Some("tap".to_owned()),
+        label: None,
+        duration_ms: None,
+    }]);
+    start.macros[0].role_ids.push("r2".to_owned());
+    start.active_role_ids.push("r2".to_owned());
+    let _ = start_and_ack_focus(&runtime, &receiver, start);
+    let holds = next_browser_action_count(&receiver, 2);
+    let failed = holds.iter().find(|action| action.role_id == "r1").unwrap();
+    runtime
+        .dispatch_results(vec![BrowserActionResult {
+            request_id: failed.request_id.clone(),
+            ok: false,
+            value_json: None,
+            error_code: Some("SYSTEM_TRUSTED_INPUT_INDETERMINATE".to_owned()),
+            error_message: Some("native acknowledgement missing".to_owned()),
+        }])
+        .unwrap();
+    runtime
+        .dispatch_results(success_results(
+            holds
+                .into_iter()
+                .filter(|action| action.role_id == "r2")
+                .collect(),
+        ))
+        .unwrap();
+    let wait_started = std::time::Instant::now();
+    let statuses = loop {
+        while let Ok(batch) = receiver.recv_timeout(Duration::from_millis(10)) {
+            for event in batch {
+                if let CoreEvent::BrowserActions { actions } = event {
+                    runtime.dispatch_results(success_results(actions)).unwrap();
+                }
+            }
+        }
+        let statuses = runtime.statuses().unwrap();
+        let settled = statuses
+            .iter()
+            .filter(|status| status.state != "recovering")
+            .all(|status| matches!(status.state.as_str(), "failed" | "cancelled"));
+        if settled && !statuses.is_empty() {
+            break statuses;
+        }
+        assert!(
+            wait_started.elapsed() < Duration::from_secs(3),
+            "statuses did not settle: {statuses:?}"
+        );
+    };
+    let mut terminal = statuses
+        .iter()
+        .map(|status| (status.role_id.as_str(), status.state.as_str(), status.error.as_deref()))
+        .collect::<Vec<_>>();
+    terminal.sort();
+    assert_eq!(
+        terminal,
+        [
+            ("r1", "failed", Some(INPUT_RECOVERY_STOPPED_MESSAGE)),
+            ("r2", "cancelled", Some(SIBLING_FAILURE_MESSAGE)),
+        ]
+    );
+    let ticket = runtime
+        .input_recovery_for_role("r1")
+        .unwrap()
+        .expect("recovery ticket");
+    assert_eq!(ticket.pending_macro_restart_count, 0);
+}

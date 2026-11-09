@@ -567,11 +567,14 @@ implements ChromiumNativeTrustedInputPort {
         const originalHost = host;
         return this.#compatible.dispatch(request, frame,
           observedPhysicalModifierCodes,
-          request.action.type === "click" ? this.#clicks.resolve(request, frame) : null, () => {
+          request.action.type === "click" ? this.#clicks.resolve(request, frame) : null, stage => {
             const currentHost = this.#hosts.resolve(request.roleId, request.surfaceGeneration);
             if (this.#disposed || !currentHost || !sameHost(currentHost, originalHost) ||
                 !sameFrame(this.#surfaces.currentTrustedInputFrame(request.roleId, request.surfaceGeneration), frame))
               throw new Error("Compatible input host retired.");
+            // Matches macOS: after submission only exact host/document identity
+            // fences the receipt; focus/visibility churn never supersedes it.
+            if (stage === "receipt") return;
             const mode = currentHost.native.currentInputDeliveryMode(currentHost.identity, inputRoute);
             if (mode !== "foreground" && mode !== "background") throw new Error("Compatible input host unavailable.");
             validateProbe(currentHost.native.probeExactInputSurface(currentHost.identity, mode, inputRoute), currentHost.identity, mode, inputRoute);

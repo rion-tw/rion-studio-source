@@ -222,6 +222,8 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro step target was not found.": "error.macroStepTargetNotFound",
   "Macro dependency cycle detected while running a called macro.": "error.macroDependencyCycle",
   "Cancelled because a called macro was stopped.": "error.macroChildStopped",
+  "Macro stopped because input delivery to this role could not be confirmed.":
+    "error.macroInputUnconfirmedStopped",
   "Imported macro dependencies are invalid.": "error.portableMacroDependencyInvalid",
   "Macro enabled state is invalid.": "error.macroEnabledInvalid",
   "A macro with this name already exists.": "error.macroNameDuplicate",

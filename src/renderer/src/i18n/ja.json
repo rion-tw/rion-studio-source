@@ -1191,6 +1191,7 @@
   "error.macroInUse": "このマクロは次のマクロから呼び出されています: {names}。",
   "error.macroChildAlreadyRunning": "呼び出し先マクロ「{name}」は既に実行中です。",
   "error.macroChildStopped": "呼び出し先マクロが停止されたため、親マクロもキャンセルされました。",
+  "error.macroInputUnconfirmedStopped": "このロールへの入力配信を確認できなかったため、マクロを停止しました。準備ができたら再度開始してください。",
   "error.macroEnabledInvalid": "マクロの有効状態が無効です。",
   "error.macroDisabled": "実行する前にこのマクロを有効にしてください。",
   "error.macroNameDuplicate": "同じ名前のマクロが既に存在します。",

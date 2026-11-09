@@ -1195,6 +1195,7 @@
   "error.macroInUse": "This macro is called by: {names}.",
   "error.macroChildAlreadyRunning": "Called macro \"{name}\" is already running.",
   "error.macroChildStopped": "Cancelled because a called macro was stopped.",
+  "error.macroInputUnconfirmedStopped": "Macro stopped because input delivery to this role could not be confirmed. Start it again when ready.",
   "error.macroEnabledInvalid": "Macro enabled state is invalid.",
   "error.macroDisabled": "Enable this macro before running it.",
   "error.macroNameDuplicate": "A macro with this name already exists.",

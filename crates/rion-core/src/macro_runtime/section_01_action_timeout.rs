@@ -39,6 +39,10 @@ const ROLE_TRANSFER_RECHECK_INTERVAL: Duration = Duration::from_millis(50);
 /// minimum `post_input_delay_ms` that every dispatching macro already pays.
 const EMPTY_LOOP_MINIMUM_INTERVAL_MS: u32 = 10;
 const SIBLING_FAILURE_MESSAGE: &str = "Cancelled because another assigned role failed.";
+/// Shown on the Role whose unconfirmed input delivery stopped a non-restarting
+/// invocation, so a long-running macro never disappears without a reason.
+const INPUT_RECOVERY_STOPPED_MESSAGE: &str =
+    "Macro stopped because input delivery to this role could not be confirmed.";
 const UNASSIGNED_WORKFLOW_MESSAGE: &str =
     "Assign a role to this macro and every called macro before running it.";
 const DISABLED_MACRO_MESSAGE: &str = "Enable this macro before running it.";
@@ -203,6 +207,9 @@ struct InvocationControl {
     children: (Mutex<ChildInvocations>, Condvar),
     execution_finished: AtomicBool,
     failed_role_id: Mutex<Option<String>>,
+    /// Overrides the terminal error shown on `failed_role_id` when an external
+    /// authority (input recovery) cancelled the invocation on that Role's behalf.
+    failure_message: Mutex<Option<String>>,
     first_iteration_completed: AtomicBool,
     first_iteration_roles: (Mutex<HashSet<String>>, Condvar),
     focus_request_ids: Mutex<Vec<String>>,

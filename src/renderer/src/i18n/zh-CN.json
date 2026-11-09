@@ -1191,6 +1191,7 @@
   "error.macroInUse": "此宏正被以下宏调用：{names}。",
   "error.macroChildAlreadyRunning": "被调用的宏“{name}”已在运行。",
   "error.macroChildStopped": "由于被调用的宏已停止，父宏也已取消。",
+  "error.macroInputUnconfirmedStopped": "无法确认输入已送达此角色，宏已停止。准备好后请重新启动。",
   "error.macroEnabledInvalid": "宏启用状态无效。",
   "error.macroDisabled": "请先启用此宏再执行。",
   "error.macroNameDuplicate": "已有相同名称的宏。",

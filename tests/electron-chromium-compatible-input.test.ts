@@ -40,7 +40,7 @@ describe.each(["darwin", "win32"] as const)("%s compatible input receipts", plat
   it("accepts exact untrusted target delivery independently of physical/CDP receipts", async () => {
     const test = setup(async command => receipt(command));
     expect(await test.dispatch()).toMatchObject({ status: "applied", confirmedInputNeutrality: false });
-    expect(test.verifyHost).toHaveBeenCalledTimes(2);
+    expect(test.verifyHost.mock.calls).toEqual([["admission"], ["receipt"]]);
     expect(test.send.mock.calls[0]?.[1]).toMatchObject({ action: "key", ownerId: "owner", sequence: 1 });
     expect(await test.dispatch()).toMatchObject({ status: "applied" });
     expect(test.send.mock.calls[1]?.[1].sequence).toBe(2);
@@ -93,6 +93,16 @@ describe.each(["darwin", "win32"] as const)("%s compatible input receipts", plat
     test.verifyHost.mockImplementation(() => { throw new Error("retired"); });
     expect(await test.dispatch()).toMatchObject({ status: "failed", confirmedInputNeutrality: true });
     expect(test.send).not.toHaveBeenCalled();
+  });
+
+  it("keeps a host replaced after submission indeterminate, distinct from a malformed receipt", async () => {
+    resetTrustedInputTerminalJournalForTest();
+    const test = setup(async command => receipt(command));
+    test.verifyHost.mockImplementation(stage => { if (stage === "receipt") throw new Error("retired"); });
+    expect(await test.dispatch()).toMatchObject({ status: "indeterminate",
+      errorCode: "SYSTEM_COMPATIBLE_INPUT_HOST_SUPERSEDED", confirmedInputNeutrality: false });
+    expect(test.send).toHaveBeenCalledOnce();
+    expect(recentTrustedInputTerminals().at(-1)?.terminalCode).toBe("SYSTEM_COMPATIBLE_INPUT_HOST_SUPERSEDED");
   });
 
   it("rejects an overlapping request without losing the original retirement fence", async () => {

@@ -387,6 +387,7 @@ fn try_ensure_input_recovery_shared(
             .input_recoveries
             .insert(recovery_id.to_owned(), recovery);
         install_recovering_statuses(&mut inner, recovery_id, &roots, &intents);
+        mark_stopped_roots_failed(&roots, &intents, role_id);
         let ticket = MacroInputRecoveryTicket {
             input_epoch,
             pending_macro_restart_count: intents.len().min(u32::MAX as usize) as u32,
@@ -421,6 +422,35 @@ fn root_invocation_control(mut control: Arc<InvocationControl>) -> Arc<Invocatio
             return control;
         };
         control = owner;
+    }
+}
+
+/// A root that recovery stops without a restart intent finishes as a visible
+/// failure on the affected Role instead of silently clearing its statuses.
+fn mark_stopped_roots_failed(
+    roots: &HashMap<String, Arc<InvocationControl>>,
+    intents: &[MacroRestartIntent],
+    role_id: &str,
+) {
+    for root in roots.values() {
+        let restarting = root.restart_intent.lock().ok().is_some_and(|candidate| {
+            candidate.as_ref().is_some_and(|candidate| {
+                intents
+                    .iter()
+                    .any(|intent| intent.sequence == candidate.sequence)
+            })
+        });
+        if restarting || root.cancelled.load(Ordering::Acquire) {
+            continue;
+        }
+        if let Ok(mut failed_role_id) = root.failed_role_id.lock()
+            && failed_role_id.is_none()
+        {
+            *failed_role_id = Some(role_id.to_owned());
+            if let Ok(mut message) = root.failure_message.lock() {
+                *message = Some(INPUT_RECOVERY_STOPPED_MESSAGE.to_owned());
+            }
+        }
     }
 }
 

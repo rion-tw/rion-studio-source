@@ -31,7 +31,7 @@ export class ChromiumCompatibleInput {
 
   dispatch(request: Request, frame: ChromiumRoleOverlayFrameIdentity,
     modifiers: readonly string[], point: { clientX: number; clientY: number } | null,
-    verifyHost: () => void): Promise<Receipt> {
+    verifyHost: (stage: "admission" | "receipt") => void): Promise<Receipt> {
     let document = this.#documents.get(request.roleId);
     if (!document || document.token !== frame.frameToken) {
       document = { token: frame.frameToken, sequence: 0, target: null };
@@ -108,12 +108,18 @@ export class ChromiumCompatibleInput {
       timer = this.input.timers.setTimeout(() => finish(submitted ? "indeterminate" : "failed",
         "SYSTEM_COMPATIBLE_INPUT_RECEIPT_DEADLINE"), request.deadlineMs - this.input.nowMs());
       try {
-        verifyHost();
+        verifyHost("admission");
         submitted = true;
         void this.input.port.dispatchCompatibleInput(frame, command).then(raw => {
           if (terminal) return;
+          // After submission only exact host/document ownership fences the receipt.
+          // Focus and visibility are admission facts: a window switch while the
+          // receipt is in flight is not a superseded host.
+          try { verifyHost("receipt"); } catch {
+            finish("indeterminate", "SYSTEM_COMPATIBLE_INPUT_HOST_SUPERSEDED");
+            return;
+          }
           try {
-            verifyHost();
             const validated = validateCompatibleInputReceipt(command, raw, {
               nowMs: this.input.nowMs(), documentCurrent: this.#documents.get(request.roleId) === retained,
               target: retained.target
@@ -125,7 +131,7 @@ export class ChromiumCompatibleInput {
             const receipt = validated.receipt;
             if (receipt.status === "applied") retained.target = receipt.targetToken;
             finish(receipt.status, receipt.errorCode, receipt.eventCount, receipt);
-          } catch { finish("indeterminate", "SYSTEM_COMPATIBLE_INPUT_HOST_SUPERSEDED"); }
+          } catch { finish("indeterminate", "SYSTEM_COMPATIBLE_INPUT_RECEIPT_MISMATCH"); }
         }, () => finish("indeterminate", "SYSTEM_COMPATIBLE_INPUT_DELIVERY_FAILED"));
       } catch { finish(submitted ? "indeterminate" : "failed", "SYSTEM_COMPATIBLE_INPUT_HOST_SUPERSEDED"); }
     });

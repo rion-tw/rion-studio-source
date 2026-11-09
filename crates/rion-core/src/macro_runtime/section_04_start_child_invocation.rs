@@ -893,6 +893,12 @@ fn finish_invocation(
                 .lock()
                 .ok()
                 .and_then(|role_id| role_id.clone());
+            let failure_message = control
+                .failure_message
+                .lock()
+                .ok()
+                .and_then(|message| message.clone());
+            let error = failure_message.as_ref().unwrap_or(error);
             for (key, status) in &mut inner.statuses {
                 if key.starts_with(&prefix) {
                     let is_failed_role = failed_role_id
@@ -953,6 +959,7 @@ fn new_invocation_control(
         children: (Mutex::new(ChildInvocations::default()), Condvar::new()),
         execution_finished: AtomicBool::new(false),
         failed_role_id: Mutex::new(None),
+        failure_message: Mutex::new(None),
         first_iteration_completed: AtomicBool::new(false),
         first_iteration_roles: (Mutex::new(HashSet::new()), Condvar::new()),
         focus_request_ids: Mutex::new(Vec::new()),

@@ -100,20 +100,67 @@ describe("role page presentation composition", () => {
   });
 });
 
+describe("role page effect trace file", () => {
+  it("appends bounded trace lines only when a development trace file is configured", async () => {
+    const { mkdtemp, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const directory = await mkdtemp(join(tmpdir(), "rion-effects-trace-"));
+    const file = join(directory, "diagnostics", "effects-trace.jsonl");
+    const listeners = new Map<string, (event: { returnValue: unknown }, message?: unknown) => void>();
+    const composition = createElectronRolePagePresentation({
+      core: {
+        invoke: () => Promise.resolve(DEFAULT_GAME_BROWSER_SETTINGS),
+        subscribeCoreEvents: () => () => undefined
+      } as never,
+      ipcMain: { on: (channel, listener) => listeners.set(channel, listener), removeListener: vi.fn() },
+      snapshot: () => null,
+      traceFile: file
+    });
+    await composition.start();
+    const start = { returnValue: undefined as unknown };
+    listeners.get("rion-studio:role-game-effects-sync")!(start);
+    expect(start.returnValue).toMatchObject({ trace: true, effects: { enabled: false } });
+    const trace = listeners.get("rion-studio:role-game-effects-trace")!;
+    trace({ returnValue: undefined }, "{\"a\":1}");
+    trace({ returnValue: undefined }, 7);
+    trace({ returnValue: undefined }, "{\"b\":2}");
+    await vi.waitFor(async () => expect(await readFile(file, "utf8")).toBe("{\"a\":1}\n{\"b\":2}\n"));
+    composition.dispose();
+  });
+});
+
 describe("Chromium role page preload", () => {
-  function ports(initial: unknown) {
+  function ports(effects: unknown, trace = false) {
     const listeners: Array<(event: unknown, message: unknown) => void> = [];
     const setter = vi.fn();
-    const executeInMainWorld = vi.fn(() => setter);
+    const executeInMainWorld = vi.fn((_script: { args?: unknown[] }) => setter);
     const executeJavaScriptInIsolatedWorld = vi.fn(() => Promise.resolve(undefined));
+    const send = vi.fn();
     installChromiumRolePagePresentation({
       contextBridge: { executeInMainWorld },
-      ipc: { sendSync: () => initial, on: (_channel, listener) => listeners.push(listener) },
+      ipc: {
+        sendSync: () => (effects === null ? null : { effects, trace }),
+        send,
+        on: (_channel, listener) => listeners.push(listener)
+      },
       webFrame: { executeJavaScriptInIsolatedWorld },
       isMainFrame: true
     });
-    return { listeners, setter, executeInMainWorld, executeJavaScriptInIsolatedWorld };
+    return { listeners, setter, send, executeInMainWorld, executeJavaScriptInIsolatedWorld };
   }
+
+  it("hands the main world a bounded trace reporter only when main asks for a trace", () => {
+    const settings = { enabled: true, brightness: 0.7, dimBrightSkills: true, hideHitEffects: false, density: 1 };
+    const plain = ports(settings);
+    expect(Object.keys(plain.executeInMainWorld.mock.calls[0]![0].args![0] as object)).not.toContain("report");
+    const traced = ports(settings, true);
+    const { report } = traced.executeInMainWorld.mock.calls[0]![0].args![0] as { report: (line: unknown) => void };
+    report("{\"groups\":[]}");
+    report("x".repeat(70_000));
+    report(42);
+    expect(traced.send.mock.calls).toEqual([["rion-studio:role-game-effects-trace", "{\"groups\":[]}"]]);
+  });
 
   it("never hooks WebGL on a page loaded while dimming is off", () => {
     const { executeInMainWorld } =

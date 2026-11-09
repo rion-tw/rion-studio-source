@@ -8,6 +8,8 @@ import {
 import { CHROMIUM_ROLE_OVERLAY_WORLD_ID } from "../ipc/chromiumRoleOverlayProtocol";
 import {
   CHROMIUM_ROLE_GAME_EFFECTS_SYNC_CHANNEL,
+  CHROMIUM_ROLE_GAME_EFFECTS_TRACE_CHANNEL,
+  CHROMIUM_ROLE_GAME_EFFECTS_TRACE_LINE_LIMIT,
   CHROMIUM_ROLE_PAGE_PRESENTATION_CHANNEL,
   isChromiumRolePagePresentationMessage,
   type ChromiumRolePagePresentationMessage
@@ -22,6 +24,7 @@ export interface ChromiumRolePagePresentationPorts {
   };
   readonly ipc: {
     sendSync: (channel: string) => unknown;
+    send: (channel: string, message: string) => unknown;
     on: (channel: string, listener: (event: unknown, message: unknown) => void) => unknown;
   };
   readonly webFrame: {
@@ -51,17 +54,25 @@ export function assembleRuntimeIndicatorScript(message: ChromiumRolePagePresenta
 
 function installEffects(
   ports: ChromiumRolePagePresentationPorts,
-  settings: GameEffectRuntimeSettings
+  settings: GameEffectRuntimeSettings,
+  trace: boolean
 ): EffectsSetter | null {
   // Pages loaded while dimming is off keep the game's untouched WebGL.
   if (!settings.enabled) return null;
+  // Development builds only: the main world hands back bounded summary lines.
+  const report = (summary: unknown) => {
+    if (typeof summary === "string" && summary.length <= CHROMIUM_ROLE_GAME_EFFECTS_TRACE_LINE_LIMIT) {
+      ports.ipc.send(CHROMIUM_ROLE_GAME_EFFECTS_TRACE_CHANNEL, summary);
+    }
+  };
   const setter = ports.contextBridge.executeInMainWorld({
     func: installChromiumRoleGameEffectsRuntime as (...args: never[]) => unknown,
     args: [{
       brightness: settings.brightness,
       dimBrightSkills: settings.dimBrightSkills,
       hideHitEffects: settings.hideHitEffects,
-      density: settings.density
+      density: settings.density,
+      ...(trace ? { report } : {})
     }]
   });
   return typeof setter === "function" ? setter as EffectsSetter : null;
@@ -71,8 +82,11 @@ export function installChromiumRolePagePresentation(ports: ChromiumRolePagePrese
   if (!ports.isMainFrame) return false;
   let setEffects: EffectsSetter | null = null;
   try {
-    const initial = ports.ipc.sendSync(CHROMIUM_ROLE_GAME_EFFECTS_SYNC_CHANNEL);
-    if (isGameEffectRuntimeSettings(initial)) setEffects = installEffects(ports, initial);
+    const initial = ports.ipc.sendSync(CHROMIUM_ROLE_GAME_EFFECTS_SYNC_CHANNEL) as
+      Partial<Record<"effects" | "trace", unknown>> | null;
+    if (initial && isGameEffectRuntimeSettings(initial.effects)) {
+      setEffects = installEffects(ports, initial.effects, initial.trace === true);
+    }
   } catch {
     // The page keeps the game's own rendering when settings are unavailable.
   }

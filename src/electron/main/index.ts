@@ -725,7 +725,8 @@ async function bootstrapReadyPhase(
   abandonExtensionReleases = () => extensionSessions.abandonNativeReleases();
   rolePages = createElectronRolePagePresentation({
     core, ipcMain, snapshot: () => chromiumRuntime?.snapshot() ?? null,
-    log: effects => runtimeLogs.info("browser", "game_effects_applied", "Game effect settings applied.", { ...effects })
+    log: effects => runtimeLogs.info("browser", "game_effects_applied", "Game effect settings applied.", { ...effects }),
+    ...(app.isPackaged ? {} : { traceFile: join(app.getPath("userData"), "diagnostics", "effects-trace.jsonl") })
   });
   await rolePages.start();
   chromiumRuntime = await ChromiumRuntimeBootstrap.start({

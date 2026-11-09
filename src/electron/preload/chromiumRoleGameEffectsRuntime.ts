@@ -21,6 +21,12 @@
  *   (a stable prefix, never a modulo), and additive survivors brighten to keep
  *   the cloud's total light. Effects drawn a few times are untouched.
  *
+ * - Copy counts are kept per render target, so a reflection or other offscreen
+ *   pass never spends the main pass's copy budget.
+ * - Development builds pass `report`: a read-only per-second summary of every
+ *   blended draw group (target, texture, mode, blend, depth, copies), used to
+ *   learn how a new effect is drawn before changing rules.
+ *
  * Returns a setter for live changes. Brightness and density 1 with both
  * extras off is a pure pass-through.
  */
@@ -29,6 +35,7 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   dimBrightSkills: boolean;
   hideHitEffects: boolean;
   density?: number;
+  report?: (summary: string) => void;
 }): (brightness: number, dimBrightSkills: boolean, hideHitEffects: boolean, density?: number) => void {
   const ADD = 0x8006, REVERSE_SUBTRACT = 0x800b, SRC_ALPHA = 0x302, ONE = 1, ONE_MINUS_DST_COLOR = 0x307;
   const TRIANGLES = 4;
@@ -247,7 +254,8 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   const state = {
     units: [] as (WebGLTexture | null)[], unit: 0, program: null as WebGLProgram | null,
     blendOn: false, src: ONE, dst: 0, srcAlpha: ONE, dstAlpha: 0, equation: ADD,
-    depthTest: false, depthMask: true
+    depthTest: false, depthMask: true, framebuffer: null as WebGLFramebuffer | null,
+    viewportWidth: 0, viewportHeight: 0
   };
 
   const patchFragment = (source: string) => {
@@ -267,34 +275,129 @@ void main() {
 `;
   };
 
-  // Copies of one mesh texture per frame: each copy is divided by the count.
-  let counts = new Map<WebGLTexture, number>();
-  let lastCounts = new Map<WebGLTexture, number>();
-  const smoothed = new Map<WebGLTexture, number>();
+  // Copies of one texture per frame and render target: mesh copies are
+  // divided by the count, particle clouds are thinned by it.
+  type Copies = {
+    frame: number; counts: Map<WebGLTexture, number>; last: Map<WebGLTexture, number>;
+    smoothed: Map<WebGLTexture, number>;
+  };
+  const DEFAULT_TARGET = {};
+  const copiesByTarget = new WeakMap<object, Copies>();
+  let effectFrame = 0;
   let frameEffects = 0;
-  const smoothTexture = (texture: WebGLTexture) => {
-    const target = Math.max(lastCounts.get(texture) ?? 1, 1);
-    const current = smoothed.get(texture) ?? 1;
+  const smoothTexture = (copies: Copies, texture: WebGLTexture) => {
+    const target = Math.max(copies.last.get(texture) ?? 1, 1);
+    const current = copies.smoothed.get(texture) ?? 1;
     // Rise quickly, fall slowly: avoids flicker as counts jitter per frame.
     const next = current + (target - current) * (target > current ? 0.5 : 0.08);
-    if (next < 1.02 && target === 1) smoothed.delete(texture);
-    else smoothed.set(texture, next);
+    if (next < 1.02 && target === 1) copies.smoothed.delete(texture);
+    else copies.smoothed.set(texture, next);
   };
-  const smoothCounts = () => {
-    // Walk both maps without allocating a merged key set every frame.
-    for (const texture of smoothed.keys()) smoothTexture(texture);
-    for (const texture of lastCounts.keys()) if (!smoothed.has(texture)) smoothTexture(texture);
+  /** The current target's counts, rolled over lazily at its first draw of a frame. */
+  const copiesForTarget = (): Copies => {
+    const key = state.framebuffer ?? DEFAULT_TARGET;
+    let copies = copiesByTarget.get(key);
+    if (!copies) {
+      copies = { frame: effectFrame, counts: new Map(), last: new Map(), smoothed: new Map() };
+      copiesByTarget.set(key, copies);
+    } else if (copies.frame !== effectFrame) {
+      // A target skipped for frames decays one step instead of keeping stale counts.
+      copies.last = copies.frame === effectFrame - 1 ? copies.counts : new Map();
+      copies.counts = new Map();
+      copies.frame = effectFrame;
+      // Walk both maps without allocating a merged key set every frame.
+      for (const texture of copies.smoothed.keys()) smoothTexture(copies, texture);
+      for (const texture of copies.last.keys()) if (!copies.smoothed.has(texture)) smoothTexture(copies, texture);
+    }
+    return copies;
   };
+
+  // ---- Development draw trace (read-only; absent in packaged builds) ----
+  const report = typeof initial.report === "function" ? initial.report : null;
+  const traceIds = new WeakMap<object, number>();
+  let nextTraceId = 1;
+  const traceId = (value: object | null | undefined) => {
+    if (!value) return 0;
+    let id = traceIds.get(value);
+    if (!id) {
+      id = nextTraceId++;
+      traceIds.set(value, id);
+    }
+    return id;
+  };
+  const textureShapes = new WeakMap<WebGLTexture, string>();
+  type TraceGroup = {
+    target: number; viewport: string; texture: number; shape: string; kind: string; mode: number;
+    blend: string; depth: string; effect: boolean; draws: number; vertices: number;
+    maxVertices: number; skipped: number; applied: number; frame: number; frameDraws: number;
+    maxFrameDraws: number;
+  };
+  const traceGroups = new Map<string, TraceGroup>();
+  let traceFrame = 0, traceFrames = 0, traceSince = 0, traceCanvas = "";
+  const traceDraw = (gl: Gl, mode: number, count: number, outcome: number) => {
+    if (!state.blendOn) return;
+    // Pass-through pages never classify; the trace applies the same rule.
+    if (state.program && state.dst === ONE && state.depthTest && state.equation === ADD) {
+      effectPrograms.add(state.program);
+    }
+    let texture: WebGLTexture | null = null;
+    for (let index = 0; index < state.units.length && !texture; index++) texture = state.units[index] ?? null;
+    const effect = state.program !== null && effectPrograms.has(state.program);
+    const key = `${traceId(state.framebuffer)}|${traceId(texture)}|${mode}|${state.src},${state.dst},` +
+      `${state.equation}|${+state.depthTest}${+state.depthMask}|${+effect}`;
+    let group = traceGroups.get(key);
+    if (!group) {
+      group = {
+        target: traceId(state.framebuffer), viewport: `${state.viewportWidth}x${state.viewportHeight}`,
+        texture: traceId(texture), shape: (texture && textureShapes.get(texture)) ?? "",
+        kind: !texture ? "" : warningTextures.has(texture) ? "warning" : hiddenTextures.has(texture) ? "hit"
+          : brightTextures.get(texture) ?? "",
+        mode, blend: `${state.src},${state.dst},${state.equation}`,
+        depth: `${+state.depthTest}${+state.depthMask}`, effect, draws: 0, vertices: 0, maxVertices: 0,
+        skipped: 0, applied: 0, frame: -1, frameDraws: 0, maxFrameDraws: 0
+      };
+      traceGroups.set(key, group);
+    }
+    group.draws++;
+    group.vertices += count;
+    group.maxVertices = Math.max(group.maxVertices, count);
+    if (outcome === SKIP) group.skipped++;
+    else if (outcome === APPLY) group.applied++;
+    if (group.frame !== traceFrame) {
+      group.frame = traceFrame;
+      group.frameDraws = 0;
+    }
+    group.maxFrameDraws = Math.max(group.maxFrameDraws, ++group.frameDraws);
+    traceCanvas = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`;
+  };
+  const flushTrace = () => {
+    traceFrame++;
+    traceFrames++;
+    const now = performance.now();
+    if (now - traceSince < 1000) return;
+    if (traceGroups.size) {
+      const groups = [...traceGroups.values()]
+        .sort((left, right) => right.vertices - left.vertices)
+        .slice(0, 64)
+        .map(({ frame: _frame, frameDraws: _frameDraws, ...group }) => group);
+      report?.(JSON.stringify({
+        at: Date.now(), ms: Math.round(now - traceSince), frames: traceFrames, canvas: traceCanvas, groups
+      }));
+    }
+    traceGroups.clear();
+    traceFrames = 0;
+    traceSince = now;
+  };
+
   const nextFrame = () => {
     try {
       // The game often renders below display refresh: a refresh without any
       // effect draw is not a game frame.
       if (frameEffects) {
-        lastCounts = counts;
-        counts = new Map();
-        smoothCounts();
+        effectFrame++;
         frameEffects = 0;
       }
+      if (report) flushTrace();
     } catch {
       // Frame accounting is presentation-only.
     }
@@ -340,6 +443,7 @@ void main() {
     // Copy division belongs to dimming; undimmed effects keep their light.
     const power = !dimming ? undefined : drawMode === TRIANGLES ? 1 : stackPower;
     if (texture && (power || thin)) {
+      const { counts, smoothed } = copiesForTarget();
       const sofar = (counts.get(texture) ?? 0) + 1;
       counts.set(texture, sofar);
       // Stacked particles: only the first copies draw, and together they keep
@@ -438,17 +542,41 @@ void main() {
       state.unit = texture - this.TEXTURE0;
       return original.call(this, texture);
     });
+    wrap("bindFramebuffer", original => function (this: Gl, target: number, framebuffer: WebGLFramebuffer | null) {
+      // FRAMEBUFFER (both) or DRAW_FRAMEBUFFER: the target draws land in.
+      if (target === 0x8d40 || target === 0x8ca9) state.framebuffer = framebuffer;
+      return original.call(this, target, framebuffer);
+    });
+    wrap("viewport", original => function (this: Gl, x: number, y: number, width: number, height: number) {
+      state.viewportWidth = width;
+      state.viewportHeight = height;
+      return original.call(this, x, y, width, height);
+    });
     wrap("bindTexture", original => function (this: Gl, target: number, texture: WebGLTexture | null) {
       if (target === this.TEXTURE_2D) state.units[state.unit] = texture;
       return original.call(this, target, texture);
     });
+    const noteShape = (width: unknown, height: unknown, compressed: boolean) => {
+      const texture = state.units[state.unit];
+      if (report && texture) textureShapes.set(texture, `${Number(width)}x${Number(height)}${compressed ? "c" : ""}`);
+    };
     wrap("compressedTexImage2D", original => function (this: Gl, ...args: unknown[]) {
-      quietly(() => { if (args[1] === 0) noteUpload(state.units[state.unit], args[6] as ArrayBufferView); });
+      quietly(() => {
+        if (args[1] !== 0) return;
+        noteShape(args[3], args[4], true);
+        noteUpload(state.units[state.unit], args[6] as ArrayBufferView);
+      });
       return original.apply(this, args);
     });
     wrap("texImage2D", original => function (this: Gl, ...args: unknown[]) {
       quietly(() => {
-        if (args[1] === 0 && args.length >= 9 && ArrayBuffer.isView(args[8])) {
+        if (args[1] !== 0) return;
+        if (args.length >= 9) noteShape(args[3], args[4], false);
+        else {
+          const source = args[5] as { width?: number; height?: number } | null;
+          noteShape(source?.width, source?.height, false);
+        }
+        if (args.length >= 9 && ArrayBuffer.isView(args[8])) {
           noteUpload(state.units[state.unit], args[8] as ArrayBufferView);
         }
       });
@@ -460,7 +588,10 @@ void main() {
     });
     // FORWARD: the game's draw as is. SCREEN: the draw with screen blending.
     const FORWARD = 0, SCREEN = 1;
-    const prepare = (gl: Gl, mode: number): number => {
+    // Classification of the latest draw for the development trace.
+    let traced = IDENTITY;
+    const classify = (gl: Gl, mode: number): number => {
+      traced = IDENTITY;
       try {
         const program = state.program;
         const location = program && locations.get(program);
@@ -476,6 +607,7 @@ void main() {
           return FORWARD;
         }
         const outcome = effectValue(mode);
+        traced = outcome;
         if (outcome === SKIP) return SKIP;
         const alphaOnly = outcome === APPLY ? fxAlphaOnly : 0;
         const reduce = outcome === APPLY ? fxReduce : 0;
@@ -491,13 +623,18 @@ void main() {
         return FORWARD;
       }
     };
+    const prepare = (gl: Gl, mode: number, count: number): number => {
+      const result = classify(gl, mode);
+      if (report) quietly(() => traceDraw(gl, mode, count, traced));
+      return result;
+    };
     // Colour only: the alpha channel keeps the destination value.
     const screenBlend = (gl: Gl) => nativeBlend.call(gl, ONE_MINUS_DST_COLOR, ONE, 0, ONE);
     const restoreBlend = (gl: Gl) => nativeBlend.call(gl, state.src, state.dst, state.srcAlpha, state.dstAlpha);
     // Fixed parameters: draws run thousands of times per frame, so the
     // wrappers allocate no argument arrays.
     wrap("drawArrays", original => function (this: Gl, mode: number, first: number, count: number) {
-      const outcome = prepare(this, mode);
+      const outcome = prepare(this, mode, count);
       if (outcome === SKIP) return undefined;
       if (outcome === FORWARD) return original.call(this, mode, first, count);
       screenBlend(this);
@@ -508,7 +645,7 @@ void main() {
       }
     });
     wrap("drawElements", original => function (this: Gl, mode: number, count: number, type: number, offset: number) {
-      const outcome = prepare(this, mode);
+      const outcome = prepare(this, mode, count);
       if (outcome === SKIP) return undefined;
       if (outcome === FORWARD) return original.call(this, mode, count, type, offset);
       screenBlend(this);

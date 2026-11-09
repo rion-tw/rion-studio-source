@@ -2,6 +2,17 @@ import type { GameEffectRuntimeSettings } from "../../shared/gameEffects";
 
 /** Synchronous at document start: shader hooks must precede game shader compilation. */
 export const CHROMIUM_ROLE_GAME_EFFECTS_SYNC_CHANNEL = "rion-studio:role-game-effects-sync";
+/** Role preload → main, development builds only: one draw-trace summary line. */
+export const CHROMIUM_ROLE_GAME_EFFECTS_TRACE_CHANNEL = "rion-studio:role-game-effects-trace";
+/** Largest accepted trace summary; larger lines are dropped. */
+export const CHROMIUM_ROLE_GAME_EFFECTS_TRACE_LINE_LIMIT = 64 * 1024;
+
+/** Synchronous document-start answer: the effect projection and whether to trace draws. */
+export interface ChromiumRoleGameEffectsStart {
+  readonly effects: GameEffectRuntimeSettings;
+  readonly trace: boolean;
+}
+
 /** Main → role preload: live effect changes and transient runtime indicators. */
 export const CHROMIUM_ROLE_PAGE_PRESENTATION_CHANNEL = "rion-studio:role-page-presentation";
 

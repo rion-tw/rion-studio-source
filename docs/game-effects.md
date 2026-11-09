@@ -81,9 +81,25 @@ Stops are 100/75/50/25 %.
   classification; draws only clear a coefficient left from before.
 - Every wrapper forwards the game's call even when bookkeeping throws.
 
+## Render targets
+
+Copy counts are kept per bound framebuffer, so a reflection or other offscreen
+pass that redraws the same particles never spends the main pass's budget.
+
+## Development draw trace
+
+Unpackaged builds trace every blended draw on pages where effect dimming is
+enabled (any level, including Original). Once per second, the page sends one
+JSON line to `<userData>/diagnostics/effects-trace.jsonl` (capped at 32 MB per
+session): canvas size and the 64 heaviest groups by vertex count, grouped by
+render target, texture (with its upload shape and any bright/warning/hit
+identity), draw mode, blend function and equation, and depth test/write. Each
+group records draws, vertices, the largest single draw, the most draws in one
+frame, and how many draws the rules applied or skipped. The trace only reads
+GL state; packaged builds never install it.
+
 ## Changing the rules
 
-After a game update, record a few frames of GL calls read-only, group draws by
-program, blend mode, depth test/write and draw mode/vertex count, and compare
-groups before and after casting a skill. Skip a whole group to find what it
+After a game update, enable the development draw trace, cast the skill, and
+compare its groups with the frames before it. Skip a whole group to find what it
 draws, then bisect.

@@ -1,7 +1,14 @@
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+
 import type { CoreEvent } from "../../shared/generated";
 import type { GameEffectRuntimeSettings } from "../../shared/gameEffects";
-import { CHROMIUM_ROLE_GAME_EFFECTS_SYNC_CHANNEL } from
-  "../ipc/chromiumRolePagePresentationProtocol";
+import {
+  CHROMIUM_ROLE_GAME_EFFECTS_SYNC_CHANNEL,
+  CHROMIUM_ROLE_GAME_EFFECTS_TRACE_CHANNEL,
+  CHROMIUM_ROLE_GAME_EFFECTS_TRACE_LINE_LIMIT,
+  type ChromiumRoleGameEffectsStart
+} from "../ipc/chromiumRolePagePresentationProtocol";
 import type { ElectronCoreCommandPort } from "./coreApiDispatcher";
 import {
   ChromiumRolePagePresentation,
@@ -17,13 +24,21 @@ export interface ElectronRolePagePresentationCompositionInput {
     subscribeCoreEvents: (listener: (event: CoreEvent) => void) => () => void;
   };
   readonly ipcMain: {
-    on: (channel: string, listener: (event: SyncIpcEvent) => void) => unknown;
-    removeListener: (channel: string, listener: (event: SyncIpcEvent) => void) => unknown;
+    on: (channel: string, listener: (event: SyncIpcEvent, message?: unknown) => void) => unknown;
+    removeListener: (channel: string, listener: (event: SyncIpcEvent, message?: unknown) => void) => unknown;
   };
   readonly snapshot: () => ChromiumRuntimeExecutorSnapshot | null;
   /** Diagnostic record of the projection each session starts with or changes to. */
   readonly log?: (effects: GameEffectRuntimeSettings) => void;
+  /**
+   * Development builds only: role pages trace their blended draws and each
+   * summary line is appended here (see docs/game-effects.md).
+   */
+  readonly traceFile?: string;
 }
+
+/** A trace session stops appending past this size; restart to begin a new file. */
+const TRACE_FILE_LIMIT = 32 * 1024 * 1024;
 
 export interface ElectronRolePagePresentationComposition {
   readonly presentation: ChromiumRolePagePresentation;
@@ -49,10 +64,26 @@ export function createElectronRolePagePresentation(
   const onSync = (event: SyncIpcEvent) => {
     // A synchronous request must always receive an answer.
     try {
-      event.returnValue = presentation.effectsForDocumentStart();
+      const start: ChromiumRoleGameEffectsStart = {
+        effects: presentation.effectsForDocumentStart(),
+        trace: input.traceFile !== undefined
+      };
+      event.returnValue = start;
     } catch {
       event.returnValue = null;
     }
+  };
+  let traceBytes = 0;
+  let traceLane: Promise<unknown> = input.traceFile
+    ? mkdir(dirname(input.traceFile), { recursive: true }).catch(() => undefined)
+    : Promise.resolve();
+  const onTrace = (_event: SyncIpcEvent, message?: unknown) => {
+    const file = input.traceFile;
+    if (!file || typeof message !== "string" || message.length > CHROMIUM_ROLE_GAME_EFFECTS_TRACE_LINE_LIMIT) return;
+    if (traceBytes + message.length > TRACE_FILE_LIMIT) return;
+    traceBytes += message.length + 1;
+    // One ordered lane; a failed append only loses that diagnostic line.
+    traceLane = traceLane.then(() => appendFile(file, `${message}\n`)).catch(() => undefined);
   };
   let requested = 0;
   let logged = false;
@@ -92,6 +123,7 @@ export function createElectronRolePagePresentation(
     start: () => {
       if (!unsubscribe && !disposed) {
         input.ipcMain.on(CHROMIUM_ROLE_GAME_EFFECTS_SYNC_CHANNEL, onSync);
+        if (input.traceFile) input.ipcMain.on(CHROMIUM_ROLE_GAME_EFFECTS_TRACE_CHANNEL, onTrace);
         unsubscribe = input.core.subscribeCoreEvents((event) => {
           if (event.type === "stateChanged") void refresh();
         });
@@ -103,6 +135,7 @@ export function createElectronRolePagePresentation(
       unsubscribe?.();
       unsubscribe = null;
       input.ipcMain.removeListener(CHROMIUM_ROLE_GAME_EFFECTS_SYNC_CHANNEL, onSync);
+      input.ipcMain.removeListener(CHROMIUM_ROLE_GAME_EFFECTS_TRACE_CHANNEL, onTrace);
     }
   });
 }

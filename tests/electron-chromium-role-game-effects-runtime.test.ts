@@ -66,7 +66,7 @@ function installFakeWebGl() {
     "createShader", "shaderSource", "linkProgram", "useProgram", "enable", "disable",
     "blendFunc", "blendFuncSeparate", "blendEquation", "blendEquationSeparate",
     "activeTexture", "bindTexture", "compressedTexImage2D", "texImage2D", "depthMask",
-    "drawElements", "drawArrays", "uniform3f", "getUniformLocation"
+    "drawElements", "drawArrays", "uniform3f", "getUniformLocation", "bindFramebuffer", "viewport"
   ]) prototype[name] = record(name);
   vi.stubGlobal("WebGLRenderingContext", FakeWebGLRenderingContext);
   vi.stubGlobal("WebGL2RenderingContext", undefined);
@@ -269,6 +269,54 @@ describe("Chromium role game-effects runtime", () => {
     expect([alphaOnly, screen]).toEqual([1, 0]);
     expect(reduce).toBeCloseTo(-1, 2);
     expect(calls.some(call => call.name === "blendFuncSeparate")).toBe(false);
+  });
+
+  it("counts copies per render target so an offscreen pass keeps the main pass's budget", () => {
+    const { calls, gl } = installFakeWebGl();
+    let frame = () => undefined as unknown;
+    vi.stubGlobal("requestAnimationFrame", (callback: () => unknown) => { frame = callback; return 0; });
+    installChromiumRoleGameEffectsRuntime({ brightness: 1, dimBrightSkills: false, hideHitEffects: false, density: 0.5 });
+    effectState(gl);
+    const cloud = { texture: "cloud" }, reflection = { framebuffer: "reflection" };
+    const drawFrame = () => {
+      calls.length = 0;
+      gl.bindTexture!(TEXTURE_2D, cloud);
+      gl.bindFramebuffer!(0x8d40, reflection);
+      for (let copy = 0; copy < 40; copy++) gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+      const offscreen = draws(calls);
+      gl.bindFramebuffer!(0x8d40, null);
+      for (let copy = 0; copy < 40; copy++) gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+      frame();
+      return [offscreen, draws(calls) - offscreen];
+    };
+    for (let index = 0; index < 12; index++) drawFrame();
+    expect(drawFrame()).toEqual([20, 20]);
+  });
+
+  it("reports a read-only per-second summary of blended draw groups in development", () => {
+    const { calls, gl } = installFakeWebGl();
+    let frame = () => undefined as unknown;
+    vi.stubGlobal("requestAnimationFrame", (callback: () => unknown) => { frame = callback; return 0; });
+    let now = 0;
+    vi.stubGlobal("performance", { now: () => now });
+    const report = vi.fn();
+    installChromiumRoleGameEffectsRuntime({
+      brightness: 1, dimBrightSkills: false, hideHitEffects: false, density: 1, report
+    });
+    effectState(gl);
+    gl.bindTexture!(TEXTURE_2D, { texture: "layer" });
+    gl.compressedTexImage2D!(TEXTURE_2D, 0, 0, 256, 128, 0, new Uint8Array(16));
+    for (let copy = 0; copy < 4; copy++) gl.drawElements!(TRIANGLES, 600, 0x1403, 0);
+    now = 1_200;
+    frame();
+    // Pass-through pages are traced without changing a single draw.
+    expect(draws(calls)).toBe(4);
+    expect(uniforms(calls)).toEqual([]);
+    const summary = JSON.parse(report.mock.calls[0]![0] as string) as { groups: Array<Record<string, unknown>> };
+    expect(summary.groups).toEqual([expect.objectContaining({
+      shape: "256x128c", mode: TRIANGLES, blend: `${SRC_ALPHA},${ONE},${FUNC_ADD}`, depth: "11",
+      effect: true, draws: 4, vertices: 2400, maxVertices: 600, maxFrameDraws: 4, skipped: 0
+    })]);
   });
 
   it("never thins Boss ground warnings", async () => {

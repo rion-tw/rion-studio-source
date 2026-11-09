@@ -17,9 +17,11 @@
  *   throwing wrapper once stopped the game from presenting frames.
  *
  * - Density: an effect texture drawn more than DENSITY_THRESHOLD times in the
- *   previous frames is a particle cloud. Only its first copies per frame draw
- *   (a stable prefix, never a modulo), and additive survivors brighten to keep
- *   the cloud's total light. Effects drawn a few times are untouched.
+ *   previous frames is a particle cloud, and a TRIANGLES mesh texture drawn
+ *   more than MESH_THRESHOLD times is a stack of large layers. Only their first
+ *   copies per frame draw (a stable prefix, never a modulo), and additive
+ *   survivors brighten to keep the total light. Effects drawn once or twice
+ *   are untouched.
  *
  * - Copy counts are kept per render target, so a reflection or other offscreen
  *   pass never spends the main pass's copy budget.
@@ -48,9 +50,13 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   const PARTICLE_STACK: Record<string, number> = { sfx_sklpsypsychicbomb: 1 };
   // Copies of a stacked particle texture drawn per frame; the rest are skipped.
   const PARTICLE_STACK_LIMIT = 48;
-  // Copies of one effect texture per frame that always draw; only clouds
+  // Copies of one particle texture per frame that always draw; only clouds
   // repeating beyond this are thinned by the density setting.
   const DENSITY_THRESHOLD = 8;
+  // Large-area effects (Sandstorm trace, 2026-11) stack a few big TRIANGLES
+  // layers of one texture per frame, each hundreds to thousands of vertices.
+  // Mesh layers beyond this many copies thin down to at least one layer.
+  const MESH_THRESHOLD = 2;
   // Largest brightening of a thinned cloud's survivors (1 / lowest density).
   const MAX_GAIN = 4;
   // `length:sampleHash` of hit-effect textures (Firebird 13, Spirit Bomb 6).
@@ -452,8 +458,9 @@ void main() {
       // A newly appearing effect has no previous count yet and draws in full.
       const previous = smoothed.get(texture) ?? 1;
       let kept = Infinity;
-      if (thin && previous > DENSITY_THRESHOLD) {
-        kept = Math.max(DENSITY_THRESHOLD, Math.ceil(previous * density));
+      const mesh = drawMode === TRIANGLES;
+      if (thin && previous > (mesh ? MESH_THRESHOLD : DENSITY_THRESHOLD)) {
+        kept = Math.max(mesh ? 1 : DENSITY_THRESHOLD, Math.ceil(previous * density));
         if (sofar > kept) return SKIP;
       }
       let copies = Math.max(previous, sofar);

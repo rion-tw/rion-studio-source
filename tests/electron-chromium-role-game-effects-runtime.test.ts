@@ -271,6 +271,30 @@ describe("Chromium role game-effects runtime", () => {
     expect(calls.some(call => call.name === "blendFuncSeparate")).toBe(false);
   });
 
+  it("thins stacked large mesh layers but never a mesh drawn once or twice", () => {
+    const { calls, gl } = installFakeWebGl();
+    let frame = () => undefined as unknown;
+    vi.stubGlobal("requestAnimationFrame", (callback: () => unknown) => { frame = callback; return 0; });
+    installChromiumRoleGameEffectsRuntime({ brightness: 1, dimBrightSkills: false, hideHitEffects: false, density: 0.25 });
+    effectState(gl);
+    const layers = { texture: "vortex" }, pair = { texture: "pair" };
+    const drawFrame = () => {
+      calls.length = 0;
+      gl.bindTexture!(TEXTURE_2D, layers);
+      for (let copy = 0; copy < 7; copy++) gl.drawElements!(TRIANGLES, 900, 0x1403, 0);
+      const stacked = draws(calls);
+      gl.bindTexture!(TEXTURE_2D, pair);
+      for (let copy = 0; copy < 2; copy++) gl.drawElements!(TRIANGLES, 2700, 0x1403, 0);
+      frame();
+      return [stacked, draws(calls) - stacked];
+    };
+    expect(drawFrame()).toEqual([7, 2]);
+    for (let index = 0; index < 12; index++) drawFrame();
+    // Seven layers keep ceil(7 × 25%) = 2, brightened about 3.5×.
+    expect(drawFrame()).toEqual([2, 2]);
+    expect(uniforms(calls).some(([, reduce]) => (reduce as number) < -2)).toBe(true);
+  });
+
   it("counts copies per render target so an offscreen pass keeps the main pass's budget", () => {
     const { calls, gl } = installFakeWebGl();
     let frame = () => undefined as unknown;

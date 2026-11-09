@@ -67,6 +67,19 @@ describe("quick access model", () => {
     expect(isQuickAccessShortcut({ ...event, isComposing: true }, "mac")).toBe(false);
     expect(isQuickAccessShortcut({ ...event, metaKey: false, ctrlKey: true }, "windows")).toBe(true);
     expect(isQuickAccessShortcut({ ...event, metaKey: true, ctrlKey: true }, "windows")).toBe(false);
+    // Non-Latin layouts: the physical K key, like the game-window shortcut.
+    expect(isQuickAccessShortcut({ ...event, key: "л", code: "KeyK", metaKey: false, ctrlKey: true }, "windows"))
+      .toBe(true);
+    expect(isQuickAccessShortcut({ ...event, key: "л", code: "KeyL", metaKey: false, ctrlKey: true }, "windows"))
+      .toBe(false);
+  });
+
+  it("matches multi-word queries across name and association in any order", () => {
+    const catalog = catalogFor({});
+    for (const query of ["role one game alpha", "game alpha role one"]) {
+      expect(filterQuickAccessItems(catalog, query).some((item) => item.key === "role:r1")).toBe(true);
+    }
+    expect(filterQuickAccessItems(catalog, "role one nonexistent")).toEqual([]);
   });
 
   it("normalizes Unicode queries and indexes only safe names and associations", () => {
@@ -277,6 +290,27 @@ describe("quick access palette", () => {
     }
   });
 
+  it("runs the highlighted item even after a background update reorders the list", async () => {
+    const user = userEvent.setup();
+    const onExecute = vi.fn().mockResolvedValue(false);
+    const catalog = catalogFor({});
+    const { rerender } = render(<PaletteHarness catalog={catalog} onExecute={onExecute} onSetPinned={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Open palette" }));
+    await user.keyboard("{ArrowDown}");
+    const optionIds = () => screen.getAllByRole("option").map((option) => option.id);
+    const highlighted = screen.getByRole("combobox").getAttribute("aria-activedescendant");
+    const before = optionIds();
+    expect(before.indexOf(highlighted ?? "")).toBe(1);
+
+    rerender(<PaletteHarness catalog={[...catalog].reverse() as typeof catalog} onExecute={onExecute} onSetPinned={vi.fn()} />);
+    expect(optionIds()).not.toEqual(before);
+    expect(screen.getByRole("combobox").getAttribute("aria-activedescendant")).toBe(highlighted);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(onExecute).toHaveBeenCalledOnce());
+    const executed = onExecute.mock.calls[0]![0] as QuickAccessItem;
+    expect(document.getElementById(highlighted ?? "")?.textContent).toContain(executed.label);
+  });
+
   it("keeps a palette closed during a pending launch closed after that launch fails", async () => {
     const user = userEvent.setup();
     let finishExecution!: (succeeded: boolean) => void;
@@ -301,9 +335,11 @@ describe("quick access palette", () => {
 });
 
 function PaletteHarness({
+  catalog,
   onExecute,
   onSetPinned
 }: {
+  catalog?: ReturnType<typeof catalogFor>;
   onExecute: (item: QuickAccessItem) => Promise<boolean>;
   onSetPinned: (item: { kind: "role" | "workspace" | "gameWindow" | "macro"; id: string }, pinned: boolean) => Promise<boolean>;
 }): JSX.Element {
@@ -314,7 +350,7 @@ function PaletteHarness({
       <button type="button" onClick={() => setOpen(true)}>Open palette</button>
       <button type="button" onClick={() => setOpen(false)}>Close palette</button>
       <QuickAccessPalette
-        catalog={catalogFor({})}
+        catalog={catalog ?? catalogFor({})}
         gameWindows={[gameWindow()]}
         open={open}
         runtime={emptyRuntime()}

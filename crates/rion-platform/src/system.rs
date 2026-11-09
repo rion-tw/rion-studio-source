@@ -148,7 +148,7 @@ mod tests {
         let invocation = "[RionStudioChromeCloser]::CloseChromeWindows()";
         let definition = WINDOWS_CLOSE_SCRIPT.replace(invocation, "");
         assert_ne!(definition, WINDOWS_CLOSE_SCRIPT);
-        let status = std::process::Command::new("powershell.exe")
+        let status = background_command("powershell.exe")
             .args(["-NoProfile", "-NonInteractive", "-Command", &definition])
             .stdin(Stdio::null())
             .status()

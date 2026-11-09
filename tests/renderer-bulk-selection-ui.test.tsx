@@ -112,7 +112,7 @@ describe("bulk selection UI", () => {
       isPrimary: true,
       pointerId: 7
     });
-    fireEvent.pointerMove(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
+    fireEvent.pointerMove(page!, { buttons: 1, clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
     expect(screen.queryByText("1 selected")).toBeNull();
     fireEvent.pointerUp(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
 
@@ -123,7 +123,7 @@ describe("bulk selection UI", () => {
       isPrimary: true,
       pointerId: 8
     });
-    fireEvent.pointerMove(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 8 });
+    fireEvent.pointerMove(page!, { buttons: 1, clientX: 140, clientY: 200, isPrimary: true, pointerId: 8 });
     expect(screen.queryByText("1 selected")).toBeNull();
     fireEvent.pointerUp(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 8 });
 

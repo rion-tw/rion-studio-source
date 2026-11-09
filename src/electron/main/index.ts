@@ -515,6 +515,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
   window.webContents.on("render-process-gone", () => {
     mainRendererQuitHandshake.markUnavailable(identity);
   });
+  window.webContents.on("unresponsive", () => mainRendererQuitHandshake.markResponsive(identity, false));
+  window.webContents.on("responsive", () => mainRendererQuitHandshake.markResponsive(identity, true));
   const windowsSessionEnd = createWindowsSessionEndCoordinator({
     platform: platform(),
     window,

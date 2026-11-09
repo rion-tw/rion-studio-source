@@ -73,7 +73,8 @@ export function canonicalWorkspaceWebUrl(value: unknown): string | null {
   const trimmed = value.trim();
   if (!trimmed || new TextEncoder().encode(trimmed).byteLength > 2_048 ||
       /\s/u.test(trimmed)) return null;
-  const candidate = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
+  // Only a leading scheme counts: `example.com/?next=https://x` still needs one.
+  const candidate = /^[a-z][a-z\d+.-]*:\/\//iu.test(trimmed) ? trimmed : `https://${trimmed}`;
   try {
     const parsed = new URL(candidate);
     return (parsed.protocol === "http:" || parsed.protocol === "https:") &&

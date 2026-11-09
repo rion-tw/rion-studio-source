@@ -66,8 +66,8 @@ const keyTokenToCode = new Map<string, string>([
   ["↵", "Enter"],
   ["PAGEUP", "PageUp"],
   ["PAGEDOWN", "PageDown"],
-  ["CAPS", "CapsLock"],
-  ["CAPSLOCK", "CapsLock"],
+  // CapsLock is intentionally absent: neither input lane can deliver it, and
+  // the step editor excludes it, so an import must not create an unplayable step.
   ["SHIFT", "ShiftLeft"],
   ["CONTROL", "ControlLeft"],
   ["CTRL", "ControlLeft"],
@@ -125,7 +125,8 @@ export function parseMacroCommand(
   input: string,
   options: MacroCommandParseOptions = {}
 ): MacroCommandParseResult {
-  const splitResult = splitCommandTokens(input);
+  // CJK IMEs produce full-width separators, digits and letters (：＞％，６Ａ).
+  const splitResult = splitCommandTokens(input.normalize("NFKC"));
   const issues: MacroCommandIssue[] = splitResult.unclosedQuote
     ? [{ code: "unclosedQuote", token: input.trim() }]
     : [];
@@ -166,7 +167,9 @@ export function parseMacroCommand(
     }
 
     if (head === "CALL" || head === "START") {
-      const target = macros.find((macro) => macro.name === argument);
+      // The command text is NFKC-normalized; an exact name still wins.
+      const target = macros.find((macro) => macro.name === argument) ??
+        macros.find((macro) => macro.name.normalize("NFKC") === argument);
       if (!target) {
         issues.push({ code: "missingMacro", detail: argument, token });
         return;

@@ -275,6 +275,12 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
     state.currentX = event.clientX;
     state.currentY = event.clientY;
     if (!state.hasStarted) {
+      // Capture is only taken past the threshold, so a release outside the
+      // collection never reaches it; a later hover must not start a marquee.
+      if ((event.buttons & 1) === 0) {
+        marqueeRef.current = null;
+        return;
+      }
       const distance = Math.hypot(state.currentX - state.startX, state.currentY - state.startY);
       if (distance < MARQUEE_ACTIVATION_DISTANCE_PX) {
         return;

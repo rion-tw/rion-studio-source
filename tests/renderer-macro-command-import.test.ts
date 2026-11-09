@@ -227,6 +227,28 @@ describe("parseMacroCommand", () => {
     expect(result.issues.map((issue) => issue.code)).toEqual(["unclosedQuote", "unsupported", "stepLimit"]);
     expect(result.issues.at(-1)).toMatchObject({ code: "stepLimit", detail: "1" });
   });
+
+  it("accepts full-width IME separators, digits and letters", () => {
+    const loop = createMacro("loop", "Ｌｏｏｐ", { type: "loop", intervalMs: 0 });
+    const result = parseMacroCommand("ｗａｉｔ：６００＞ＣＬＩＣＫ：50％，25％＞Ａ＞start：Ｌｏｏｐ", {
+      idFactory: createIdFactory(),
+      macros: [loop]
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.steps).toMatchObject([
+      { type: "delay", ms: 600 },
+      { type: "click", xPercent: 50, yPercent: 25 },
+      { type: "key", code: "KeyA" },
+      { type: "macro", macroId: "loop" }
+    ]);
+  });
+
+  it.each(["caps", "CapsLock"])("does not import %s, which no input lane can deliver", token => {
+    const result = parseMacroCommand(`${token}>a`, { idFactory: createIdFactory() });
+    expect(result.steps).toMatchObject([{ type: "key", code: "KeyA" }]);
+    expect(result.issues.map((issue) => issue.code)).toEqual(["unknownKey"]);
+  });
 });
 
 function createIdFactory(): () => string {

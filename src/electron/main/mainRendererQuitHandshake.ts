@@ -15,6 +15,8 @@ export interface ElectronMainRendererQuitHandshakeInput {
 interface RendererQuitBinding {
   identity: RendererIdentity;
   ready: boolean;
+  /** A hung renderer cannot answer the unsaved-change prompt; Quit must not wait on it. */
+  responsive: boolean;
   window: ElectronMainRendererQuitWindowPort;
 }
 
@@ -32,7 +34,12 @@ export class ElectronMainRendererQuitHandshake {
   }
 
   bind(identity: RendererIdentity, window: ElectronMainRendererQuitWindowPort): void {
-    this.#binding = { identity, ready: false, window };
+    this.#binding = { identity, ready: false, responsive: true, window };
+  }
+
+  /** Follows WebContents `unresponsive`/`responsive`; readiness itself is kept. */
+  markResponsive(identity: RendererIdentity, responsive: boolean): void {
+    if (this.#binding?.identity === identity) this.#binding.responsive = responsive;
   }
 
   markReady(identity: RendererIdentity): void {
@@ -49,7 +56,7 @@ export class ElectronMainRendererQuitHandshake {
 
   requestConfirmation(): boolean {
     const binding = this.#binding;
-    if (!binding?.ready || binding.window.isDestroyed()) return false;
+    if (!binding?.ready || !binding.responsive || binding.window.isDestroyed()) return false;
     if (binding.window.isMinimized()) binding.window.restore();
     binding.window.show();
     binding.window.focus();

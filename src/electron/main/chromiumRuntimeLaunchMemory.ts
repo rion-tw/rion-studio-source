@@ -99,7 +99,8 @@ const MAX_TRACKED_LAUNCHES = 64;
 export class RememberedWindowZoomRestorer {
   readonly #core: ElectronCoreCommandPort;
   readonly #pending = new Map<string, Readonly<{ windowId: string; zoomFactor: number }>>();
-  readonly #completed: string[] = [];
+  /** Completed launch outcomes, including failures that arrive before `schedule`. */
+  readonly #completed = new Map<string, boolean>();
 
   constructor(core: ElectronCoreCommandPort & {
     subscribeCoreEvents: (listener: (event: import("../../shared/generated").CoreEvent) => void) => () => void;
@@ -113,15 +114,20 @@ export class RememberedWindowZoomRestorer {
         if (event.ok) this.#restore(pending.windowId, pending.zoomFactor);
         return;
       }
-      if (!event.ok) return;
-      this.#completed.push(event.operationId);
-      if (this.#completed.length > MAX_TRACKED_LAUNCHES) this.#completed.shift();
+      // A failed launch is recorded too: dropping it would park a later
+      // `schedule` forever and, after enough of them, block every restore.
+      this.#completed.set(event.operationId, event.ok);
+      if (this.#completed.size > MAX_TRACKED_LAUNCHES) {
+        this.#completed.delete(this.#completed.keys().next().value!);
+      }
     });
   }
 
   schedule(operationId: string, completedAtAdmission: boolean, windowId: string, zoomFactor: number): void {
     if (zoomFactor === 1) return;
-    if (completedAtAdmission || this.#completed.includes(operationId)) {
+    const completed = this.#completed.get(operationId);
+    if (completed === false) return;
+    if (completedAtAdmission || completed === true) {
       this.#restore(windowId, zoomFactor);
       return;
     }

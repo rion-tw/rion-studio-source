@@ -406,14 +406,15 @@ describe("Windows Chromium trusted-input adapter", () => {
   });
 
   it("keeps a compatible key applied when window focus changes while its receipt is in flight", async () => {
-    let subject!: ReturnType<typeof harness>;
+    const owner: { subject?: ReturnType<typeof harness> } = {};
     const send: ChromiumCompatibleInputPort["dispatchCompatibleInput"] = vi.fn(async (_frame, command) => {
       // Alt-tab / clicking another game window between submission and receipt.
-      subject.setViewFocus({ parentForeground: false, contentsFocused: true });
+      owner.subject!.setViewFocus({ parentForeground: false, contentsFocused: true });
       return { ...command, ...compatibleModifierEvidenceForTest(command), targetToken: "original-canvas",
         isTrusted: false, eventCount: 1, status: "applied", errorCode: null };
     });
-    subject = harness({ compatibility: { dispatchCompatibleInput: send } });
+    const subject = harness({ compatibility: { dispatchCompatibleInput: send } });
+    owner.subject = subject;
     const key = await subject.adapter.dispatch(nativeRequest("key", keyAction("hold"), {
       keyEffect: { phase: "rawKeyDown", code: "Enter", activeCodesBefore: [],
         activeCodes: ["Enter"], autoRepeat: false, suppressShortcut: true }

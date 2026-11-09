@@ -29,6 +29,8 @@ it.each([
   ["127.0.0.1:8000/a", "https://127.0.0.1:8000/a"],
   ["[::1]:8000/a", "https://[::1]:8000/a"],
   ["example.com:8443/a", "https://example.com:8443/a"],
+  ["example.com/login?next=https://foo.test", "https://example.com/login?next=https://foo.test"],
+  ["localhost:3000/?r=http://x.test", "https://localhost:3000/?r=http://x.test"],
   ["貓", "https://www.google.com/search?q=%E8%B2%93"],
   ["  cats & dogs #1+2  ", "https://www.google.com/search?q=cats%20%26%20dogs%20%231%2B2"],
   ["cats", "https://www.google.com/search?q=cats"],

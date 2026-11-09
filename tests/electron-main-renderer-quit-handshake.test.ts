@@ -96,4 +96,22 @@ describe("Electron main-renderer quit handshake", () => {
     expect(handshake.requestConfirmation()).toBe(false);
     expect(publishQuitRequested).toHaveBeenCalledWith(replacementIdentity);
   });
+
+  it("lets Quit proceed while the ready renderer is hung and resumes the prompt when it recovers", () => {
+    const publishQuitRequested = vi.fn(() => true);
+    const handshake = new ElectronMainRendererQuitHandshake({ publishQuitRequested });
+    const currentIdentity = identity(3);
+    handshake.bind(currentIdentity, windowPort());
+    handshake.markReady(currentIdentity);
+
+    handshake.markResponsive(currentIdentity, false);
+    expect(handshake.requestConfirmation()).toBe(false);
+    expect(publishQuitRequested).not.toHaveBeenCalled();
+    handshake.markResponsive(identity(4), true);
+    expect(handshake.requestConfirmation()).toBe(false);
+
+    handshake.markResponsive(currentIdentity, true);
+    expect(handshake.requestConfirmation()).toBe(true);
+    expect(publishQuitRequested).toHaveBeenCalledExactlyOnceWith(currentIdentity);
+  });
 });

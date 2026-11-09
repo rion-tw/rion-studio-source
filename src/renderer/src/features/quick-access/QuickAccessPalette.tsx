@@ -87,9 +87,13 @@ export function QuickAccessPalette({
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
   const [query, setQuery] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  // Selection follows the item, not its row: a background launch re-sorts the
+  // catalog by activity, and Enter must still run the highlighted item.
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const items = useMemo(() => filterQuickAccessItems(catalog, query), [catalog, query]);
+  const keyedIndex = selectedKey === null ? -1 : items.findIndex((item) => item.key === selectedKey);
+  const selectedIndex = keyedIndex === -1 ? 0 : keyedIndex;
   // An awaited execution must see the current open state, not its closure's.
   const openRef = useRef(open);
   openRef.current = open;
@@ -114,17 +118,13 @@ export function QuickAccessPalette({
     if (!open && wasOpenRef.current) {
       wasOpenRef.current = false;
       setQuery("");
-      setSelectedIndex(0);
+      setSelectedKey(null);
       setIsExecuting(false);
       if (restoreDomFocusOnClose) restoreFocusRef.current?.focus();
       restoreFocusRef.current = null;
       onDidClose();
     }
   }, [onDidClose, open, restoreDomFocusOnClose]);
-
-  useEffect(() => {
-    setSelectedIndex((current) => Math.min(current, Math.max(0, items.length - 1)));
-  }, [items.length]);
 
   // Focus stays in the search field, so keyboard selection must scroll itself.
   // Runtime updates rebuild the items; only a changed selection scrolls.
@@ -164,7 +164,7 @@ export function QuickAccessPalette({
 
   function moveSelection(delta: number): void {
     if (items.length === 0) return;
-    setSelectedIndex((current) => (current + delta + items.length) % items.length);
+    setSelectedKey(items[(selectedIndex + delta + items.length) % items.length]!.key);
   }
 
   return (
@@ -193,7 +193,7 @@ export function QuickAccessPalette({
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
-              setSelectedIndex(0);
+              setSelectedKey(null);
             }}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;
@@ -244,7 +244,7 @@ export function QuickAccessPalette({
                   selected={index === selectedIndex}
                   t={t}
                   onExecute={(destination) => void execute(item, destination)}
-                  onPointerMove={() => setSelectedIndex(index)}
+                  onPointerMove={() => setSelectedKey(item.key)}
                   onSetPinned={(pinned) => {
                     if (item.kind !== "route") void onSetPinned(item.ref, pinned);
                   }}

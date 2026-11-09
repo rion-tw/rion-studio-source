@@ -108,13 +108,15 @@ export function normalizeQuickAccessSearch(value: string): string {
 }
 
 export function isQuickAccessShortcut(
-  event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "isComposing" | "key" | "metaKey" | "repeat" | "shiftKey">,
+  event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "isComposing" | "key" | "metaKey" | "repeat" | "shiftKey"> &
+    Partial<Pick<KeyboardEvent, "code">>,
   platform: "mac" | "windows"
 ): boolean {
   if (event.isComposing || event.repeat || event.altKey || event.shiftKey) {
     return false;
   }
-  if (event.key.toLocaleLowerCase() !== "k") {
+  // Same as the game-window shortcut: the physical K key works on non-Latin layouts.
+  if (event.code !== "KeyK" && event.key.toLocaleLowerCase() !== "k") {
     return false;
   }
   return platform === "mac"
@@ -329,6 +331,9 @@ function quickAccessMatchScore(searchText: string, query: string): number | unde
   if (searchText.startsWith(query)) return 1;
   if (searchText.split(" ").some((token) => token.startsWith(query))) return 2;
   if (searchText.includes(query)) return 3;
+  // "alice genshin" finds role Alice in game Genshin, in either word order.
+  const terms = query.split(" ");
+  if (terms.length > 1 && terms.every((term) => searchText.includes(term))) return 4;
   return undefined;
 }
 

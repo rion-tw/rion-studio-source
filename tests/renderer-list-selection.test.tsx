@@ -53,23 +53,23 @@ describe("list selection", () => {
 
     fireEvent.pointerDown(collection, { button: 0, clientX: 0, clientY: 0, isPrimary: true, pointerId: 1 });
     expect(setPointerCapture).not.toHaveBeenCalled();
-    fireEvent.pointerMove(collection, { clientX: 2, clientY: 2, isPrimary: true, pointerId: 1 });
+    fireEvent.pointerMove(collection, { buttons: 1, clientX: 2, clientY: 2, isPrimary: true, pointerId: 1 });
     expect(screen.getByTestId("selected").textContent).toBe("");
     expect(setPointerCapture).not.toHaveBeenCalled();
 
-    fireEvent.pointerMove(collection, { clientX: 7, clientY: 0, isPrimary: true, pointerId: 1 });
+    fireEvent.pointerMove(collection, { buttons: 1, clientX: 7, clientY: 0, isPrimary: true, pointerId: 1 });
     expect(screen.getByTestId("selected").textContent).toBe("");
     expect(setPointerCapture).not.toHaveBeenCalled();
 
-    fireEvent.pointerMove(collection, { clientX: 55, clientY: 55, isPrimary: true, pointerId: 1 });
+    fireEvent.pointerMove(collection, { buttons: 1, clientX: 55, clientY: 55, isPrimary: true, pointerId: 1 });
     expect(screen.getByTestId("selected").textContent).toBe("");
     expect(setPointerCapture).toHaveBeenCalledOnce();
     expect(setPointerCapture).toHaveBeenCalledWith(1);
     act(() => nextFrame?.(0));
     expect(screen.getByTestId("selected").textContent).toBe("one");
 
-    fireEvent.pointerMove(collection, { clientX: 65, clientY: 55, isPrimary: true, pointerId: 1 });
-    fireEvent.pointerMove(collection, { clientX: 125, clientY: 55, isPrimary: true, pointerId: 1 });
+    fireEvent.pointerMove(collection, { buttons: 1, clientX: 65, clientY: 55, isPrimary: true, pointerId: 1 });
+    fireEvent.pointerMove(collection, { buttons: 1, clientX: 125, clientY: 55, isPrimary: true, pointerId: 1 });
     expect(screen.getByTestId("selected").textContent).toBe("one");
     act(() => nextFrame?.(16));
     expect(screen.getByTestId("selected").textContent).toBe("one,two");
@@ -85,13 +85,29 @@ describe("list selection", () => {
     const collection = screen.getByTestId("collection");
 
     fireEvent.pointerDown(collection, { button: 0, clientX: 0, clientY: 0, isPrimary: true, pointerId: 3 });
-    fireEvent.pointerMove(collection, { clientX: 55, clientY: 55, isPrimary: true, pointerId: 3 });
+    fireEvent.pointerMove(collection, { buttons: 1, clientX: 55, clientY: 55, isPrimary: true, pointerId: 3 });
     expect(screen.getByTestId("selected").textContent).toBe("");
 
     fireEvent.pointerUp(collection, { clientX: 55, clientY: 55, isPrimary: true, pointerId: 3 });
 
     expect(screen.getByTestId("selected").textContent).toBe("one");
     expect(cancelFrame).toHaveBeenCalledWith(7);
+  });
+
+  it("disarms a pending marquee whose button was released outside the collection", () => {
+    render(<SelectionHarness ids={["one", "two"]} />);
+    setBounds(screen.getByTestId("one"), 10, 10, 40, 40);
+    const collection = screen.getByTestId("collection");
+    const setPointerCapture = vi.spyOn(collection, "setPointerCapture");
+
+    fireEvent.pointerDown(collection, { button: 0, clientX: 0, clientY: 0, isPrimary: true, pointerId: 5 });
+    fireEvent.pointerMove(collection, { buttons: 1, clientX: 3, clientY: 3, isPrimary: true, pointerId: 5 });
+    // The release happened outside; only hover moves (no button) arrive now.
+    fireEvent.pointerMove(collection, { buttons: 0, clientX: 55, clientY: 55, isPrimary: true, pointerId: 5 });
+    fireEvent.pointerMove(collection, { buttons: 0, clientX: 70, clientY: 70, isPrimary: true, pointerId: 5 });
+    expect(setPointerCapture).not.toHaveBeenCalled();
+    expect(document.body.classList.contains("list-marquee-active")).toBe(false);
+    expect(screen.getByTestId("selected").textContent).toBe("");
   });
 
   it("supports macOS Meta, Windows Ctrl, Shift ranges, select-all, and Escape", () => {
@@ -134,7 +150,7 @@ describe("list selection", () => {
     const dragHandle = screen.getByTestId("window-drag-handle");
 
     fireEvent.pointerDown(dragHandle, { button: 0, clientX: 0, clientY: 0, isPrimary: true, pointerId: 4 });
-    fireEvent.pointerMove(collection, { clientX: 40, clientY: 40, isPrimary: true, pointerId: 4 });
+    fireEvent.pointerMove(collection, { buttons: 1, clientX: 40, clientY: 40, isPrimary: true, pointerId: 4 });
 
     expect(screen.getByTestId("selected").textContent).toBe("");
     expect(document.querySelector("[data-selection-marquee]")).toBeNull();
@@ -151,7 +167,7 @@ describe("list selection", () => {
     fireEvent.pointerDown(screen.getByText("Rename one"), {
       button: 0, clientX: 0, clientY: 0, isPrimary: true, pointerId: 5
     });
-    fireEvent.pointerMove(screen.getByTestId("collection"), {
+    fireEvent.pointerMove(screen.getByTestId("collection"), { buttons: 1,
       clientX: 40, clientY: 40, isPrimary: true, pointerId: 5
     });
     expect(document.querySelector("[data-selection-marquee]")).toBeNull();
@@ -194,7 +210,7 @@ describe("list selection", () => {
     setScrollableBounds(screen.getByTestId("two"), scrollContainer, 10, 110, 40, 20);
 
     fireEvent.pointerDown(collection, { button: 0, clientX: 110, clientY: 70, isPrimary: true, pointerId: 2 });
-    fireEvent.pointerMove(collection, { clientX: 150, clientY: 148, isPrimary: true, pointerId: 2 });
+    fireEvent.pointerMove(collection, { buttons: 1, clientX: 150, clientY: 148, isPrimary: true, pointerId: 2 });
     expect(screen.getByTestId("selected").textContent).toBe("");
     expect(document.querySelector("[data-selection-marquee]")).toBeNull();
 

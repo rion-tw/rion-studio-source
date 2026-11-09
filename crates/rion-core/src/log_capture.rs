@@ -576,7 +576,10 @@ mod tests {
             "at file:///C:/Users/%E5%BC%A0%E4%B8%89/AppData/main.js:3"
         );
         let redacted = redact_path(stack, home, "<HOME>");
-        assert!(!redacted.contains("张三") && !redacted.contains("%E5%BC%A0"), "{redacted}");
+        assert!(
+            !redacted.contains("张三") && !redacted.contains("%E5%BC%A0"),
+            "{redacted}"
+        );
         assert_eq!(
             redacted,
             r"at <HOME>\app.js:1 at <HOME>/app.js:2 at file:///<HOME>/AppData/main.js:3"

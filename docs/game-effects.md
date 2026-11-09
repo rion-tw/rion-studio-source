@@ -48,6 +48,11 @@ bright-skill list, darkening effects, and hidden hit effects.
   `sfx_attackcast` Boss ground warnings, which are never dimmed. Every new pack
   rechecks all earlier unidentified uploads because the game shares textures by
   name. Hit-effect textures are identified by `length:sampleHash` signatures.
+- Identification runs on the game's main thread when a Boss warning or skill
+  first appears, so it must stay linear: each pack is indexed once per document
+  into a typed-array hash chain, candidates are rejected by 16 byte probes
+  before hashing, chains are capped, and uploads hold their textures weakly.
+  A quadratic match once froze the game for the whole lookup.
 - A draw whose coefficient cancels it completely (Hidden level, hidden hit
   effects, fully faded darkening effects) is skipped instead of drawn; Boss
   warnings always draw. Stacked particles draw at most 48 copies of one texture

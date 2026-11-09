@@ -57,10 +57,11 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
 
   type Gl = WebGLRenderingContext;
   type Upload = {
-    texture: WebGLTexture; length: number; first: number; last: number;
-    anchor: number; words: number[]; hash: number;
+    texture: WeakRef<WebGLTexture>; length: number; anchor: number;
+    words: number[]; probes: Uint8Array; hash: number;
   };
-  type Pack = { name: string; bytes: Uint8Array; index: Map<number, number[]> };
+  // Aligned 32-bit words of a pack in an allocation-free chained hash table.
+  type Pack = { name: string; bytes: Uint8Array; head: Int32Array; next: Int32Array; shift: number };
 
   let brightness = 1;
   let dimBrightSkills = true;
@@ -76,6 +77,15 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   apply(initial.brightness, initial.dimBrightSkills, initial.hideHitEffects);
 
   // ---- Texture identification (bright list, Boss warnings, hidden hits) ----
+  // Identification runs on the game's main thread while a skill or Boss
+  // warning first appears, so every step is linear and allocation-free per
+  // candidate: a quadratic match once froze the game for the whole lookup.
+  const PROBES = 16;
+  // Hash-chain entries walked per anchor word; longer chains are repeated
+  // flat texture regions that cannot identify anything.
+  const CHAIN_LIMIT = 256;
+  // Anchor positions tried per upload (flat regions have no usable anchor).
+  const ANCHOR_SEARCH = 2048;
   const brightTextures = new WeakMap<WebGLTexture, string>();
   const hiddenTextures = new WeakSet<WebGLTexture>();
   const warningTextures = new WeakSet<WebGLTexture>();
@@ -90,35 +100,49 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   const word = (bytes: Uint8Array, at: number) =>
     (bytes[at]! | (bytes[at + 1]! << 8) | (bytes[at + 2]! << 16) | (bytes[at + 3]! << 24)) >>> 0;
   const plain = (value: number) => (value & 0xff) * 0x01010101 === value;
+  const probeAt = (length: number, index: number) => Math.floor(index * (length - 1) / (PROBES - 1));
   const indexPack = (name: string, bytes: Uint8Array): Pack => {
-    const index = new Map<number, number[]>();
-    for (let at = 0; at + 4 <= bytes.length; at += 4) {
-      const value = word(bytes, at);
-      if (plain(value)) continue;
-      const list = index.get(value);
-      if (list) list.push(at);
-      else index.set(value, [at]);
+    const count = bytes.length >> 2;
+    let bits = 4;
+    while ((1 << bits) < count * 2 && bits < 24) bits++;
+    const head = new Int32Array(1 << bits).fill(-1);
+    const next = new Int32Array(Math.max(count, 1));
+    const shift = 32 - bits;
+    for (let index = 0; index < count; index++) {
+      const value = word(bytes, index << 2);
+      if (plain(value)) { next[index] = -1; continue; }
+      const slot = Math.imul(value, 0x9e3779b1) >>> shift;
+      next[index] = head[slot]!;
+      head[slot] = index;
     }
-    return { name, bytes, index };
+    return { name, bytes, head, next, shift };
   };
   // A texture is not necessarily 4-byte aligned inside its pack: four
   // consecutive anchor words guarantee one aligned lookup.
   const inPack = (pack: Pack, upload: Upload) => {
+    const { bytes, head, next, shift } = pack;
     for (let i = 0; i < 4; i++) {
-      for (const at of pack.index.get(upload.words[i]!) ?? []) {
-        const offset = at - upload.anchor - i;
-        if (offset < 0 || offset + upload.length > pack.bytes.length) continue;
-        if (pack.bytes[offset] !== upload.first || pack.bytes[offset + upload.length - 1] !== upload.last) continue;
-        if (sampleHash(pack.bytes, offset, upload.length) === upload.hash) return true;
+      const value = upload.words[i]!;
+      let steps = 0;
+      for (let index = head[Math.imul(value, 0x9e3779b1) >>> shift]!; index >= 0 && steps < CHAIN_LIMIT;
+        index = next[index]!, steps++) {
+        if (word(bytes, index << 2) !== value) continue;
+        const offset = (index << 2) - upload.anchor - i;
+        if (offset < 0 || offset + upload.length > bytes.length) continue;
+        let probe = 0;
+        while (probe < PROBES && bytes[offset + probeAt(upload.length, probe)] === upload.probes[probe]) probe++;
+        if (probe === PROBES && sampleHash(bytes, offset, upload.length) === upload.hash) return true;
       }
     }
     return false;
   };
-  const check = (upload: Upload) => {
-    const pack = packs.find(item => inPack(item, upload));
-    if (!pack) return false;
-    if (WARNING_FILES.includes(pack.name)) warningTextures.add(upload.texture);
-    else brightTextures.set(upload.texture, pack.name);
+  /** True once the upload no longer needs matching (identified or collected). */
+  const settle = (pack: Pack, upload: Upload) => {
+    const texture = upload.texture.deref();
+    if (!texture) return true;
+    if (!inPack(pack, upload)) return false;
+    if (WARNING_FILES.includes(pack.name)) warningTextures.add(texture);
+    else brightTextures.set(texture, pack.name);
     return true;
   };
   const fileName = (url: string) =>
@@ -130,6 +154,18 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     const stream = new Blob([bytes.subarray(13)]).stream().pipeThrough(new DecompressionStream("deflate"));
     return new Uint8Array(await new Response(stream).arrayBuffer());
   };
+  // Usable anchor: four non-flat words over at least four distinct bytes.
+  const anchorAt = (view: Uint8Array, at: number) => {
+    let distinct = 0;
+    for (let a = 0; a < 8; a++) {
+      let b = 0;
+      while (b < a && view[at + b] !== view[at + a]) b++;
+      if (b === a) distinct++;
+    }
+    if (distinct < 4) return false;
+    for (let i = 0; i < 4; i++) if (plain(word(view, at + i))) return false;
+    return true;
+  };
   const noteUpload = (texture: WebGLTexture | null | undefined, data: ArrayBufferView | null | undefined) => {
     // Effect textures are 2–32 KB; terrain-sized uploads are never effects.
     if (!texture || !data || data.byteLength < 64 || data.byteLength > 256 * 1024) return;
@@ -139,20 +175,25 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     if (HIDDEN_TEXTURES.has(signature)) hiddenTextures.add(texture);
     if (WARNING_TEXTURES.has(signature)) warningTextures.add(texture);
     let anchor = -1;
-    for (let at = view.length >> 1; at + 8 <= view.length && anchor < 0; at++) {
-      if (new Set(view.subarray(at, at + 8)).size >= 4) anchor = at;
-    }
+    const limit = Math.min(view.length - 8, (view.length >> 1) + ANCHOR_SEARCH);
+    for (let at = view.length >> 1; at <= limit && anchor < 0; at++) if (anchorAt(view, at)) anchor = at;
     if (anchor < 0) return;
+    const probes = new Uint8Array(PROBES);
+    for (let probe = 0; probe < PROBES; probe++) probes[probe] = view[probeAt(view.length, probe)]!;
     const upload: Upload = {
-      texture, length: view.length, first: view[0]!, last: view[view.length - 1]!, anchor,
-      words: [0, 1, 2, 3].map(i => word(view, anchor + i)), hash
+      texture: new WeakRef(texture), length: view.length, anchor,
+      words: [word(view, anchor), word(view, anchor + 1), word(view, anchor + 2), word(view, anchor + 3)],
+      probes, hash
     };
-    if (packs.length && check(upload)) return;
+    for (const pack of packs) if (settle(pack, upload)) return;
     uploads.push(upload);
-    if (uploads.length > MAX_UPLOADS) uploads = uploads.slice(-MAX_UPLOADS);
+    // Trim in batches so a long session never copies the backlog per upload.
+    if (uploads.length > MAX_UPLOADS * 2) uploads = uploads.slice(-MAX_UPLOADS);
   };
   // The game shares loaded textures by name, so every newly unpacked pack is
   // matched against all earlier unidentified uploads, not only recent ones.
+  // Each pack is indexed once per document even when the game fetches it again.
+  const requested = new Set<string>();
   const nativeFetch = globalThis.fetch;
   if (typeof nativeFetch === "function") {
     globalThis.fetch = function (this: unknown, input: RequestInfo | URL, init?: RequestInit) {
@@ -160,17 +201,22 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
       try {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input?.url;
         const name = url ? fileName(url) : null;
-        if (name && (BRIGHT_FILES.includes(name) || WARNING_FILES.includes(name))) {
+        if (name && !requested.has(name) && (BRIGHT_FILES.includes(name) || WARNING_FILES.includes(name))) {
+          requested.add(name);
           // Clone before the game reads the body: this reaction is attached first.
           void promise
             .then(response => (response.ok ? response.clone().arrayBuffer() : null))
             .then(buffer => (buffer ? unpack(buffer) : null))
-            .then(pack => {
-              if (!pack) return;
-              packs.push(indexPack(name, pack));
-              uploads = uploads.filter(upload => !check(upload));
+            .then(bytes => {
+              if (!bytes) {
+                requested.delete(name);
+                return;
+              }
+              const pack = indexPack(name, bytes);
+              packs.push(pack);
+              uploads = uploads.filter(upload => !settle(pack, upload));
             })
-            .catch(() => undefined);
+            .catch(() => requested.delete(name));
         }
       } catch {
         // Identification is optional; the game's request is never affected.
@@ -382,47 +428,66 @@ void main() {
       state.depthMask = !!flag;
       return original.call(this, flag);
     });
-    for (const name of ["drawElements", "drawArrays"]) {
-      wrap(name, original => function (this: Gl, ...args: unknown[]) {
-        let screenBlend = false;
-        try {
-          const program = state.program;
-          const location = program && locations.get(program);
-          if (!program || !location) return original.apply(this, args);
-          const last = applied.get(program);
-          // Pass-through settings skip classification; they only clear a
-          // coefficient a program kept from before dimming was turned off.
-          if (passThrough) {
-            if (last && (last[0] || last[1] || last[2])) {
-              this.uniform3f(location, 0, 0, 0);
-              last.fill(0);
-            }
-            return original.apply(this, args);
+    // FORWARD: the game's draw as is. SCREEN: the draw with screen blending.
+    const FORWARD = 0, SCREEN = 1;
+    const prepare = (gl: Gl, mode: number): number => {
+      try {
+        const program = state.program;
+        const location = program && locations.get(program);
+        if (!program || !location) return FORWARD;
+        const last = applied.get(program);
+        // Pass-through settings skip classification; they only clear a
+        // coefficient a program kept from before dimming was turned off.
+        if (passThrough) {
+          if (last && (last[0] || last[1] || last[2])) {
+            gl.uniform3f(location, 0, 0, 0);
+            last.fill(0);
           }
-          const outcome = effectValue(args[0] as number);
-          if (outcome === SKIP) return undefined;
-          const alphaOnly = outcome === APPLY ? fxAlphaOnly : 0;
-          const reduce = outcome === APPLY ? fxReduce : 0;
-          const screen = outcome === APPLY ? fxScreen : 0;
-          if (!last || last[0] !== alphaOnly || last[1] !== reduce || last[2] !== screen) {
-            this.uniform3f(location, alphaOnly, reduce, screen);
-            if (last) { last[0] = alphaOnly; last[1] = reduce; last[2] = screen; }
-            else applied.set(program, Float64Array.of(alphaOnly, reduce, screen));
-          }
-          screenBlend = screen === 1;
-        } catch {
-          // Bookkeeping never blocks the game's GL call.
+          return FORWARD;
         }
-        if (!screenBlend) return original.apply(this, args);
-        // Colour only: the alpha channel keeps the destination value.
-        nativeBlend.call(this, ONE_MINUS_DST_COLOR, ONE, 0, ONE);
-        try {
-          return original.apply(this, args);
-        } finally {
-          nativeBlend.call(this, state.src, state.dst, state.srcAlpha, state.dstAlpha);
+        const outcome = effectValue(mode);
+        if (outcome === SKIP) return SKIP;
+        const alphaOnly = outcome === APPLY ? fxAlphaOnly : 0;
+        const reduce = outcome === APPLY ? fxReduce : 0;
+        const screen = outcome === APPLY ? fxScreen : 0;
+        if (!last || last[0] !== alphaOnly || last[1] !== reduce || last[2] !== screen) {
+          gl.uniform3f(location, alphaOnly, reduce, screen);
+          if (last) { last[0] = alphaOnly; last[1] = reduce; last[2] = screen; }
+          else applied.set(program, Float64Array.of(alphaOnly, reduce, screen));
         }
-      });
-    }
+        return screen === 1 ? SCREEN : FORWARD;
+      } catch {
+        // Bookkeeping never blocks the game's GL call.
+        return FORWARD;
+      }
+    };
+    // Colour only: the alpha channel keeps the destination value.
+    const screenBlend = (gl: Gl) => nativeBlend.call(gl, ONE_MINUS_DST_COLOR, ONE, 0, ONE);
+    const restoreBlend = (gl: Gl) => nativeBlend.call(gl, state.src, state.dst, state.srcAlpha, state.dstAlpha);
+    // Fixed parameters: draws run thousands of times per frame, so the
+    // wrappers allocate no argument arrays.
+    wrap("drawArrays", original => function (this: Gl, mode: number, first: number, count: number) {
+      const outcome = prepare(this, mode);
+      if (outcome === SKIP) return undefined;
+      if (outcome === FORWARD) return original.call(this, mode, first, count);
+      screenBlend(this);
+      try {
+        return original.call(this, mode, first, count);
+      } finally {
+        restoreBlend(this);
+      }
+    });
+    wrap("drawElements", original => function (this: Gl, mode: number, count: number, type: number, offset: number) {
+      const outcome = prepare(this, mode);
+      if (outcome === SKIP) return undefined;
+      if (outcome === FORWARD) return original.call(this, mode, count, type, offset);
+      screenBlend(this);
+      try {
+        return original.call(this, mode, count, type, offset);
+      } finally {
+        restoreBlend(this);
+      }
+    });
   }
 
   // event-topology: presentation (frame boundary for per-frame copy counts)

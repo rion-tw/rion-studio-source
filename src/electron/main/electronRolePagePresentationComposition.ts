@@ -1,4 +1,5 @@
 import type { CoreEvent } from "../../shared/generated";
+import type { GameEffectRuntimeSettings } from "../../shared/gameEffects";
 import { CHROMIUM_ROLE_GAME_EFFECTS_SYNC_CHANNEL } from
   "../ipc/chromiumRolePagePresentationProtocol";
 import type { ElectronCoreCommandPort } from "./coreApiDispatcher";
@@ -20,6 +21,8 @@ export interface ElectronRolePagePresentationCompositionInput {
     removeListener: (channel: string, listener: (event: SyncIpcEvent) => void) => unknown;
   };
   readonly snapshot: () => ChromiumRuntimeExecutorSnapshot | null;
+  /** Diagnostic record of the projection each session starts with or changes to. */
+  readonly log?: (effects: GameEffectRuntimeSettings) => void;
 }
 
 export interface ElectronRolePagePresentationComposition {
@@ -52,6 +55,7 @@ export function createElectronRolePagePresentation(
     }
   };
   let requested = 0;
+  let logged = false;
   let running: Promise<void> | null = null;
   let disposed = false;
   let unsubscribe: (() => void) | null = null;
@@ -63,9 +67,12 @@ export function createElectronRolePagePresentation(
         while (!disposed) {
           const target = requested;
           try {
-            presentation.observeGameBrowserSettings(
-              await input.core.invoke({ type: "gameBrowserSettingsGet" })
-            );
+            const settings = await input.core.invoke({ type: "gameBrowserSettingsGet" });
+            const before = presentation.effectsForDocumentStart();
+            presentation.observeGameBrowserSettings(settings);
+            const after = presentation.effectsForDocumentStart();
+            if (!logged || after !== before) input.log?.(after);
+            logged = true;
           } catch {
             // The next state change retries; the cached projection stays valid.
           }

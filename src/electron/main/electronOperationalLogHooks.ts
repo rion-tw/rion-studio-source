@@ -67,6 +67,18 @@ export function installElectronOperationalLogHooks(
     });
   };
   const onWebContentsCreated = (_event: unknown, contents: ObservedWebContents): void => {
+    // A hung page (for example a game frame stuck in script) leaves no other
+    // trace; Chromium's hang monitor is the authoritative signal.
+    contents.on("unresponsive", () => {
+      logger.warn("renderer", "renderer_unresponsive", "A page stopped responding.", {
+        webContentsId: contents.id
+      });
+    });
+    contents.on("responsive", () => {
+      logger.info("renderer", "renderer_responsive", "A page responds again.", {
+        webContentsId: contents.id
+      });
+    });
     contents.on("did-start-navigation", (
       _navigationEvent: unknown,
       url: string,

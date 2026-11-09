@@ -9,6 +9,7 @@ import { DEFAULT_GAME_BROWSER_SETTINGS } from "../src/shared/browserFonts";
 import { isChromiumRolePagePresentationMessage } from
   "../src/electron/ipc/chromiumRolePagePresentationProtocol";
 import { ChromiumRolePagePresentation } from "../src/electron/main/chromiumRolePagePresentation";
+import { createElectronRolePagePresentation } from "../src/electron/main/electronRolePagePresentationComposition";
 import { rememberedLaunchGeometry } from "../src/electron/main/chromiumRuntimeLaunchMemory";
 import { fitMainWindowMemory, trackMainWindowMemory } from "../src/electron/main/electronMainWindowMemory";
 import type { ChromiumRuntimeExecutorSnapshot } from "../src/electron/main/chromiumRuntimeSnapshot";
@@ -69,6 +70,33 @@ describe("Chromium role page presentation", () => {
     });
     expect(send).toHaveBeenCalledTimes(3);
     expect(send.mock.calls[0]![2]).toEqual({ type: "effects", settings: presentation.effectsForDocumentStart() });
+  });
+});
+
+describe("role page presentation composition", () => {
+  it("logs the effect projection a session starts with and each later change", async () => {
+    let settings: GameBrowserSettingsRecord = DEFAULT_GAME_BROWSER_SETTINGS;
+    let emit: (event: { type: string }) => void = () => undefined;
+    const log = vi.fn();
+    const composition = createElectronRolePagePresentation({
+      core: {
+        invoke: () => Promise.resolve(settings),
+        subscribeCoreEvents: (listener: (event: { type: string }) => void) => { emit = listener; return () => undefined; }
+      } as never,
+      ipcMain: { on: vi.fn(), removeListener: vi.fn() },
+      snapshot: () => null,
+      log
+    });
+    await composition.start();
+    emit({ type: "stateChanged" });
+    await composition.start();
+    settings = {
+      ...DEFAULT_GAME_BROWSER_SETTINGS,
+      effects: { enabled: true, level: "light", dimBrightSkills: true, hideHitEffects: false }
+    };
+    await composition.start();
+    expect(log.mock.calls.map(([effects]) => effects.brightness)).toEqual([1, 0.7]);
+    composition.dispose();
   });
 });
 

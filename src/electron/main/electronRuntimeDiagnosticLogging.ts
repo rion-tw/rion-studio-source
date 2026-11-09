@@ -104,9 +104,24 @@ function installTrustedInputDiagnosticLogging(
 
 export const runtimeLogs = new ElectronOperationalLogger();
 installTrustedInputDiagnosticLogging(runtimeLogs);
-setRuntimeOperationJournalSink(entry => runtimeLogs.info(
-  "browser", "runtime_effect_transition", "Runtime effect advanced.", { ...entry }
-));
+const ROUTINE_BROWSER_ACTION_STAGES = new Set(["queued", "executing", "completed"]);
+
+/**
+ * Macro-driven browser actions advance three stages per keystroke. The
+ * bounded in-memory journal keeps them; the file log keeps only their
+ * exceptions, so a long macro session cannot rotate older evidence away.
+ */
+export function isRoutineRuntimeTransition(
+  entry: Readonly<{ action: string; stage: string; errorCode?: string }>
+): boolean {
+  return entry.action === "browserAction" && entry.errorCode === undefined &&
+    ROUTINE_BROWSER_ACTION_STAGES.has(entry.stage);
+}
+
+setRuntimeOperationJournalSink(entry => {
+  if (isRoutineRuntimeTransition(entry)) return;
+  runtimeLogs.info("browser", "runtime_effect_transition", "Runtime effect advanced.", { ...entry });
+});
 
 export function logMacosAppKitWindowPlacement(
   logger: RuntimeDiagnosticLogger,

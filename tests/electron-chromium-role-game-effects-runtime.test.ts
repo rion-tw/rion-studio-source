@@ -202,6 +202,34 @@ describe("Chromium role game-effects runtime", () => {
     expect(uniforms(calls)).toEqual([[0, 0, 0]]);
   });
 
+  it("identifies earlier uploads at unaligned offsets once their pack arrives", async () => {
+    const { calls, gl } = installFakeWebGl();
+    installChromiumRoleGameEffectsRuntime({ brightness: 0, dimBrightSkills: true, hideHitEffects: false });
+    const first = textureBytes(3), second = textureBytes(4);
+    // Flat padding stands in for the repeated regions that once made matching quadratic.
+    const pack = new Uint8Array(40_000).fill(0x11);
+    pack.set(first, 1_003);
+    pack.set(second, 20_002);
+    const textures = [first, second].map((bytes, index) => {
+      const texture = { texture: index };
+      gl.bindTexture!(TEXTURE_2D, texture);
+      gl.compressedTexImage2D!(TEXTURE_2D, 0, 0, 64, 64, 0, bytes);
+      return texture;
+    });
+    packs.set("sfx_attackcast", pack);
+    await fetch("https://universe.flyff.com/client/model/texturemid/dxt/sfx_attackcast.bin");
+    await fetch("https://universe.flyff.com/client/model/texturemid/dxt/sfx_attackcast.bin?again");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    effectState(gl);
+    for (const texture of textures) {
+      gl.bindTexture!(TEXTURE_2D, texture);
+      gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    }
+    // Boss warnings draw untouched even at the Hidden level.
+    expect(draws(calls)).toBe(2);
+    expect(uniforms(calls)).toEqual([[0, 0, 0]]);
+  });
+
   it("caps stacked particle copies per frame and divides by the capped count", async () => {
     const { calls, gl } = installFakeWebGl();
     installChromiumRoleGameEffectsRuntime({ brightness: 0.7, dimBrightSkills: true, hideHitEffects: false });

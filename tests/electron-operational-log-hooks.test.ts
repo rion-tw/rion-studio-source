@@ -56,6 +56,8 @@ describe("Electron operational log hooks", () => {
       "/Users/private/preload.cjs",
       new Error("preload boom")
     );
+    contents.emit("unresponsive");
+    contents.emit("responsive");
     app.emit("render-process-gone", {}, contents, { reason: "crashed", exitCode: 9 });
     app.emit("child-process-gone", {}, { type: "GPU", reason: "crashed", exitCode: 8 });
     processPort.emit("unhandledRejection", new Error("rejected"));
@@ -68,6 +70,8 @@ describe("Electron operational log hooks", () => {
       "main_frame_navigation_started",
       "main_frame_navigation_failed",
       "preload_error",
+      "renderer_unresponsive",
+      "renderer_responsive",
       "render_process_gone",
       "child_process_gone",
       "unhandled_rejection"

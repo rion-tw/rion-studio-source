@@ -5,8 +5,11 @@ import {
   ElectronOperationalLogger,
   type ElectronOperationalLogCorePort
 } from "../src/electron/main/electronOperationalLogger";
-import { compactAppliedTrustedInputContext, logMacosAppKitWindowPlacement } from
-  "../src/electron/main/electronRuntimeDiagnosticLogging";
+import {
+  compactAppliedTrustedInputContext,
+  isRoutineRuntimeTransition,
+  logMacosAppKitWindowPlacement
+} from "../src/electron/main/electronRuntimeDiagnosticLogging";
 
 function deferred<Value>() {
   let resolve!: (value: Value) => void;
@@ -57,6 +60,16 @@ describe("Electron operational logger", () => {
       traceStepCount: 1, modifierTransitionCount: 1,
       droppedModifierTransitionCount: 72
     });
+  });
+
+  it("keeps routine macro browser-action stages out of the file log", () => {
+    for (const stage of ["queued", "executing", "completed"]) {
+      expect(isRoutineRuntimeTransition({ action: "browserAction", stage })).toBe(true);
+    }
+    expect(isRoutineRuntimeTransition({ action: "browserAction", stage: "failed", errorCode: "X" })).toBe(false);
+    expect(isRoutineRuntimeTransition({ action: "browserAction", stage: "completed", errorCode: "X" })).toBe(false);
+    expect(isRoutineRuntimeTransition({ action: "browserAction", stage: "awaiting-authoritative-event" })).toBe(false);
+    expect(isRoutineRuntimeTransition({ action: "embeddedDestroyTab", stage: "completed" })).toBe(false);
   });
 
   it("projects validated AppKit placement provenance into one bounded debug record", () => {

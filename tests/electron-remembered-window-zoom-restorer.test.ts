@@ -29,7 +29,7 @@ describe("remembered window zoom restore", () => {
     subject.complete("early", true);
     subject.restorer.schedule("early", false, "window-1", 1.25);
     await settle();
-    expect(subject.zoomRequests().map(([command]) => (command as { zoomFactor: number }).zoomFactor))
+    expect(subject.zoomRequests().map(([command]) => (command as unknown as { zoomFactor: number }).zoomFactor))
       .toEqual([1.5, 1.25]);
   });
 
@@ -42,6 +42,6 @@ describe("remembered window zoom restore", () => {
     subject.restorer.schedule("after", false, "window-1", 2);
     subject.complete("after", true);
     await settle();
-    expect(subject.zoomRequests().map(([command]) => (command as { zoomFactor: number }).zoomFactor)).toEqual([2]);
+    expect(subject.zoomRequests().map(([command]) => (command as unknown as { zoomFactor: number }).zoomFactor)).toEqual([2]);
   });
 });

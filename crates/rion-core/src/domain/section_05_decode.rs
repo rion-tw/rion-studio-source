@@ -15,7 +15,7 @@ fn validate_role(role: RoleRecord) -> CoreResult<()> {
     non_empty(&role.id, "role id")?;
     non_empty(&role.game_id, "role gameId")?;
     non_empty(&role.name, "role name")?;
-    if role.notes.len() > 20_000 {
+    if role.notes.chars().count() > 20_000 {
         return Err(CoreError::InvalidInput(
             "role notes are too long".to_owned(),
         ));

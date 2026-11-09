@@ -41,6 +41,11 @@ pub(crate) fn capture(
     if platform != rion_platform::Platform::Windows {
         return Err("NATIVE_PLATFORM_MISMATCH");
     }
+    // The profile and every file are resolved to their canonical (`\\?\C:\`)
+    // form; resolve the root identically or `strip_prefix` treats the verbatim
+    // and plain drive prefixes as different and every capture escapes.
+    let root = paths::existing(root)?;
+    let root = root.as_path();
     let profile = profile_path(root)?;
     let relative_profile = profile
         .strip_prefix(root)
@@ -808,6 +813,26 @@ mod tests {
         ] {
             assert!(capture.reasons.contains(reason));
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn capture_accepts_a_plain_drive_root_whose_files_resolve_verbatim() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(!root.path().to_string_lossy().starts_with(r"\\?\"));
+        cookie_database(&root.path().join("Default"));
+        let output = tempfile::tempdir().unwrap();
+        let capture = capture(
+            root.path(),
+            output.path(),
+            "00000000-0000-4000-8000-000000000001",
+            rion_platform::Platform::Windows,
+        );
+        assert!(
+            capture.is_ok(),
+            "capture failed: {:?}",
+            capture.as_ref().err()
+        );
     }
 
     #[test]

@@ -122,11 +122,15 @@ impl LogCaptureRuntime {
                 timestamp: Utc::now().to_rfc3339(),
                 level: capture.level,
                 source: capture.source,
-                event: sanitize_text(&capture.event, &self.user_data_dir)
-                    .chars()
-                    .take(120)
-                    .collect(),
-                message: sanitize_text(&capture.message, &self.user_data_dir),
+                // Storage rejects an empty event or message for the whole batch;
+                // `Promise.reject(new Error())` must not discard its neighbours.
+                event: non_empty(
+                    sanitize_text(&capture.event, &self.user_data_dir)
+                        .chars()
+                        .take(120)
+                        .collect(),
+                ),
+                message: non_empty(sanitize_text(&capture.message, &self.user_data_dir)),
                 session_id: self.session_id.clone(),
                 build_commit: self.metadata.build_commit.clone(),
                 application_version: self.metadata.application_version.clone(),
@@ -251,10 +255,8 @@ fn sanitize_text(value: &str, user_data_dir: &Path) -> String {
         (home_directory(), "<HOME>"),
         (Some(std::env::temp_dir()), "<TEMP>"),
     ] {
-        if let Some(path) = path.and_then(|path| path.to_str().map(str::to_owned))
-            && !path.is_empty()
-        {
-            text = text.replace(&path, replacement);
+        if let Some(path) = path {
+            text = redact_path(&text, &path, replacement);
         }
     }
     text = SENSITIVE_QUERY
@@ -284,9 +286,51 @@ fn sanitize_text(value: &str, user_data_dir: &Path) -> String {
     }
 }
 
+fn non_empty(value: String) -> String {
+    if value.is_empty() {
+        "<EMPTY>".to_owned()
+    } else {
+        value
+    }
+}
+
+/// Replaces every form a local path takes in captured text: native,
+/// forward-slash (`C:/Users/...`) and percent-encoded file URL paths
+/// (`file:///C:/Users/%E5%BC%A0...`), which ES module and `loadFile`
+/// stack frames use. A user name must never survive into an export.
+fn redact_path(text: &str, path: &Path, replacement: &str) -> String {
+    let Some(native) = path.to_str().filter(|native| !native.is_empty()) else {
+        return text.to_owned();
+    };
+    let mut text = text.replace(native, replacement);
+    let forward = native.replace('\\', "/");
+    if forward != native {
+        text = text.replace(&forward, replacement);
+    }
+    if let Ok(url) = Url::from_file_path(path) {
+        let encoded = url.path().trim_end_matches('/');
+        if !encoded.is_empty() && encoded != native && encoded != forward {
+            // `/C:/Users/x` keeps the URL's own leading slash; `/Users/x` is the path itself.
+            let replacement = if native.starts_with('/') {
+                replacement.to_owned()
+            } else {
+                format!("/{replacement}")
+            };
+            text = text.replace(encoded, &replacement);
+        }
+    }
+    text
+}
+
 fn home_directory() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
+    // A user-set HOME on Windows must not hide the real profile path.
+    let (primary, fallback) = if cfg!(windows) {
+        ("USERPROFILE", "HOME")
+    } else {
+        ("HOME", "USERPROFILE")
+    };
+    std::env::var_os(primary)
+        .or_else(|| std::env::var_os(fallback))
         .map(PathBuf::from)
 }
 
@@ -507,5 +551,47 @@ mod tests {
         let entries = runtime.capture(captures);
         assert_eq!(entries.len(), CAPTURE_QUEUE_CAPACITY);
         assert!(matches!(entries.last().unwrap().level, LogLevel::Error));
+    }
+
+    #[test]
+    fn an_empty_message_or_event_keeps_a_storable_entry() {
+        let mut runtime = LogCaptureRuntime::new(PathBuf::from("/tmp/rion"), LogLevel::Info);
+        let mut empty = capture(LogLevel::Error, None);
+        empty.message = "\u{0001}".to_owned();
+        empty.event = String::new();
+        let entries = runtime.capture(vec![empty, capture(LogLevel::Error, None)]);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].message, "<EMPTY>");
+        assert_eq!(entries[0].event, "<EMPTY>");
+        assert_eq!(entries[1].message, "https://example.com/play");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn redacts_forward_slash_and_file_url_forms_of_a_non_ascii_windows_profile() {
+        let home = Path::new(r"C:\Users\张三");
+        let stack = concat!(
+            r"at C:\Users\张三\app.js:1 ",
+            "at C:/Users/张三/app.js:2 ",
+            "at file:///C:/Users/%E5%BC%A0%E4%B8%89/AppData/main.js:3"
+        );
+        let redacted = redact_path(stack, home, "<HOME>");
+        assert!(!redacted.contains("张三") && !redacted.contains("%E5%BC%A0"), "{redacted}");
+        assert_eq!(
+            redacted,
+            r"at <HOME>\app.js:1 at <HOME>/app.js:2 at file:///<HOME>/AppData/main.js:3"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn redacts_percent_encoded_file_url_forms_of_a_unix_home() {
+        let home = Path::new("/Users/张三");
+        let redacted = redact_path(
+            "at /Users/张三/a.js at file:///Users/%E5%BC%A0%E4%B8%89/b.js",
+            home,
+            "<HOME>",
+        );
+        assert_eq!(redacted, "at <HOME>/a.js at file://<HOME>/b.js");
     }
 }

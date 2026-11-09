@@ -16,6 +16,7 @@ import {
   type ChromiumSessionFactoryPort
 } from "./chromiumRoleSessionRegistry";
 import { ChromiumSessionOwnershipLedger } from "./chromiumSessionOwnershipLedger";
+import { compareUtf8 } from "./chromeProfileImportOrder";
 
 type RuntimePlatform = "darwin" | "win32";
 export type ChromeProfileImportFreshHelperKind =
@@ -377,15 +378,15 @@ function sortCookies(
   cookies: readonly ChromeProfileImportPayloadCookie[]
 ): ChromeProfileImportPayloadCookie[] {
   return [...cookies].sort((left, right) =>
-    (left.domain ?? "").localeCompare(right.domain ?? "") ||
-    left.path.localeCompare(right.path) || left.name.localeCompare(right.name)
+    compareUtf8(left.domain ?? "", right.domain ?? "") ||
+    compareUtf8(left.path, right.path) || compareUtf8(left.name, right.name)
   );
 }
 
 function sortLocalStorage(
   entries: readonly ChromeProfileImportLocalStorageEntry[]
 ): ChromeProfileImportLocalStorageEntry[] {
-  return [...entries].sort((left, right) => left.key.localeCompare(right.key));
+  return [...entries].sort((left, right) => compareUtf8(left.key, right.key));
 }
 
 function payloadBytes(payload: ChromeProfileImportPayload): Buffer {

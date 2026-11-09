@@ -431,7 +431,7 @@ pub fn create_role(
         created_at: now.clone(),
         updated_at: now,
     };
-    if role.notes.len() > 20_000 {
+    if role.notes.chars().count() > 20_000 {
         return Err(domain("ROLE_NOTES_TOO_LONG", "Role notes are too long."));
     }
     roles.push(role.clone());
@@ -487,7 +487,7 @@ pub fn update_role(
     let notes = input
         .notes
         .map_or_else(|| current.notes.clone(), |value| value.trim().to_owned());
-    if notes.len() > 20_000 {
+    if notes.chars().count() > 20_000 {
         return Err(domain("ROLE_NOTES_TOO_LONG", "Role notes are too long."));
     }
     let role = StateRoleRecord {

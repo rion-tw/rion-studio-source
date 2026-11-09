@@ -1,5 +1,6 @@
 import type { ChromiumRoleSessionPort } from "./chromiumRoleSessionRegistry";
 import { RionBridgeError } from "../ipc/errors";
+import { compareUtf8 } from "./chromeProfileImportOrder";
 
 export const CHROME_PROFILE_IMPORT_ISOLATED_WORLD_ID = 1004;
 
@@ -92,7 +93,7 @@ function validateReadback(value: unknown): ChromeProfileImportLocalStorageEntry[
 function sortedEntries(
   entries: readonly ChromeProfileImportLocalStorageEntry[]
 ): ChromeProfileImportLocalStorageEntry[] {
-  return [...entries].sort((left, right) => left.key.localeCompare(right.key));
+  return [...entries].sort((left, right) => compareUtf8(left.key, right.key));
 }
 
 function exactEntries(
@@ -163,7 +164,8 @@ export class ChromeProfileImportLocalStorageCodec {
   ): Promise<readonly ChromeProfileImportLocalStorageEntry[]> {
     const expected = sortedEntries(entries);
     const readback = await this.#run(session, origin, expected);
-    if (!exactEntries(readback, expected)) {
+    // The page orders by UTF-16 code unit; compare in the canonical order.
+    if (!exactEntries(sortedEntries(readback), expected)) {
       throw localStorageError(
         "CHROMIUM_PROFILE_IMPORT_LOCAL_STORAGE_READBACK_FAILED",
         "The isolated helper did not return the exact replaced LocalStorage inventory."

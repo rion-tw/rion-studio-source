@@ -11,8 +11,15 @@ fn enforce_retention_with_policy(
             params![cutoff],
         )
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
+    // Runs after every flush. Once logs are older than the retention window
+    // most flushes expire a few rows; the `log_entries_ad` trigger already
+    // removes them from the search index, so only free their pages here and
+    // keep the full FTS rebuild for the size limit.
+    if expired > 0 {
+        run_pragma(connection, "incremental_vacuum", i32::MAX)?;
+    }
     let mut size = database_size(connection)?;
-    if expired > 0 || size > retention.max_bytes {
+    if size > retention.max_bytes {
         reclaim_unused_space(connection)?;
         size = database_size(connection)?;
     }

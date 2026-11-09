@@ -50,9 +50,10 @@ fn collection_from_query(
 
 fn parse(xml: &str, since: DateTime<Utc>) -> Vec<WindowsGraphicsEventRecord> {
     let event = Regex::new(r#"(?s)<Event(?:\s[^>]*)?>.*?</Event>"#).expect("event regex");
-    let provider = Regex::new(r#"<Provider\s+Name="([^"]+)""#).expect("provider regex");
+    // `wevtutil /f:RenderedXml` writes single-quoted attributes.
+    let provider = Regex::new(r#"<Provider\s+Name=["']([^"']+)["']"#).expect("provider regex");
     let event_id = Regex::new(r#"<EventID[^>]*>(\d+)</EventID>"#).expect("event id regex");
-    let time = Regex::new(r#"<TimeCreated\s+SystemTime="([^"]+)""#).expect("time regex");
+    let time = Regex::new(r#"<TimeCreated\s+SystemTime=["']([^"']+)["']"#).expect("time regex");
     event
         .find_iter(xml)
         .filter_map(|capture| {
@@ -100,6 +101,23 @@ mod tests {
                 }]
             );
         };
+    }
+
+    #[test]
+    fn parses_wevtutil_rendered_xml_with_single_quoted_attributes() {
+        let xml = concat!(
+            "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System>",
+            "<Provider Name='Display' /><EventID Qualifiers='0'>4101</EventID>",
+            "<TimeCreated SystemTime='2026-11-08T10:05:00.1234567Z' /></System></Event>"
+        );
+        assert_eq!(
+            parse(xml, "2026-11-08T10:00:00Z".parse().unwrap()),
+            vec![WindowsGraphicsEventRecord {
+                event_id: 4101,
+                provider: "Display".to_owned(),
+                timestamp: "2026-11-08T10:05:00.123Z".to_owned(),
+            }]
+        );
     }
 
     #[test]

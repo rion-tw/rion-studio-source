@@ -23,12 +23,14 @@ public static class RionStudioChromeCloser {
   public static void CloseChromeWindows() {
     EnumWindows((hWnd, lParam) => {
       if (!IsWindowVisible(hWnd)) return true;
-      GetWindowThreadProcessId(hWnd, out var processId);
+      uint processId;
+      GetWindowThreadProcessId(hWnd, out processId);
       if (processId == 0) return true;
       try {
-        using var process = Process.GetProcessById((int)processId);
-        if (string.Equals(process.ProcessName, "chrome", StringComparison.OrdinalIgnoreCase)) PostMessage(hWnd, 0x0010, IntPtr.Zero, IntPtr.Zero);
-      } catch (ArgumentException) { }
+        using (var process = Process.GetProcessById((int)processId)) {
+          if (string.Equals(process.ProcessName, "chrome", StringComparison.OrdinalIgnoreCase)) PostMessage(hWnd, 0x0010, IntPtr.Zero, IntPtr.Zero);
+        }
+      } catch (ArgumentException) { } catch (InvalidOperationException) { }
       return true;
     }, IntPtr.Zero);
   }
@@ -135,5 +137,22 @@ mod tests {
         assert_eq!(windows.0, "powershell.exe");
         assert!(WINDOWS_CLOSE_SCRIPT.contains("PostMessage"));
         assert!(!WINDOWS_CLOSE_SCRIPT.contains("TerminateProcess"));
+    }
+
+    /// Windows PowerShell 5.1 `Add-Type` compiles C# 5 only; `out var` and
+    /// `using var` made every Chrome close request exit 1. Compiles the type
+    /// without invoking it, so no window is closed.
+    #[cfg(windows)]
+    #[test]
+    fn windows_close_script_compiles_under_windows_powershell() {
+        let invocation = "[RionStudioChromeCloser]::CloseChromeWindows()";
+        let definition = WINDOWS_CLOSE_SCRIPT.replace(invocation, "");
+        assert_ne!(definition, WINDOWS_CLOSE_SCRIPT);
+        let status = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &definition])
+            .stdin(Stdio::null())
+            .status()
+            .expect("powershell.exe");
+        assert!(status.success());
     }
 }

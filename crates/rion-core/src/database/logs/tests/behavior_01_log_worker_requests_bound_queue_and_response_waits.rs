@@ -429,6 +429,22 @@ use serde_json::json;
             .entries;
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].id, "current");
+        // Age expiry no longer rebuilds the index: the delete trigger alone must
+        // keep the external-content FTS table consistent.
+        connection
+            .execute(
+                "INSERT INTO log_entries_fts(log_entries_fts) VALUES ('integrity-check')",
+                [],
+            )
+            .unwrap();
+        let indexed: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM log_entries_fts WHERE log_entries_fts MATCH 'event'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexed, 1);
     }
 
     #[test]

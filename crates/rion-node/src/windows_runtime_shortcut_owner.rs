@@ -427,17 +427,21 @@ mod platform {
             }
             registry.owners.remove(&key);
             if registry.owners.is_empty() {
+                // Both hooks were taken from the registry: attempt every removal
+                // so a failed keyboard unhook cannot leak the system-wide mouse hook.
+                let mut failed = false;
                 for hook in [registry.keyboard_hook.take(), registry.mouse_hook.take()]
                     .into_iter()
                     .flatten()
                 {
                     // SAFETY: this is the current thread's registry-owned hook.
-                    unsafe { UnhookWindowsHookEx(hook) }.map_err(|_| {
-                        probe_error(
-                            Status::GenericFailure,
-                            "Win32 could not remove the runtime physical-input owner.",
-                        )
-                    })?;
+                    failed |= unsafe { UnhookWindowsHookEx(hook) }.is_err();
+                }
+                if failed {
+                    return Err(probe_error(
+                        Status::GenericFailure,
+                        "Win32 could not remove the runtime physical-input owner.",
+                    ));
                 }
             }
             Ok(true)

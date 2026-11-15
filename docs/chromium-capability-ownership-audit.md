@@ -31,7 +31,9 @@ entries in the coverage manifest.
 
 ## Boundaries retained deliberately
 
-Role Sessions deny fullscreen and other permissions by default. Global Web may
+Role Sessions deny fullscreen and other permissions by default; every Session
+allows only main-frame Async Clipboard writes (`clipboard-sanitized-write`),
+which game pages use to copy text. Clipboard reads stay denied. Global Web may
 upgrade only its own Session's main-frame HTML fullscreen policy. The dedicated
 local chrome Session and the application renderer are separate from remote
 Role/global Web contents. Session ownership/path checks, sender authorization,

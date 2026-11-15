@@ -137,6 +137,29 @@ describe("Chromium process security policy", () => {
       .toMatchObject({ observations: [] });
   });
 
+  it("lets a main frame write the clipboard but never read it", () => {
+    const session = fakeSession();
+    installChromiumSessionSecurityPolicy(session.port as never);
+    const check = session.handlers.get("permissionCheck")!;
+    const request = (permission: string, isMainFrame: boolean) => {
+      const result = vi.fn();
+      session.handlers.get("permissionRequest")!(
+        { getURL: () => "https://universe.flyff.com/play" },
+        permission,
+        result,
+        { isMainFrame, requestingUrl: "https://universe.flyff.com/play" }
+      );
+      return result.mock.calls[0]?.[0];
+    };
+    expect(check({}, "clipboard-sanitized-write", "https://universe.flyff.com", { isMainFrame: true })).toBe(true);
+    expect(request("clipboard-sanitized-write", true)).toBe(true);
+    expect(request("clipboard-sanitized-write", false)).toBe(false);
+    expect(request("clipboard-read", true)).toBe(false);
+    expect(check({}, "clipboard-read", "https://universe.flyff.com", { isMainFrame: true })).toBe(false);
+    // Fullscreen remains a global-Web opt-in.
+    expect(request("fullscreen", true)).toBe(false);
+  });
+
   it("rejects invalid server and implicit client certificates exactly once", () => {
     const listeners = new Map<string, (...arguments_: unknown[]) => void>();
     const application = {

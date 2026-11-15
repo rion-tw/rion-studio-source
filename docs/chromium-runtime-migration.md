@@ -116,7 +116,8 @@ sandbox. Node integration is disabled. A process-lifetime policy is installed
 once for every exact Chromium `Session` identity before that session can own a
 surface. Permission checks and requests, device access, display capture,
 Bluetooth pairing, and downloads are denied synchronously. The permission
-exceptions are HTTPS `mediaKeySystem` access and a user-activated main-frame
+exceptions are main-frame Async Clipboard writes (`clipboard-sanitized-write`;
+reads stay denied), HTTPS `mediaKeySystem` access and a user-activated main-frame
 `fullscreen` request in the dedicated global-Web Session; `disableHtmlFullscreenWindowResize` contains it to the exact
 native viewport and the owner-fenced Chromium events drive its projection. The application
 rejects invalid server certificates and implicit client-certificate selection;

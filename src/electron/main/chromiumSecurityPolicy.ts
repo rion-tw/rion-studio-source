@@ -44,7 +44,8 @@ export interface ChromiumSessionSecurityPolicyOptions {
   /**
    * Global-Web content may use a user-activated main-frame Fullscreen API
    * request. Its WebContents preference keeps the transition inside the
-   * existing native viewport; DRM is a separate opt-in; other permissions remain denied.
+   * existing native viewport; DRM is a separate opt-in. Every session allows
+   * main-frame Async Clipboard writes; other permissions remain denied.
    */
   readonly allowMainFrameHtmlFullscreen?: boolean;
   readonly allowWebAppDrm?: boolean;
@@ -62,6 +63,7 @@ const sessionJournals = new WeakMap<object, {
 }>();
 
 const SECURITY_POLICY_OBSERVATION_CAPACITY = 256;
+const CLIPBOARD_WRITE_PERMISSION = "clipboard-sanitized-write";
 
 type UnsequencedSecurityPolicyObservation =
   ChromiumSessionSecurityPolicyObservation extends infer Observation
@@ -111,9 +113,14 @@ function installPermissionPolicy(
   session: ChromiumSecuritySessionPort,
   policy: SessionPolicy
 ): void {
+  // Async Clipboard writes (`navigator.clipboard.writeText`) are how game
+  // pages copy text; Chromium still requires focus and user activation, as in
+  // Chrome, which grants this write without a prompt. Reads stay denied.
   const allowed = (permission: string, details: unknown): boolean =>
-    policy.allowMainFrameHtmlFullscreen && permission === "fullscreen" &&
-      isMainFramePermission(details);
+    isMainFramePermission(details) && (
+      permission === CLIPBOARD_WRITE_PERMISSION ||
+      (policy.allowMainFrameHtmlFullscreen && permission === "fullscreen")
+    );
   const drm = (stage: "check" | "request", contents: unknown,
     requestingOrigin: unknown, details: unknown): boolean => {
     const decision = decideChromiumDrmPermission(

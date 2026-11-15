@@ -9,7 +9,8 @@
  * - An effect program is one that ever drew additive (dst ONE, FUNC_ADD) with
  *   depth testing. Its additive draws, its non-depth-writing alpha draws, and
  *   its REVERSE_SUBTRACT darkening draws are effect draws. Sky, water and UI
- *   never qualify, and Boss ground warnings (sfx_attackcast) are excluded.
+ *   never qualify, and protected packs (Boss and monster ground warnings,
+ *   teleport, system notices, item glow) are excluded.
  * - Additive effect draws switch to screen blending while dimmed so dozens of
  *   stacked particles cannot saturate to white; the game's blend state is
  *   restored immediately after the draw.
@@ -43,9 +44,39 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   const TRIANGLES = 4;
   const BRIGHT_FACTOR = 0.3;
   const MAX_UPLOADS = 5000;
+  const MAX_UPLOAD_BYTES = 1024 * 1024;
   // Texture packs per skill (file names do not match skill names).
   const BRIGHT_FILES = ["sfx_sklelefirfirbrd", "sfx_sklelemulmeteos", "sfx_sklpsypsychicbomb", "sfx_sklpsydnolgy"];
-  const WARNING_FILES = ["sfx_attackcast"];
+  // Protected packs carry information players read during play, so they are
+  // never dimmed, thinned or hidden (cache audit of downloaded packs, 2026-11).
+  // Exact pack names, then name prefixes; a protected texture shared with a
+  // skill keeps that skill's copy of it undimmed too.
+  const PROTECTED_FILES = [
+    // Monster cast rings and ground pools.
+    "sfx_cir_dark_green", "sfx_dark_green_circle", "ilfx_dark_green_cir", "fly_sfx_cir_bright_violet",
+    "sfx_npcrisemsign",
+    // Weapon enchant glow per weapon type.
+    "sfx_enaura", "sfx_enaxe", "sfx_enaxt", "sfx_enbok", "sfx_enbow", "sfx_enche", "sfx_enknu", "sfx_enshi",
+    "sfx_ensta", "sfx_enswt", "sfx_enyoy",
+    // System notices: level up, tutorial.
+    "sfx_genlevelup", "sfx_tutorial",
+    // Portals.
+    "sfx_gate", "sfx_exit"
+  ];
+  const PROTECTED_PREFIXES = [
+    // Boss ground warnings (red circles, half circles).
+    "sfx_attackcast",
+    // Monster skill background rings (purple and red cast circles).
+    "fly_sfx_sk_bg_",
+    // Blinkwing teleport and warp points.
+    "sfx_blinkwing", "ilfx_warppoint",
+    // Upgrade success, failure and enchant notices; character system notices.
+    "sfx_genint", "sfx_chrsys",
+    // Item glow: enchant and element upgrades, weapon effects.
+    "sfx_effectenchant", "sfx_item", "fly_weaponfx_", "fly_weapon_two_fx_"
+  ];
+  const isProtected = (name: string) =>
+    PROTECTED_FILES.includes(name) || PROTECTED_PREFIXES.some(prefix => name.startsWith(prefix));
   // Spirit Bomb stacks hundreds of particles of one texture in one place.
   const PARTICLE_STACK: Record<string, number> = { sfx_sklpsypsychicbomb: 1 };
   // Copies of a stacked particle texture drawn per frame; the rest are skipped.
@@ -67,7 +98,7 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     "8192:3330499170", "8192:1791505304", "32768:1750721461", "8192:3914982811", "32768:552330890",
     "512:2389195545"
   ]);
-  // Recorded Boss warning textures, kept for packs that bypass fetch.
+  // Recorded Boss warning textures (protected), kept for packs that bypass fetch.
   const WARNING_TEXTURES = new Set(["8192:2489650850", "8192:1964578292", "8192:214041403", "8192:1728369378"]);
   const MARK = Symbol.for("rion-studio.game-effects.v1");
 
@@ -114,7 +145,7 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   const ANCHOR_SEARCH = 2048;
   const brightTextures = new WeakMap<WebGLTexture, string>();
   const hiddenTextures = new WeakSet<WebGLTexture>();
-  const warningTextures = new WeakSet<WebGLTexture>();
+  const protectedTextures = new WeakSet<WebGLTexture>();
   const packs: Pack[] = [];
   let uploads: Upload[] = [];
 
@@ -167,7 +198,7 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     const texture = upload.texture.deref();
     if (!texture) return true;
     if (!inPack(pack, upload)) return false;
-    if (WARNING_FILES.includes(pack.name)) warningTextures.add(texture);
+    if (isProtected(pack.name)) protectedTextures.add(texture);
     else brightTextures.set(texture, pack.name);
     return true;
   };
@@ -193,13 +224,14 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     return true;
   };
   const noteUpload = (texture: WebGLTexture | null | undefined, data: ArrayBufferView | null | undefined) => {
-    // Effect textures are 2–32 KB; terrain-sized uploads are never effects.
-    if (!texture || !data || data.byteLength < 64 || data.byteLength > 256 * 1024) return;
+    // Most effect textures are 2–32 KB, but large ground and pillar textures
+    // exceed 256 KB (Sandstorm's pillar); terrain-sized uploads are never effects.
+    if (!texture || !data || data.byteLength < 64 || data.byteLength > MAX_UPLOAD_BYTES) return;
     const view = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     const hash = sampleHash(view, 0, view.length);
     const signature = `${view.length}:${hash}`;
     if (HIDDEN_TEXTURES.has(signature)) hiddenTextures.add(texture);
-    if (WARNING_TEXTURES.has(signature)) warningTextures.add(texture);
+    if (WARNING_TEXTURES.has(signature)) protectedTextures.add(texture);
     let anchor = -1;
     const limit = Math.min(view.length - 8, (view.length >> 1) + ANCHOR_SEARCH);
     for (let at = view.length >> 1; at <= limit && anchor < 0; at++) if (anchorAt(view, at)) anchor = at;
@@ -227,7 +259,7 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
       try {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input?.url;
         const name = url ? fileName(url) : null;
-        if (name && !requested.has(name) && (BRIGHT_FILES.includes(name) || WARNING_FILES.includes(name))) {
+        if (name && !requested.has(name) && (BRIGHT_FILES.includes(name) || isProtected(name))) {
           requested.add(name);
           // Clone before the game reads the body: this reaction is attached first.
           void promise
@@ -356,7 +388,7 @@ void main() {
       group = {
         target: traceId(state.framebuffer), viewport: `${state.viewportWidth}x${state.viewportHeight}`,
         texture: traceId(texture), shape: (texture && textureShapes.get(texture)) ?? "",
-        kind: !texture ? "" : warningTextures.has(texture) ? "warning" : hiddenTextures.has(texture) ? "hit"
+        kind: !texture ? "" : protectedTextures.has(texture) ? "protected" : hiddenTextures.has(texture) ? "hit"
           : brightTextures.get(texture) ?? "",
         mode, blend: `${state.src},${state.dst},${state.equation}`,
         depth: `${+state.depthTest}${+state.depthMask}`, effect, draws: 0, vertices: 0, maxVertices: 0,
@@ -422,20 +454,22 @@ void main() {
     const additive = state.dst === ONE;
     if (additive && state.depthTest && !darken) effectPrograms.add(program);
     if (!effectPrograms.has(program) || !(additive || !state.depthMask)) return IDENTITY;
-    // One pass over the bound units: hit, bright, warning and the main texture.
-    let hidden = false, brightTexture = false, warning = false;
+    // One pass over the bound units: hit, bright, protected and the main texture.
+    let hidden = false, bright = false, protect = false;
     let texture: WebGLTexture | null = null;
     for (let index = 0; index < state.units.length; index++) {
       const unit = state.units[index];
       if (!unit) continue;
       if (!texture) texture = unit;
-      if (warningTextures.has(unit)) warning = true;
+      if (protectedTextures.has(unit)) protect = true;
       if (hideHitEffects && hiddenTextures.has(unit)) hidden = true;
-      if (dimBrightSkills && brightTextures.has(unit)) brightTexture = true;
+      if (dimBrightSkills && brightTextures.has(unit)) bright = true;
     }
-    // Boss ground warnings always draw exactly as the game intends.
-    if (warning) return IDENTITY;
-    const bright = dimBrightSkills && (darken || brightTexture);
+    // Protected effects always draw exactly as the game intends.
+    if (protect) return IDENTITY;
+    // Darkening draws follow the level like any effect; only textures on the
+    // bright list (Gravity Well) dim further, so Original leaves other dark
+    // ground effects as the game draws them.
     const dimming = brightness < 1 || bright;
     const thin = density < 1 && texture !== null;
     if (!dimming && !hidden && !thin) return IDENTITY;

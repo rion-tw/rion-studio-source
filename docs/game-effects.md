@@ -28,8 +28,8 @@ invisible or exceed the chosen density; it never reduces what the game loads.
 
 Screen blending saturates stacked effects, so the setting uses discrete stops
 instead of a percentage: Original `1`, Light `0.7`, Medium `0.25`, Heavy `0.08`,
-Hidden `0`. Original leaves ordinary effects untouched and applies only the
-bright-skill list, darkening effects, and hidden hit effects.
+Hidden `0`. Original leaves ordinary effects, including darkening effects,
+untouched and applies only the bright-skill list and hidden hit effects.
 
 ## Density
 
@@ -54,7 +54,7 @@ Stops are 100/75/50/25 %.
 - Additive survivors brighten by `copies / drawn` (at most 4×) through a
   negative `fmsFx.y`, keeping the cloud's light; dimmed mesh effects divide by
   the drawn count instead. Undimmed thinning keeps the game's own blending.
-- Boss ground warnings are never thinned.
+- Protected packs are never thinned.
 
 ## Draw rules
 
@@ -62,7 +62,9 @@ Stops are 100/75/50/25 %.
   zero default is the identity.
 - An effect program is one that ever drew additive (`dst = ONE`, `FUNC_ADD`)
   with depth testing. Its additive draws, its alpha draws without depth writes,
-  and its `FUNC_REVERSE_SUBTRACT` darkening draws are dimmed. Sky, sun, water
+  and its `FUNC_REVERSE_SUBTRACT` darkening draws follow the level. Darkening
+  draws dim further only when their texture is on the bright list (Gravity
+  Well); other dark ground effects are untouched at Original. Sky, sun, water
   and UI programs never qualify; dimming them breaks water reflections.
 - Dimmed additive draws use `blendFuncSeparate(ONE_MINUS_DST_COLOR, ONE, ZERO,
   ONE)` with premultiplied output, and the game's blend state is restored
@@ -71,22 +73,46 @@ Stops are 100/75/50/25 %.
   count of their texture; Spirit Bomb particles do the same while bright-skill
   dimming is on.
 - Texture packs fetched from `client/model/texture*/…/<name>.bin` are
-  decompressed beside the game to identify bright-skill textures and the
-  `sfx_attackcast` Boss ground warnings, which are never dimmed. Every new pack
-  rechecks all earlier unidentified uploads because the game shares textures by
-  name. Hit-effect textures are identified by `length:sampleHash` signatures.
+  decompressed beside the game to identify bright-skill textures and protected
+  textures. Every new pack rechecks all earlier unidentified uploads because the
+  game shares textures by name. Uploads up to 1 MiB are matched: large ground
+  and pillar textures exceed 256 KB. Hit-effect textures are identified by
+  `length:sampleHash` signatures.
 - Identification runs on the game's main thread when a Boss warning or skill
   first appears, so it must stay linear: each pack is indexed once per document
   into a typed-array hash chain, candidates are rejected by 16 byte probes
   before hashing, chains are capped, and uploads hold their textures weakly.
   A quadratic match once froze the game for the whole lookup.
 - A draw whose coefficient cancels it completely (Hidden level, hidden hit
-  effects, fully faded darkening effects) is skipped instead of drawn; Boss
-  warnings always draw. Stacked particles draw at most 48 copies of one texture
+  effects, fully faded darkening effects) is skipped instead of drawn;
+  protected textures always draw. Stacked particles draw at most 48 copies of one texture
   per frame, each divided by the capped count.
 - Pass-through settings (Original level with both extras off) skip
   classification; draws only clear a coefficient left from before.
 - Every wrapper forwards the game's call even when bookkeeping throws.
+
+## Protected packs
+
+Effects players read during play are never dimmed, thinned or hidden at any
+level, including Hidden. The runtime lists them by exact pack name or prefix
+(`PROTECTED_FILES`, `PROTECTED_PREFIXES`), chosen from a 2026-11 audit of packs
+the game downloaded:
+
+- Boss ground warnings (`sfx_attackcast`) and monster cast rings and ground
+  pools (`fly_sfx_sk_bg_*`, dark green and bright violet circles,
+  `sfx_npcrisemsign`).
+- Blinkwing teleport (`sfx_blinkwing*`), warp points, gates and exits.
+- System notices: level up, upgrade success/failure/enchant (`sfx_genint*`),
+  character system (`sfx_chrsys*`), tutorial.
+- Item glow: weapon enchant glow (`sfx_en<weapon>`, `sfx_effectenchant*`),
+  element upgrades (`sfx_item*`), weapon effects (`fly_weaponfx_*`,
+  `fly_weapon_two_fx_*`).
+
+A protected texture shared with a skill keeps that skill's copy undimmed too.
+The click-to-move marker and some monster warnings (Entaness's purple cast
+ring, Water Totem Pole poison pools) have not been traced to a pack yet; add
+their packs here once a trace identifies them. Shared packs such as
+`sfx_genref` stay unprotected because most skills draw from them.
 
 ## Render targets
 

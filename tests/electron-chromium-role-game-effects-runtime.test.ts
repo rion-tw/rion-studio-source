@@ -202,6 +202,50 @@ describe("Chromium role game-effects runtime", () => {
     expect(uniforms(calls)).toEqual([[0, 0, 0]]);
   });
 
+  it.each([
+    "sfx_blinkwingdelay", "fly_sfx_sk_bg_purple_cir", "sfx_dark_green_circle", "sfx_genintsuccess",
+    "sfx_effectenchant_gold", "fly_weaponfx_fire_color"
+  ])("never dims, thins or hides the protected pack %s", async pack => {
+    const { calls, gl } = installFakeWebGl();
+    installChromiumRoleGameEffectsRuntime({ brightness: 0, dimBrightSkills: true, hideHitEffects: true, density: 0.25 });
+    await identifiedTexture(gl, pack, 6);
+    effectState(gl);
+    for (let copy = 0; copy < 12; copy++) gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    expect(draws(calls)).toBe(12);
+    expect(uniforms(calls)).toEqual([[0, 0, 0]]);
+  });
+
+  it("leaves darkening draws outside the bright list as drawn at the Original level", async () => {
+    const { calls, gl } = installFakeWebGl();
+    installChromiumRoleGameEffectsRuntime({ brightness: 1, dimBrightSkills: true, hideHitEffects: false });
+    effectState(gl);
+    gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    gl.blendEquation!(FUNC_REVERSE_SUBTRACT);
+    gl.blendFunc!(SRC_ALPHA, ONE_MINUS_SRC_ALPHA);
+    gl.depthMask!(false);
+    gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    expect(uniforms(calls)).toEqual([[0, 0, 0]]);
+    // Gravity Well's own darkening texture still dims further.
+    await identifiedTexture(gl, "sfx_sklpsydnolgy", 7);
+    gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    expect(uniforms(calls).at(-1)).toEqual([1, Math.round(0.7 * 4096) / 4096, 0]);
+  });
+
+  it("identifies protected textures larger than 256 KB", async () => {
+    const { calls, gl } = installFakeWebGl();
+    installChromiumRoleGameEffectsRuntime({ brightness: 0, dimBrightSkills: false, hideHitEffects: false });
+    const bytes = new Uint8Array(300 * 1024);
+    for (let index = 0; index < bytes.length; index++) bytes[index] = (index * 13 + (index >> 5) * 7) & 0xff;
+    packs.set("sfx_attackcast", bytes);
+    await fetch("https://universe.flyff.com/client/model/texture/dxt/sfx_attackcast.bin");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    gl.bindTexture!(TEXTURE_2D, { texture: "large" });
+    gl.compressedTexImage2D!(TEXTURE_2D, 0, 0, 512, 512, 0, bytes);
+    effectState(gl);
+    gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    expect(draws(calls)).toBe(1);
+  });
+
   it("identifies earlier uploads at unaligned offsets once their pack arrives", async () => {
     const { calls, gl } = installFakeWebGl();
     installChromiumRoleGameEffectsRuntime({ brightness: 0, dimBrightSkills: true, hideHitEffects: false });

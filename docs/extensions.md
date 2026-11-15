@@ -38,9 +38,10 @@ The store document, header, and main content use 100% of the embedded viewport w
 overriding the upstream 1280px minimum without changing zoom. Horizontal document
 scrolling is disabled; vertical browsing remains available. A presentation-only
 CSS selector hides the header's specific Chrome-promotion dialog controller
-(`h4ilFc`), without dismissing or hiding generic dialogs. This upstream selector
-is covered by the live-store journey and may need updating when Google changes
-its markup. The native view is hidden during extension
+(`h4ilFc`), without dismissing or hiding generic dialogs. Since 2026-11-15 the
+store no longer renders that dialog, so the selector is a no-op kept for when it
+returns. The live-store journey requires that no dialog is displayed in the
+store header, whether the promotion is absent, hidden, or renamed. The native view is hidden during extension
 confirmation, Quick Access, and route departure.
 
 Installing first downloads and verifies a public CRX3 package, then displays

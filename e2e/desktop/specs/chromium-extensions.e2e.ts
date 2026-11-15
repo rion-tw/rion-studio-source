@@ -79,9 +79,13 @@ describe("Extensions store and per-role configuration", () => {
         && document.body.getBoundingClientRect().width <= innerWidth
         && [...document.querySelectorAll("header, main")].every(e => e.getBoundingClientRect().width <= innerWidth)
       ), { timeout: 10000, timeoutMsg: "Chrome Web Store must fit the embedded viewport without horizontal scrolling" });
-      const chromePromotion = await $('header[role="banner"] > [role="dialog"][jscontroller="h4ilFc"]');
-      await chromePromotion.waitForExist({ timeout: 10000 });
-      await expect(chromePromotion).not.toBeDisplayed();
+      // Google no longer always renders the Chrome-promotion dialog (absent on
+      // 2026-11-15); when it does, the host CSS hides it. Either way no dialog
+      // may cover the store header, including a renamed promotion controller.
+      await expect($('header[role="banner"] > [role="dialog"][jscontroller="h4ilFc"]')).not.toBeDisplayed();
+      expect(await browser.execute(() => [...document.querySelectorAll('header[role="banner"] [role="dialog"]')]
+        .filter(dialog => dialog.getBoundingClientRect().height > 0 && getComputedStyle(dialog).display !== "none")
+        .map(dialog => dialog.outerHTML.slice(0, 200)))).toEqual([]);
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-store-width.png"));
       await verifyBusterStoreNavigation(processId, main);
       const search = await $(

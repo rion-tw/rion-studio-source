@@ -10,7 +10,7 @@
  *   depth testing. Its additive draws, its non-depth-writing alpha draws, and
  *   its REVERSE_SUBTRACT darkening draws are effect draws. Sky, water and UI
  *   never qualify, and protected packs (Boss and monster ground warnings,
- *   teleport, system notices, item glow) are excluded.
+ *   teleport, system notices) are excluded.
  * - Additive effect draws switch to screen blending while dimmed so dozens of
  *   stacked particles cannot saturate to white; the game's blend state is
  *   restored immediately after the draw.
@@ -55,9 +55,6 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     // Monster cast rings and ground pools.
     "sfx_cir_dark_green", "sfx_dark_green_circle", "ilfx_dark_green_cir", "fly_sfx_cir_bright_violet",
     "sfx_npcrisemsign",
-    // Weapon enchant glow per weapon type.
-    "sfx_enaura", "sfx_enaxe", "sfx_enaxt", "sfx_enbok", "sfx_enbow", "sfx_enche", "sfx_enknu", "sfx_enshi",
-    "sfx_ensta", "sfx_enswt", "sfx_enyoy",
     // System notices: level up, tutorial.
     "sfx_genlevelup", "sfx_tutorial",
     // Portals.
@@ -71,10 +68,19 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     // Blinkwing teleport and warp points.
     "sfx_blinkwing", "ilfx_warppoint",
     // Upgrade success, failure and enchant notices; character system notices.
-    "sfx_genint", "sfx_chrsys",
-    // Item glow: enchant and element upgrades, weapon effects.
-    "sfx_effectenchant", "sfx_item", "fly_weaponfx_", "fly_weapon_two_fx_"
+    "sfx_genint", "sfx_chrsys"
+    // Item glow (enchant, element upgrades, weapon effects) is dimmed like
+    // other effects: the owner preferred it lowered (2026-11-16).
   ];
+  // Monster ground circles and expanding ring waves (2026-11-16): several
+  // monsters share one texture and a ring wave spawns repeated layers, so
+  // density thinning skipped rings mid-expansion and made circles flicker or
+  // fade. These are never thinned; brightness still follows the level.
+  const UNTHINNED_PREFIXES = [
+    "fly_sfx_red_ringwave", "fly_sfx_red_mark", "fly_sfx_circle_red_", "sfx_red_fire_ring",
+    "fly_sfx_red_fire_ring", "fly_sfx_red_command", "sfx_command_dark_red"
+  ];
+  const isUnthinned = (name: string) => UNTHINNED_PREFIXES.some(prefix => name.startsWith(prefix));
   const isProtected = (name: string) =>
     PROTECTED_FILES.includes(name) || PROTECTED_PREFIXES.some(prefix => name.startsWith(prefix));
   // Spirit Bomb stacks hundreds of particles of one texture in one place.
@@ -146,6 +152,7 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   const brightTextures = new WeakMap<WebGLTexture, string>();
   const hiddenTextures = new WeakSet<WebGLTexture>();
   const protectedTextures = new WeakSet<WebGLTexture>();
+  const unthinnedTextures = new WeakSet<WebGLTexture>();
   const packs: Pack[] = [];
   let uploads: Upload[] = [];
 
@@ -208,6 +215,7 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     if (!texture) return true;
     if (!inPack(pack, upload)) return false;
     if (isProtected(pack.name)) protectedTextures.add(texture);
+    else if (isUnthinned(pack.name)) unthinnedTextures.add(texture);
     else brightTextures.set(texture, pack.name);
     return true;
   };
@@ -270,7 +278,7 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
       try {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input?.url;
         const name = url ? fileName(url) : null;
-        if (name && !requested.has(name) && (BRIGHT_FILES.includes(name) || isProtected(name))) {
+        if (name && !requested.has(name) && (BRIGHT_FILES.includes(name) || isProtected(name) || isUnthinned(name))) {
           requested.add(name);
           // Clone before the game reads the body: this reaction is attached first.
           void promise
@@ -491,7 +499,7 @@ void main() {
     // bright list (Gravity Well) dim further, so Original leaves other dark
     // ground effects as the game draws them.
     const dimming = brightness < 1 || bright;
-    const thin = density < 1 && texture !== null;
+    const thin = density < 1 && texture !== null && !unthinnedTextures.has(texture);
     if (!dimming && !hidden && !thin) return IDENTITY;
     if (hidden) return SKIP;
     let level = brightness;

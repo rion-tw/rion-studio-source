@@ -228,8 +228,7 @@ describe("Chromium role game-effects runtime", () => {
   });
 
   it.each([
-    "sfx_blinkwingdelay", "fly_sfx_sk_bg_purple_cir", "sfx_dark_green_circle", "sfx_genintsuccess",
-    "sfx_effectenchant_gold", "fly_weaponfx_fire_color"
+    "sfx_blinkwingdelay", "fly_sfx_sk_bg_purple_cir", "sfx_dark_green_circle", "sfx_genintsuccess"
   ])("never dims, thins or hides the protected pack %s", async pack => {
     const { calls, gl } = installFakeWebGl();
     installChromiumRoleGameEffectsRuntime({ brightness: 0, dimBrightSkills: true, hideHitEffects: true, density: 0.25 });
@@ -239,6 +238,16 @@ describe("Chromium role game-effects runtime", () => {
     expect(draws(calls)).toBe(12);
     expect(uniforms(calls)).toEqual([[0, 0, 0]]);
   });
+
+  it.each(["sfx_effectenchant_gold", "sfx_itemfire", "sfx_enswt", "fly_weaponfx_fire_color"])(
+    "dims item glow in %s like other effects", async pack => {
+      const { calls, gl } = installFakeWebGl();
+      installChromiumRoleGameEffectsRuntime({ brightness: 0.25, dimBrightSkills: false, hideHitEffects: false });
+      await identifiedTexture(gl, pack, 9);
+      effectState(gl);
+      gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+      expect(uniforms(calls).at(-1)).toEqual([1, 0.75, 1]);
+    });
 
   it("leaves darkening draws outside the bright list as drawn at the Original level", async () => {
     const { calls, gl } = installFakeWebGl();
@@ -411,6 +420,24 @@ describe("Chromium role game-effects runtime", () => {
       effect: true, draws: 4, vertices: 2400, maxVertices: 600, maxFrameDraws: 4, skipped: 0
     })]);
   });
+
+  it.each(["fly_sfx_red_ringwave", "fly_sfx_red_mark_cil"])(
+    "never thins monster ground circles in %s but still dims them", async pack => {
+      const { calls, gl } = installFakeWebGl();
+      let frame = () => undefined as unknown;
+      vi.stubGlobal("requestAnimationFrame", (callback: () => unknown) => { frame = callback; return 0; });
+      installChromiumRoleGameEffectsRuntime({ brightness: 0.25, dimBrightSkills: false, hideHitEffects: false, density: 0.25 });
+      await identifiedTexture(gl, pack, 8);
+      effectState(gl);
+      for (let index = 0; index < 6; index++) {
+        calls.length = 0;
+        for (let copy = 0; copy < 5; copy++) gl.drawElements!(TRIANGLES, 600, 0x1403, 0);
+        for (let copy = 0; copy < 20; copy++) gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+        frame();
+      }
+      expect(draws(calls)).toBe(25);
+      expect(uniforms(calls).some(([, reduce]) => (reduce as number) > 0)).toBe(true);
+    });
 
   it("never thins Boss ground warnings", async () => {
     const { calls, gl } = installFakeWebGl();

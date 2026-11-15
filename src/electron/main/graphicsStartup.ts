@@ -1,6 +1,9 @@
 import { isGraphicsSettings } from "../../shared/graphicsSettings";
 import type { GraphicsSettingsRecord, GraphicsSettingsSnapshotRecord } from "../../shared/generated";
 
+/** Chromium's GPU-selection switch: the discrete GPU on Windows and macOS. */
+const FORCE_HIGH_PERFORMANCE_GPU = "force_high_performance_gpu";
+
 export interface GraphicsStartupPort {
   isReady(): boolean;
   disableHardwareAcceleration(): void;
@@ -19,7 +22,10 @@ export function applyGraphicsStartup(
   if (!snapshot || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0 ||
       !isGraphicsSettings(snapshot.settings)) throw new Error("Invalid Rust graphics settings snapshot.");
   const settings = snapshot.settings;
-  for (const name of ["enable-gpu-rasterization", "disable-gpu-rasterization", "disable-accelerated-video-decode"]) {
+  for (const name of [
+    "enable-gpu-rasterization", "disable-gpu-rasterization", "disable-accelerated-video-decode",
+    FORCE_HIGH_PERFORMANCE_GPU
+  ]) {
     app.commandLine.removeSwitch(name);
   }
   if (!settings.hardwareAcceleration) app.disableHardwareAcceleration();
@@ -29,6 +35,11 @@ export function applyGraphicsStartup(
   }
   if (settings.hardwareAcceleration && settings.videoDecode === "disabled") {
     app.commandLine.appendSwitch("disable-accelerated-video-decode");
+  }
+  // Dual-GPU machines (Optimus laptops, Intel MacBook Pro) otherwise let the
+  // system pick, which is often the integrated GPU.
+  if (settings.hardwareAcceleration && settings.gpuPreference === "high-performance") {
+    app.commandLine.appendSwitch(FORCE_HIGH_PERFORMANCE_GPU);
   }
   return { ...settings };
 }

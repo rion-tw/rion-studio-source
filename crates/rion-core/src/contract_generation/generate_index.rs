@@ -217,6 +217,7 @@ fn export_bindings_index() {
                 "export type { GraphicsStatusRecord } from \"./GraphicsStatusRecord\";\n",
                 "export type { GpuRasterizationMode } from \"./GpuRasterizationMode\";\n",
                 "export type { HardwareVideoDecodeMode } from \"./HardwareVideoDecodeMode\";\n",
+                "export type { GpuPreferenceMode } from \"./GpuPreferenceMode\";\n",
                 "export type { GameBrowserSettingsRecord } from \"./GameBrowserSettingsRecord\";\n",
                 "export type { GameBrowserSettingsPatchRecord } from \"./GameBrowserSettingsPatchRecord\";\n",
                 "export type { GameEffectSettingsRecord } from \"./GameEffectSettingsRecord\";\n",

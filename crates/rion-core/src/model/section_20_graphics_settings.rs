@@ -17,6 +17,17 @@ pub enum HardwareVideoDecodeMode {
     Disabled,
 }
 
+/// Which GPU Chromium uses on machines with more than one (dual-GPU laptops).
+/// Games default to the dedicated GPU.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum GpuPreferenceMode {
+    Auto,
+    #[default]
+    HighPerformance,
+}
+
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -24,6 +35,10 @@ pub struct GraphicsSettingsRecord {
     pub hardware_acceleration: bool,
     pub rasterization: GpuRasterizationMode,
     pub video_decode: HardwareVideoDecodeMode,
+    // Records written before this field existed choose the default (high performance).
+    #[serde(default)]
+    #[ts(optional = false)]
+    pub gpu_preference: GpuPreferenceMode,
 }
 
 impl Default for GraphicsSettingsRecord {
@@ -32,6 +47,7 @@ impl Default for GraphicsSettingsRecord {
             hardware_acceleration: true,
             rasterization: GpuRasterizationMode::Auto,
             video_decode: HardwareVideoDecodeMode::Auto,
+            gpu_preference: GpuPreferenceMode::HighPerformance,
         }
     }
 }

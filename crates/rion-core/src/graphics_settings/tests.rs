@@ -121,3 +121,47 @@ fn graphics_settings_survive_snapshot_replacement_and_are_not_exported() {
         Some(record)
     );
 }
+
+#[test]
+fn graphics_settings_default_gpu_preference_for_older_records() {
+    use crate::model::GpuPreferenceMode;
+    let older: GraphicsSettingsRecord = serde_json::from_str(
+        r#"{"hardwareAcceleration":true,"rasterization":"auto","videoDecode":"auto"}"#,
+    )
+    .unwrap();
+    assert_eq!(older.gpu_preference, GpuPreferenceMode::HighPerformance);
+    assert_eq!(
+        GraphicsSettingsRecord::default().gpu_preference,
+        GpuPreferenceMode::HighPerformance
+    );
+    let chosen: GraphicsSettingsRecord = serde_json::from_str(
+        r#"{"hardwareAcceleration":true,"rasterization":"auto","videoDecode":"auto","gpuPreference":"auto"}"#,
+    )
+    .unwrap();
+    assert_eq!(chosen.gpu_preference, GpuPreferenceMode::Auto);
+    assert_eq!(
+        serde_json::to_value(&chosen).unwrap()["gpuPreference"],
+        "auto"
+    );
+    assert!(
+        serde_json::from_str::<GraphicsSettingsRecord>(
+            r#"{"hardwareAcceleration":true,"rasterization":"auto","videoDecode":"auto","gpuPreference":"discrete"}"#
+        )
+        .is_err()
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let db = Connection::open(dir.path().join("rion-studio.sqlite3")).unwrap();
+    db.execute_batch("CREATE TABLE settings(key TEXT PRIMARY KEY, payload_json TEXT)")
+        .unwrap();
+    db.execute(
+        "INSERT INTO settings VALUES ('graphicsSettings', ?1)",
+        [r#"{"revision":3,"settings":{"hardwareAcceleration":true,"rasterization":"enabled","videoDecode":"auto"}}"#],
+    )
+    .unwrap();
+    let snapshot = read_graphics_settings_at_startup(dir.path()).unwrap();
+    assert_eq!(snapshot.revision, 3);
+    assert_eq!(
+        snapshot.settings.gpu_preference,
+        GpuPreferenceMode::HighPerformance
+    );
+}

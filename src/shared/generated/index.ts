@@ -180,6 +180,7 @@ export type { GraphicsSettingsSnapshotRecord } from "./GraphicsSettingsSnapshotR
 export type { GraphicsStatusRecord } from "./GraphicsStatusRecord";
 export type { GpuRasterizationMode } from "./GpuRasterizationMode";
 export type { HardwareVideoDecodeMode } from "./HardwareVideoDecodeMode";
+export type { GpuPreferenceMode } from "./GpuPreferenceMode";
 export type { GameBrowserSettingsRecord } from "./GameBrowserSettingsRecord";
 export type { GameBrowserSettingsPatchRecord } from "./GameBrowserSettingsPatchRecord";
 export type { GameEffectSettingsRecord } from "./GameEffectSettingsRecord";

@@ -25,6 +25,7 @@ describe("Chromium graphics settings", () => {
     await toggle.waitForDisplayed({ timeout: 20_000 });
     const raster = await $("button[role='combobox'][aria-label='GPU Rasterization']");
     const video = await $("button[role='combobox'][aria-label='Hardware video decoding']");
+    const gpu = await $("button[role='combobox'][aria-label='GPU preference']");
     const phase = process.env.RION_STUDIO_E2E_PHASE;
     if (phase === "chromium-graphics-settings-seed") {
       await raster.scrollIntoView({ block: "center" });
@@ -32,20 +33,27 @@ describe("Chromium graphics settings", () => {
       await expect(raster).toHaveText("Enabled");
       await video.click(); await $("[role='option']*=Disabled").click();
       await expect(video).toHaveText("Disabled");
+      await gpu.scrollIntoView({ block: "center" });
+      // High performance is the default; choose Auto to prove persistence.
+      await expect(gpu).toHaveText("High performance");
+      await gpu.click(); await $("[role='option']=Auto").click();
+      await expect(gpu).toHaveText("Auto");
       await toggle.scrollIntoView({ block: "center" }); await toggle.click();
       await expect(toggle).toHaveAttribute("aria-checked", "false");
-      await expect(raster).toBeDisabled(); await expect(video).toBeDisabled();
+      await expect(raster).toBeDisabled(); await expect(video).toBeDisabled(); await expect(gpu).toBeDisabled();
       await expect($("button=Restart")).toExist();
     } else if (phase === "chromium-graphics-settings-restart") {
       await expect(toggle).toHaveAttribute("aria-checked", "false");
       await expect(raster).toHaveText("Enabled");
       await expect(video).toHaveText("Disabled");
+      await expect(gpu).toHaveText("Auto");
       await expect($("button=Restart")).not.toExist();
       await browser.waitUntil(async () => (await rendererCall("getGraphicsStatus")).initialized,
         { timeout: 20_000, timeoutMsg: "No authoritative GPU information event after restart" });
       const status = await rendererCall("getGraphicsStatus");
       expect(status.hardwareAcceleration).toBe(false);
       expect(status.appliedSettings?.hardwareAcceleration).toBe(false);
+      expect(status.appliedSettings?.gpuPreference).toBe("auto");
     } else throw new Error(`Unexpected graphics phase ${phase}`);
     const info = await $("section[aria-label='Graphics information']");
     await expect(info.$("details")).not.toExist();
@@ -63,7 +71,9 @@ describe("Chromium graphics settings", () => {
     });
     await browser.saveScreenshot(resolve(artifactDirectory, "graphics-information.png"));
     const saved = await rendererCall("getGraphicsSettings");
-    expect(saved.settings).toEqual({ hardwareAcceleration: false, rasterization: "enabled", videoDecode: "disabled" });
+    expect(saved.settings).toEqual({
+      hardwareAcceleration: false, rasterization: "enabled", videoDecode: "disabled", gpuPreference: "auto"
+    });
     // The shared desktop harness closes cleanly and relaunches the same SQLite
     // namespace between phases. No renderer reload substitutes for process restart.
   });

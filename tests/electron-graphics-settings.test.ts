@@ -53,14 +53,25 @@ describe.each(["darwin", "win32"] as const)("%s graphics settings", (platform) =
     const app = { isReady: () => false, disableHardwareAcceleration: vi.fn(),
       commandLine: { appendSwitch: vi.fn(), removeSwitch: vi.fn() } };
     const read = (settings = defaultGraphicsSettings) => () => JSON.stringify({ revision: 1, settings });
+    // Defaults prefer the dedicated GPU and add nothing else.
     applyGraphicsStartup(app, read(), platform);
+    expect(app.commandLine.appendSwitch.mock.calls).toEqual([["force_high_performance_gpu"]]);
+    expect(app.commandLine.removeSwitch).toHaveBeenCalledWith("force_high_performance_gpu");
+    app.commandLine.appendSwitch.mockClear();
+    const automatic = { ...defaultGraphicsSettings, gpuPreference: "auto" as const };
+    applyGraphicsStartup(app, read(automatic), platform);
     expect(app.commandLine.appendSwitch).not.toHaveBeenCalled();
-    applyGraphicsStartup(app, read({ ...defaultGraphicsSettings, rasterization: "enabled", videoDecode: "disabled" }), platform);
+    applyGraphicsStartup(app, read({ ...automatic, rasterization: "enabled", videoDecode: "disabled" }), platform);
     expect(app.commandLine.appendSwitch.mock.calls).toEqual([["enable-gpu-rasterization"], ["disable-accelerated-video-decode"]]);
     app.commandLine.appendSwitch.mockClear();
+    // The acceleration master switch suppresses every subordinate switch, the GPU preference included.
     applyGraphicsStartup(app, read({ ...defaultGraphicsSettings, hardwareAcceleration: false, rasterization: "enabled" }), platform);
     expect(app.disableHardwareAcceleration).toHaveBeenCalledOnce();
     expect(app.commandLine.appendSwitch).not.toHaveBeenCalled();
+    // A record without the field is not a valid Rust projection.
+    const { gpuPreference: _omitted, ...older } = defaultGraphicsSettings;
+    expect(() => applyGraphicsStartup(app, () => JSON.stringify({ revision: 1, settings: older }), platform))
+      .toThrow("Invalid Rust");
     expect(() => applyGraphicsStartup({ ...app, isReady: () => true }, read(), platform)).toThrow("before Electron ready");
     expect(() => applyGraphicsStartup(app, () => "{}", platform)).toThrow("Invalid Rust");
   });

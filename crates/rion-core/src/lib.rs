@@ -169,8 +169,8 @@ pub use model::{
     WorkspaceWebContentRecord,
 };
 pub use model::{
-    GpuRasterizationMode, GraphicsSettingsRecord, GraphicsSettingsSnapshotRecord,
-    GraphicsStatusRecord, HardwareVideoDecodeMode,
+    GpuPreferenceMode, GpuRasterizationMode, GraphicsSettingsRecord,
+    GraphicsSettingsSnapshotRecord, GraphicsStatusRecord, HardwareVideoDecodeMode,
 };
 pub use portable::PORTABLE_SCHEMA_VERSION;
 pub use runtime_kernel::{

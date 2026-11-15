@@ -135,7 +135,8 @@ function isClosedCriticalEvent(event: Record<string, unknown>): boolean {
         settings: (settings) => check.closed(settings, {
           hardwareAcceleration: check.bool,
           rasterization: check.oneOf("auto", "enabled", "disabled"),
-          videoDecode: check.oneOf("auto", "disabled")
+          videoDecode: check.oneOf("auto", "disabled"),
+          gpuPreference: check.oneOf("auto", "high-performance")
         })
       }) });
     case "extensionsChanged":

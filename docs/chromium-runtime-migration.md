@@ -1191,7 +1191,11 @@ the sole Electron runtime; the retired Tauri/System WebView shell remains remove
 Saved preferences and the current process's applied preferences remain distinct.
 The GPU master switch suppresses subordinate overrides without erasing their
 stored values. Rasterization uses only enable/disable-gpu-rasterization; video
-decoding uses only disable-accelerated-video-decode. Default modes add no switches.
+decoding uses only disable-accelerated-video-decode; the GPU preference uses
+only force_high_performance_gpu, which selects the dedicated GPU on dual-GPU
+Windows laptops and Intel Macs. High performance is the default GPU preference
+(older records without the field included), so default settings add only that
+switch; Automatic leaves GPU selection to the system.
 No blocklist, sandbox, driver workaround, ANGLE, frame cadence or page-quality
 bypass is introduced. Restart passes the existing renderer quit guard and the
 exact clean Core shutdown before Electron schedules relaunch.

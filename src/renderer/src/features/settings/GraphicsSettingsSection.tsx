@@ -1,6 +1,6 @@
 import type { JSX } from "react";
 import { RotateCcw } from "lucide-react";
-import type { GpuRasterizationMode, HardwareVideoDecodeMode } from "../../../../shared/generated";
+import type { GpuPreferenceMode, GpuRasterizationMode, HardwareVideoDecodeMode } from "../../../../shared/generated";
 import { defaultGraphicsSettings } from "../../../../shared/graphicsSettings";
 import { SettingsRow, SettingsSection } from "../../components/ui/patterns";
 import { Button } from "../../components/ui/button";
@@ -35,6 +35,13 @@ export function GraphicsSettingsSection({ t, onError }: { t: Translator; onError
         <SelectTrigger className="settings-menu-control" aria-label={t("settings.graphics.videoDecode")}><SelectValue /></SelectTrigger>
         <SelectContent>{(["auto", "disabled"] as const).map((mode) =>
           <SelectItem key={mode} value={mode}>{t(`settings.graphics.${mode}`)}</SelectItem>)}</SelectContent>
+      </Select>} />
+    <SettingsRow title={t("settings.graphics.gpuPreference")} description={t("settings.graphics.gpuPreferenceDescription")}
+      control={<Select value={settings.gpuPreference} disabled={subordinateDisabled}
+        onValueChange={(gpuPreference) => void save({ ...settings, gpuPreference: gpuPreference as GpuPreferenceMode })}>
+        <SelectTrigger className="settings-menu-control" aria-label={t("settings.graphics.gpuPreference")}><SelectValue /></SelectTrigger>
+        <SelectContent>{(["auto", "high-performance"] as const).map((mode) =>
+          <SelectItem key={mode} value={mode}>{t(mode === "auto" ? "settings.graphics.auto" : "settings.graphics.highPerformance")}</SelectItem>)}</SelectContent>
       </Select>} />
     <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
       <Button variant="outline" disabled={busy} onClick={() => void save({ ...defaultGraphicsSettings })}>{t("settings.graphics.reset")}</Button>

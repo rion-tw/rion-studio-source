@@ -3531,7 +3531,7 @@
         "success",
         "restart"
       ],
-      "description": "Select GPU rasterization and video decoding through the dedicated Graphics settings page in the General sidebar group, verify Preferences contains no graphics controls, disable hardware acceleration, read the always-visible GPU diagnostics in their own group, then verify the saved subordinate choices and actual disabled acceleration in a fresh process using the same SQLite namespace."
+      "description": "Select GPU rasterization and video decoding, and change the GPU preference from its High performance default to Auto, through the dedicated Graphics settings page in the General sidebar group, verify Preferences contains no graphics controls, disable hardware acceleration, read the always-visible GPU diagnostics in their own group, then verify the saved subordinate choices and actual disabled acceleration in a fresh process using the same SQLite namespace."
     },
     {
       "id": "CHROMIUM-WINDOWS-GRAPHICS-SETTINGS-001",
@@ -3554,7 +3554,7 @@
         "success",
         "restart"
       ],
-      "description": "Select GPU rasterization and video decoding through the dedicated Graphics settings page in the General sidebar group, verify Preferences contains no graphics controls, disable hardware acceleration, read the always-visible GPU diagnostics in their own group, then verify the saved subordinate choices and actual disabled acceleration in a fresh process using the same SQLite namespace."
+      "description": "Select GPU rasterization and video decoding, and change the GPU preference from its High performance default to Auto, through the dedicated Graphics settings page in the General sidebar group, verify Preferences contains no graphics controls, disable hardware acceleration, read the always-visible GPU diagnostics in their own group, then verify the saved subordinate choices and actual disabled acceleration in a fresh process using the same SQLite namespace."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-ROLE-SESSION-RECOVERY-033",

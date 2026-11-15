@@ -59,7 +59,26 @@ export async function recordStoreEvidence(id: number, label: string, screenshot 
       ready: document.readyState, title: document.title, text: document.body?.innerText.slice(0, 12000),
       headings: [...document.querySelectorAll('h1')].map(node => node.innerText),
       links: [...document.querySelectorAll('a[href]')].filter(node => node.getBoundingClientRect().height > 0)
-        .map(node => ({ text: node.innerText, href: node.href })).slice(0, 100) })`);
+        .map(node => ({ text: node.innerText, href: node.href })).slice(0, 100),
+      // Displayed dialogs, with their ancestors, identify store overlays such
+      // as the Chrome promotion when its markup changes upstream.
+      dialogs: [...document.querySelectorAll('[role="dialog"],[role="alertdialog"],[aria-modal="true"]')]
+        .filter(node => node.getBoundingClientRect().height > 0)
+        .map(node => {
+          const ancestors = [];
+          for (let parent = node.parentElement; parent && parent !== document.body && ancestors.length < 6; parent = parent.parentElement) {
+            ancestors.push(parent.tagName + '#' + parent.id + '[role=' + parent.getAttribute('role') + '][jscontroller=' + parent.getAttribute('jscontroller') + ']');
+          }
+          return { html: node.outerHTML.slice(0, 600), ancestors };
+        }).slice(0, 10),
+      frames: [...document.querySelectorAll('iframe')].filter(node => node.getBoundingClientRect().height > 0)
+        .map(node => {
+          const rect = node.getBoundingClientRect();
+          const parent = node.parentElement;
+          return { src: node.src.slice(0, 300), name: node.name, rect: [rect.x, rect.y, rect.width, rect.height].map(Math.round),
+            html: node.outerHTML.slice(0, 400),
+            parent: parent ? parent.outerHTML.slice(0, parent.outerHTML.indexOf('>') + 1).slice(0, 300) : null };
+        }).slice(0, 10) })`);
   }, id);
   await appendFile(join(artifacts(), "store-navigation.jsonl"), JSON.stringify({ label, document }) + "\n");
   if (screenshot) {

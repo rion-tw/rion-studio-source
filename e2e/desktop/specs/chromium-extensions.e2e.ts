@@ -1,6 +1,6 @@
 import { verifyTemporaryWindowTitle } from "../support/temporary-window-title";
 import { assertNoExtensionMainProcessException, extensionTerminalIds, expectExtensionPassedClassification, verifyExtensionPermissionsAfterRestart } from "../support/extensions-permissions";
-import { storeDetailLinkSelector, verifyBusterStoreNavigation } from "../support/extensions-store-navigation";
+import { revealStoreSearch, storeDetailLinkSelector, verifyBusterStoreNavigation } from "../support/extensions-store-navigation";
 import { join } from "node:path";
 import type { ExtensionRoleRecord } from "../../../src/shared/generated";
 import { $, browser, expect } from "@wdio/globals";
@@ -88,10 +88,7 @@ describe("Extensions store and per-role configuration", () => {
         .map(dialog => dialog.outerHTML.slice(0, 200)))).toEqual([]);
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-store-width.png"));
       await verifyBusterStoreNavigation(processId, main);
-      const search = await $(
-        'input[type="search"],input[aria-label*="Search"],input[placeholder*="Search"]'
-      );
-      await search.waitForClickable({ timeout: 30_000 });
+      const search = await revealStoreSearch();
       await search.click();
       await search.setValue("AdBlock");
       await browser.keys("Enter");

@@ -10,6 +10,27 @@ const BUSTER = "Buster: Captcha Solver for Humans";
 const ID = "mpbjkejclgfgadiemmefgebjfooflfhl";
 const SEARCH = 'input[type="search"],input[aria-label*="Search"],input[placeholder*="Search"]';
 
+/**
+ * The store header collapses its search field behind a Search button at
+ * narrow widths (720px, seen 2026-11-15 in the embedded store view). Expand it
+ * through that visible button only while the field itself is not displayed.
+ */
+export async function revealStoreSearch(): Promise<WebdriverIO.Element> {
+  await browser.waitUntil(async () => {
+    // Re-query each pass: the store may replace the field while expanding it.
+    const field = $(SEARCH);
+    if (await field.isClickable()) return true;
+    // Only a collapsed (undisplayed) field is expanded. At wider widths the
+    // same-named button submits the query, so a field that is displayed but
+    // briefly not clickable is only awaited.
+    if (await field.isDisplayed()) return false;
+    const expand = $('header[role="banner"] button[aria-label="Search"]');
+    if (await expand.isDisplayed()) await expand.click();
+    return false;
+  }, { timeout: 30_000, interval: 500, timeoutMsg: "The store search field never became clickable" });
+  return $(SEARCH).getElement();
+}
+
 export function storeDetailLinkSelector(extensionId: string): string {
   if (!/^[a-p]{32}$/.test(extensionId)) throw new Error("Invalid store extension ID");
   // A Google sign-in link can embed this detail URL in its continue parameter.
@@ -34,9 +55,9 @@ async function verifyNavigation(processId: number, mainHandle: string, storeId: 
   const storeHandle = await browser.getWindowHandle();
   const category = await storeState(storeId);
   for (const mode of ["result", "suggestion", "keyboard"] as const) {
-    let source: Awaited<ReturnType<typeof storeState>>;
-    const search = await $(SEARCH);
-    await search.waitForClickable({ timeout: 30_000 });
+    let source: { url: string; index: number };
+    const page = await storeState(storeId);
+    await revealStoreSearch();
     // History Back restores the query text without opening suggestions.
     // Re-enter it through the visible field for each navigation path.
     await setInputValue(SEARCH, BUSTER);
@@ -53,9 +74,31 @@ async function verifyNavigation(processId: number, mainHandle: string, storeId: 
       const suggestionSelector = `//*[@role="listbox"]//*[@role="option" and contains(., "${BUSTER}")]`;
       const suggestion = await $(suggestionSelector);
       await suggestion.waitForDisplayed({ timeout: 30_000 });
-      source = await storeState(storeId);
-      if (mode === "keyboard") await browser.keys(["ArrowDown", "Enter"]);
-      else await browser.waitUntil(async () => {
+      source = page;
+      if (mode === "keyboard") {
+        // Google's bar loads its (hidden) promotion callout once per session.
+        // On a narrow header that pops the search field's same-document
+        // history entry and takes focus, so the keys reach nothing. Retype
+        // through the visible field only after that pop is observed.
+        for (let attempt = 1; ; attempt++) {
+          await $(suggestionSelector).waitForDisplayed({ timeout: 30_000 });
+          const typed = await storeState(storeId);
+          await browser.keys(["ArrowDown", "Enter"]);
+          const atDetail = async () => new URL(await browser.getUrl()).pathname.endsWith(`/${ID}`);
+          let opened = false;
+          await browser.waitUntil(async () => {
+            if ((opened = await atDetail())) return true;
+            if (typed.index > page.index && (await storeState(storeId)).index < typed.index) return true;
+            // The pop can precede the keys: focus left the field and its
+            // suggestions closed without a navigation.
+            const focused = await browser.execute(selector => document.activeElement?.matches(selector) ?? false, SEARCH);
+            return !focused && !(await $(suggestionSelector).isDisplayed());
+          }, { timeout: 30_000, timeoutMsg: "Buster keyboard selection neither navigated nor lost its search field" });
+          if (opened || (await atDetail()) || attempt === 3) break;
+          await revealStoreSearch();
+          await setInputValue(SEARCH, BUSTER);
+        }
+      } else await browser.waitUntil(async () => {
         // Live store suggestions replace their option node while results
         // arrive. A stale WebDriver element has not established a click.
         if (new URL(await browser.getUrl()).pathname.endsWith(`/${ID}`)) return true;
@@ -74,6 +117,15 @@ async function verifyNavigation(processId: number, mainHandle: string, storeId: 
     await waitForStoreDocument(storeId);
     await $(`h1=${BUSTER}`).waitForDisplayed({ timeout: 30_000 });
     const detail = await storeState(storeId);
+    if (mode !== "result") {
+      // A narrow store header opens its search field by pushing a
+      // same-document entry for the category URL. A suggestion navigation
+      // either replaces that entry or pushes after it, so the detail entry
+      // directly follows a category entry one or two steps after the page.
+      expect([page.index + 1, page.index + 2]).toContain(detail.index);
+      source = { url: detail.history[detail.index - 1]!, index: detail.index - 1 };
+      expect(source.url).toBe(page.url);
+    }
     expect(detail.index).toBe(source.index + 1);
     await recordStoreEvidence(storeId, `${mode}-detail`);
     await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", `buster-${mode}-detail.png`));

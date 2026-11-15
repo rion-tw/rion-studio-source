@@ -365,6 +365,22 @@ describe("serialized Chrome Web Store navigation", () => {
     host.dispose();
   });
 
+  it("hides only the Chrome-promotion overlays in each store document", async () => {
+    const host = new ExtensionStoreHost(owner, vi.fn());
+    host.request({ action: "show", bounds });
+    await loaded(1);
+    native.emit("dom-ready");
+    expect(native.contents.insertCSS).toHaveBeenCalledOnce();
+    const [css, options] = native.contents.insertCSS.mock.calls[0] as unknown as [string, unknown];
+    expect(options).toEqual({ cssOrigin: "user" });
+    // The header promotion and the later Google bar callout frame's container.
+    expect(css).toContain('header[role="banner"] > [role="dialog"][jscontroller="h4ilFc"]');
+    expect(css).toContain('div:has(> iframe[name="callout"])');
+    // Generic store dialogs stay visible.
+    expect(css).not.toMatch(/(^|[\s,}])\[role="dialog"\]\s*\{/u);
+    host.dispose();
+  });
+
   it("ignores lifecycle callbacks after its exact view retires", async () => {
     const publish = vi.fn();
     const host = new ExtensionStoreHost(owner, publish);

@@ -39,9 +39,12 @@ overriding the upstream 1280px minimum without changing zoom. Horizontal documen
 scrolling is disabled; vertical browsing remains available. A presentation-only
 CSS selector hides the header's specific Chrome-promotion dialog controller
 (`h4ilFc`), without dismissing or hiding generic dialogs. Since 2026-11-15 the
-store no longer renders that dialog, so the selector is a no-op kept for when it
-returns. The live-store journey requires that no dialog is displayed in the
-store header, whether the promotion is absent, hidden, or renamed. The native view is hidden during extension
+"Switch to Chrome?" promotion instead appears after navigation as a Google bar
+callout: an `iframe[name="callout"]` in an absolutely positioned container that
+covers search results. CSS hides that container (`div:has(> iframe[name="callout"])`)
+so it neither shows nor intercepts clicks; the header selector stays for when
+the old dialog returns. The live-store journey requires that no dialog is
+displayed in the store header and clicks through results the callout covered. The native view is hidden during extension
 confirmation, Quick Access, and route departure.
 
 Installing first downloads and verifies a public CRX3 package, then displays

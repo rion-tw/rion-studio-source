@@ -22,6 +22,12 @@ const STORE_VIEWPORT_CSS = `
   header[role="banner"] > [role="dialog"][jscontroller="h4ilFc"] {
     display: none !important;
   }
+  /* Since 2026-11-15 "Switch to Chrome?" arrives later as a Google bar
+     callout iframe. Hide its positioned container, which would otherwise keep
+     intercepting clicks over the results. */
+  div:has(> iframe[name="callout"]) {
+    display: none !important;
+  }
 `;
 
 type StoreNavigationSource = "document" | "initial" | "language" | "popup" | StoreHistoryAction;

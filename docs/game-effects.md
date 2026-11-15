@@ -76,8 +76,10 @@ Stops are 100/75/50/25 %.
   decompressed beside the game to identify bright-skill textures and protected
   textures. Every new pack rechecks all earlier unidentified uploads because the
   game shares textures by name. Uploads up to 1 MiB are matched: large ground
-  and pillar textures exceed 256 KB. Hit-effect textures are identified by
-  `length:sampleHash` signatures.
+  and pillar textures exceed 256 KB. A candidate is confirmed by at most about
+  4,096 sampled bytes, so noting a large upload costs no more than a small one.
+  Hit-effect textures are identified by `length:sampleHash` signatures (every
+  7th byte), computed only for the recorded lengths (512, 8,192, 32,768).
 - Identification runs on the game's main thread when a Boss warning or skill
   first appears, so it must stay linear: each pack is indexed once per document
   into a typed-array hash chain, candidates are rejected by 16 byte probes
@@ -87,8 +89,12 @@ Stops are 100/75/50/25 %.
   effects, fully faded darkening effects) is skipped instead of drawn;
   protected textures always draw. Stacked particles draw at most 48 copies of one texture
   per frame, each divided by the capped count.
-- Pass-through settings (Original level with both extras off) skip
-  classification; draws only clear a coefficient left from before.
+- Pass-through settings (Original level with both extras off) and unblended
+  draws skip classification; they only clear a coefficient the program kept
+  from an earlier effect draw. The bound program's uniform location and last
+  coefficient are cached at `useProgram`, not looked up per draw (the game
+  issues 40,000–170,000 blended draws per second). Re-linking a program resets
+  its uniforms, so its cached coefficient is dropped.
 - Every wrapper forwards the game's call even when bookkeeping throws.
 
 ## Protected packs

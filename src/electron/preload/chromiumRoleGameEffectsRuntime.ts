@@ -149,11 +149,20 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   const packs: Pack[] = [];
   let uploads: Upload[] = [];
 
-  const sampleHash = (bytes: Uint8Array, offset: number, length: number) => {
+  // Recorded `length:sampleHash` signatures sample every 7th byte.
+  const sampleHash = (bytes: Uint8Array, offset: number, length: number, stride = 7) => {
     let hash = 2166136261;
-    for (let i = 0; i < length; i += 7) hash = Math.imul(hash ^ bytes[offset + i]!, 16777619);
+    for (let i = 0; i < length; i += stride) hash = Math.imul(hash ^ bytes[offset + i]!, 16777619);
     return hash >>> 0;
   };
+  // Pack matching confirms a candidate with at most ~4096 samples, so a
+  // 1 MiB terrain upload costs no more to note than a 28 KB effect texture.
+  const MATCH_SAMPLES = 4096;
+  const matchStride = (length: number) => Math.max(7, Math.ceil(length / MATCH_SAMPLES));
+  const matchHash = (bytes: Uint8Array, offset: number, length: number) =>
+    sampleHash(bytes, offset, length, matchStride(length));
+  // Only these lengths carry recorded signatures (HIDDEN_TEXTURES, WARNING_TEXTURES).
+  const SIGNATURE_LENGTHS = new Set([512, 8192, 32768]);
   const word = (bytes: Uint8Array, at: number) =>
     (bytes[at]! | (bytes[at + 1]! << 8) | (bytes[at + 2]! << 16) | (bytes[at + 3]! << 24)) >>> 0;
   const plain = (value: number) => (value & 0xff) * 0x01010101 === value;
@@ -188,7 +197,7 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
         if (offset < 0 || offset + upload.length > bytes.length) continue;
         let probe = 0;
         while (probe < PROBES && bytes[offset + probeAt(upload.length, probe)] === upload.probes[probe]) probe++;
-        if (probe === PROBES && sampleHash(bytes, offset, upload.length) === upload.hash) return true;
+        if (probe === PROBES && matchHash(bytes, offset, upload.length) === upload.hash) return true;
       }
     }
     return false;
@@ -228,10 +237,12 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     // exceed 256 KB (Sandstorm's pillar); terrain-sized uploads are never effects.
     if (!texture || !data || data.byteLength < 64 || data.byteLength > MAX_UPLOAD_BYTES) return;
     const view = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-    const hash = sampleHash(view, 0, view.length);
-    const signature = `${view.length}:${hash}`;
-    if (HIDDEN_TEXTURES.has(signature)) hiddenTextures.add(texture);
-    if (WARNING_TEXTURES.has(signature)) protectedTextures.add(texture);
+    const hash = matchHash(view, 0, view.length);
+    if (SIGNATURE_LENGTHS.has(view.length)) {
+      const signature = `${view.length}:${matchStride(view.length) === 7 ? hash : sampleHash(view, 0, view.length)}`;
+      if (HIDDEN_TEXTURES.has(signature)) hiddenTextures.add(texture);
+      if (WARNING_TEXTURES.has(signature)) protectedTextures.add(texture);
+    }
     let anchor = -1;
     const limit = Math.min(view.length - 8, (view.length >> 1) + ANCHOR_SEARCH);
     for (let at = view.length >> 1; at <= limit && anchor < 0; at++) if (anchorAt(view, at)) anchor = at;
@@ -289,6 +300,15 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   // Last coefficient set per program: [alphaOnly, reduce, screen].
   const applied = new WeakMap<WebGLProgram, Float64Array>();
   const effectPrograms = new WeakSet<WebGLProgram>();
+  // The bound program's location and last coefficient, looked up once per
+  // useProgram/linkProgram instead of on each of 40–170k draws per second.
+  let currentLocation: WebGLUniformLocation | null | undefined;
+  let currentApplied: Float64Array | undefined;
+  const selectProgram = (program: WebGLProgram | null) => {
+    state.program = program;
+    currentLocation = program ? locations.get(program) : undefined;
+    currentApplied = program ? applied.get(program) : undefined;
+  };
   const state = {
     units: [] as (WebGLTexture | null)[], unit: 0, program: null as WebGLProgram | null,
     blendOn: false, src: ONE, dst: 0, srcAlpha: ONE, dstAlpha: 0, equation: ADD,
@@ -543,11 +563,16 @@ void main() {
     });
     wrap("linkProgram", original => function (this: Gl, program: WebGLProgram) {
       const result = original.call(this, program);
-      quietly(() => locations.set(program, this.getUniformLocation(program, "fmsFx")));
+      quietly(() => {
+        locations.set(program, this.getUniformLocation(program, "fmsFx"));
+        // Linking resets uniforms to zero, so no coefficient is left to clear.
+        applied.delete(program);
+        if (program === state.program) selectProgram(program);
+      });
       return result;
     });
     wrap("useProgram", original => function (this: Gl, program: WebGLProgram | null) {
-      state.program = program;
+      quietly(() => selectProgram(program));
       return original.call(this, program);
     });
     wrap("enable", original => function (this: Gl, cap: number) {
@@ -635,12 +660,13 @@ void main() {
       traced = IDENTITY;
       try {
         const program = state.program;
-        const location = program && locations.get(program);
+        const location = currentLocation;
         if (!program || !location) return FORWARD;
-        const last = applied.get(program);
-        // Pass-through settings skip classification; they only clear a
-        // coefficient a program kept from before dimming was turned off.
-        if (passThrough) {
+        const last = currentApplied;
+        // Pass-through settings and unblended draws (the opaque scene) skip
+        // classification; they only clear a coefficient the program kept from
+        // an earlier effect draw or from before dimming was turned off.
+        if (passThrough || !state.blendOn) {
           if (last && (last[0] || last[1] || last[2])) {
             gl.uniform3f(location, 0, 0, 0);
             last.fill(0);
@@ -656,7 +682,10 @@ void main() {
         if (!last || last[0] !== alphaOnly || last[1] !== reduce || last[2] !== screen) {
           gl.uniform3f(location, alphaOnly, reduce, screen);
           if (last) { last[0] = alphaOnly; last[1] = reduce; last[2] = screen; }
-          else applied.set(program, Float64Array.of(alphaOnly, reduce, screen));
+          else {
+            currentApplied = Float64Array.of(alphaOnly, reduce, screen);
+            applied.set(program, currentApplied);
+          }
         }
         return screen === 1 ? SCREEN : FORWARD;
       } catch {

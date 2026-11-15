@@ -162,6 +162,31 @@ describe("Chromium role game-effects runtime", () => {
     expect(uniforms(calls).at(-1)).toEqual([0, 0, 0]);
   });
 
+  it("clears a coefficient left on a program when it next draws unblended", () => {
+    const { calls, gl } = installFakeWebGl();
+    installChromiumRoleGameEffectsRuntime({ brightness: 0.25, dimBrightSkills: false, hideHitEffects: false });
+    effectState(gl);
+    gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    expect(uniforms(calls).at(-1)).toEqual([1, 0.75, 1]);
+    gl.disable!(BLEND);
+    for (let copy = 0; copy < 3; copy++) gl.drawElements!(TRIANGLES, 6, 0, 0);
+    // One clear, then the fast path writes nothing for later opaque draws.
+    expect(uniforms(calls)).toEqual([[1, 0.75, 1], [0, 0, 0]]);
+    expect(draws(calls)).toBe(4);
+  });
+
+  it("re-applies the coefficient after the bound program is re-linked", () => {
+    const { calls, gl } = installFakeWebGl();
+    installChromiumRoleGameEffectsRuntime({ brightness: 0.25, dimBrightSkills: false, hideHitEffects: false });
+    effectState(gl);
+    gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    // Linking resets the GPU-side uniform even though the program object stays.
+    const program = calls.find(call => call.name === "useProgram")!.args[0];
+    gl.linkProgram!(program);
+    gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    expect(uniforms(calls)).toEqual([[1, 0.75, 1], [1, 0.75, 1]]);
+  });
+
   it("forwards the game's GL call even when bookkeeping throws", () => {
     const { calls, gl } = installFakeWebGl();
     installChromiumRoleGameEffectsRuntime({ brightness: 0.25, dimBrightSkills: true, hideHitEffects: false });

@@ -55,10 +55,10 @@ Stops are 100/75/50/25 %.
   negative `fmsFx.y`, keeping the cloud's light; dimmed mesh effects divide by
   the drawn count instead. Undimmed thinning keeps the game's own blending.
 - Protected packs are never thinned.
-- Monster ground circles and expanding ring waves (`UNTHINNED_PREFIXES`:
-  `fly_sfx_red_ringwave`, `fly_sfx_red_mark*`, `fly_sfx_circle_red_*`, red fire
-  rings and red command circles) are never thinned but still follow the
-  brightness level. Several monsters share one circle texture and a ring wave
+- Monster ground circles and expanding ring waves not on the protected list
+  (`UNTHINNED_PREFIXES`: `fly_sfx_red_ringwave`, `fly_sfx_red_mark*`,
+  `fly_sfx_circle_red_*`, `sfx_red_fire_ring*`) are never thinned but still
+  follow the brightness level. Several monsters share one circle texture and a ring wave
   spawns repeated layers, so thinning made circles flicker, fade, or vanish
   mid-expansion (2026-11-16).
 
@@ -113,6 +113,13 @@ the game downloaded:
 - Boss ground warnings (`sfx_attackcast`) and monster cast rings and ground
   pools (`fly_sfx_sk_bg_*`, dark green and bright violet circles,
   `sfx_npcrisemsign`).
+- Monster skills, red circles and ground marks that no player skill uses,
+  taken from the original author's game-data list of non-skill packs
+  (2026-10-31): red fire and fatal circles, red auras and magic circles, red and
+  violet command circles (`sfx_move_*_command_cir`), green poison dots, blue
+  fire rings, guardian marks, attack arrows, `magiccircle`, Behemoth fire and
+  similar monster packs. Item, weapon and system entries of that list are not
+  copied.
 - Blinkwing teleport (`sfx_blinkwing*`), warp points, gates and exits.
 - System notices: level up, upgrade success/failure/enchant (`sfx_genint*`),
   character system (`sfx_chrsys*`), tutorial.
@@ -121,9 +128,16 @@ Item glow (weapon enchant glow, element upgrades, weapon effects) is not
 protected: it is dimmed with other effects at the owner's request (2026-11-16).
 
 A protected texture shared with a skill keeps that skill's copy undimmed too.
-The click-to-move marker and some monster warnings (Entaness's purple cast
-ring, Water Totem Pole poison pools) have not been traced to a pack yet; add
-their packs here once a trace identifies them. Shared packs such as
+
+Entaness (Queen of Thorns) draws its purple outer cast ring with `t_ring001`,
+a pack player skills share. That pack is undimmed only while a Boss warning
+(`sfx_attackcast`) was drawn within the last 500 ms; the puddle left after the
+cast and player skills using the pack dim as usual.
+
+The click-to-move marker (`texbase`) is not protected yet. Ground poison pools
+(Water Totem Pole, Twinstrike Den Mother, Monument of Death) share Gravity
+Well's textures and can only be told apart by nearby monster names in game
+memory, which this runtime does not read, so they dim with Gravity Well. Shared packs such as
 `sfx_genref` stay unprotected because most skills draw from them.
 
 ## Render targets

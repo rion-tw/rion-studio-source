@@ -90,6 +90,7 @@ function uniforms(calls: Call[]) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   packs.clear();
 });
@@ -228,7 +229,8 @@ describe("Chromium role game-effects runtime", () => {
   });
 
   it.each([
-    "sfx_blinkwingdelay", "fly_sfx_sk_bg_purple_cir", "sfx_dark_green_circle", "sfx_genintsuccess"
+    "sfx_blinkwingdelay", "fly_sfx_sk_bg_purple_cir", "sfx_dark_green_circle", "sfx_genintsuccess",
+    "sfx_move_red_command_cir", "fly_sfx_circle_red_fatal", "fly_sfx_red_fire_ring", "magiccircle"
   ])("never dims, thins or hides the protected pack %s", async pack => {
     const { calls, gl } = installFakeWebGl();
     installChromiumRoleGameEffectsRuntime({ brightness: 0, dimBrightSkills: true, hideHitEffects: true, density: 0.25 });
@@ -438,6 +440,30 @@ describe("Chromium role game-effects runtime", () => {
       expect(draws(calls)).toBe(25);
       expect(uniforms(calls).some(([, reduce]) => (reduce as number) > 0)).toBe(true);
     });
+
+  it("keeps Entaness's outer ring undimmed only while a Boss warning shows", async () => {
+    const { calls, gl } = installFakeWebGl();
+    let now = 1000;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    installChromiumRoleGameEffectsRuntime({ brightness: 0.25, dimBrightSkills: false, hideHitEffects: false });
+    const warning = await identifiedTexture(gl, "sfx_attackcast", 3);
+    const ring = await identifiedTexture(gl, "t_ring001", 4);
+    effectState(gl);
+    // A player skill sharing the ring pack dims as usual.
+    gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    expect(uniforms(calls).at(-1)).toEqual([1, 0.75, 1]);
+    gl.bindTexture!(TEXTURE_2D, warning);
+    gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    gl.bindTexture!(TEXTURE_2D, ring);
+    now += 400;
+    gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    expect(uniforms(calls).at(-1)).toEqual([0, 0, 0]);
+    // The puddle left after the cast dims again.
+    now += 200;
+    gl.drawArrays!(TRIANGLE_FAN, 0, 4);
+    expect(uniforms(calls).at(-1)).toEqual([1, 0.75, 1]);
+    expect(draws(calls)).toBe(4);
+  });
 
   it("never thins Boss ground warnings", async () => {
     const { calls, gl } = installFakeWebGl();

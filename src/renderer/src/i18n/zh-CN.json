@@ -702,7 +702,7 @@
   "settings.macroOverlay": "游戏内宏界面",
   "settings.gameEffects": "游戏特效",
   "settings.gameEffectsEnabled": "减弱技能特效",
-  "settings.gameEffectsEnabledDescription": "降低 Flyff Universe 等 WebGL 游戏中技能特效的亮度，避免连放时整片泛白刺眼；场景、人物、水面、天空与游戏界面不受影响。自己、队友与怪物的特效会一起调整，Boss 与怪物的地面范围提示、传送与系统提示保持原样。关闭后，已打开的游戏页面会恢复原本画面，但修改要到重新加载页面后才完全移除。",
+  "settings.gameEffectsEnabledDescription": "降低 Flyff Universe 等 WebGL 游戏中技能特效的亮度，避免连放时整片泛白刺眼；场景、人物、水面、天空与游戏界面不受影响。自己、队友与怪物的特效会一起调整，Boss 与怪物的地面范围提示、怪物技能光圈、传送与系统提示保持原样。关闭后，已打开的游戏页面会恢复原本画面，但修改要到重新加载页面后才完全移除。",
   "settings.gameEffectsReloadHint": "已打开的游戏页面需重新加载（⌘R／Ctrl+R）后才会应用，之后的调整会立即生效。",
   "settings.gameEffectsLevel": "特效亮度",
   "settings.gameEffectsLevelDescription": "每一档约为前一档的三分之一。“原样”只处理特别亮的技能与击中光效。“隐藏”会直接跳过特效绘制，可减轻部分显卡负担；其他档只调整亮度、仍会照常绘制，电脑较慢时建议降低特效密度。",

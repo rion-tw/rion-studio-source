@@ -55,6 +55,13 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     // Monster cast rings and ground pools.
     "sfx_cir_dark_green", "sfx_dark_green_circle", "ilfx_dark_green_cir", "fly_sfx_cir_bright_violet",
     "sfx_npcrisemsign",
+    // Monster skills, red circles and ground marks: packs no player skill uses
+    // (the original author's game-data list of non-skill packs, 2026-10-31).
+    "fly_sfx_circle_red_fatal", "fly_sfx_red_fire_ring", "fly_sfx_red_fire_buff_ring", "fly_sfx_aura_red",
+    "fly_sfx_magic_jin_red", "fly_sfx_red_bune", "fly_sfx_red_electronic", "fly_sfx_red_trybal",
+    "sfx_fly_red_rey_fx", "sfx_move_red_command_cir", "sfx_move_violet_command_cir", "sfx_poision_green_dot",
+    "sfx_blue_fire_ring", "sfx_gaudian_blue_mark", "sfx_attackarrow", "magiccircle", "chaoscrackshooter",
+    "sfx_behefire", "fly_sfx_fire", "fly_sfx_electronic_black_fir", "fly_sfx_greenfire_buff",
     // System notices: level up, tutorial.
     "sfx_genlevelup", "sfx_tutorial",
     // Portals.
@@ -76,10 +83,16 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   // monsters share one texture and a ring wave spawns repeated layers, so
   // density thinning skipped rings mid-expansion and made circles flicker or
   // fade. These are never thinned; brightness still follows the level.
-  const UNTHINNED_PREFIXES = [
-    "fly_sfx_red_ringwave", "fly_sfx_red_mark", "fly_sfx_circle_red_", "sfx_red_fire_ring",
-    "fly_sfx_red_fire_ring", "fly_sfx_red_command", "sfx_command_dark_red"
-  ];
+  // Packs also listed as protected stay protected.
+  const UNTHINNED_PREFIXES = ["fly_sfx_red_ringwave", "fly_sfx_red_mark", "fly_sfx_circle_red_", "sfx_red_fire_ring"];
+  // Entaness (Queen of Thorns) draws a purple outer ring with `t_ring001`
+  // while its red cast circle shows (the original author's recording: 15 of
+  // 15 casts drew it together with `sfx_attackcast`). Player skills share the
+  // pack, so it stays undimmed only while a Boss warning was drawn within
+  // WARNING_COMPANION_MS; the puddle left after the cast dims as usual.
+  const WARNING_COMPANION_FILES = ["t_ring001"];
+  const WARNING_COMPANION_MS = 500;
+  const isWarningPack = (name: string) => name.startsWith("sfx_attackcast");
   const isUnthinned = (name: string) => UNTHINNED_PREFIXES.some(prefix => name.startsWith(prefix));
   const isProtected = (name: string) =>
     PROTECTED_FILES.includes(name) || PROTECTED_PREFIXES.some(prefix => name.startsWith(prefix));
@@ -153,6 +166,10 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
   const hiddenTextures = new WeakSet<WebGLTexture>();
   const protectedTextures = new WeakSet<WebGLTexture>();
   const unthinnedTextures = new WeakSet<WebGLTexture>();
+  // Boss warnings (a subset of protected) and the rings drawn alongside them.
+  const warningTextures = new WeakSet<WebGLTexture>();
+  const companionTextures = new WeakSet<WebGLTexture>();
+  let lastWarningAt = -Infinity;
   const packs: Pack[] = [];
   let uploads: Upload[] = [];
 
@@ -214,8 +231,10 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     const texture = upload.texture.deref();
     if (!texture) return true;
     if (!inPack(pack, upload)) return false;
+    if (isWarningPack(pack.name)) warningTextures.add(texture);
     if (isProtected(pack.name)) protectedTextures.add(texture);
     else if (isUnthinned(pack.name)) unthinnedTextures.add(texture);
+    else if (WARNING_COMPANION_FILES.includes(pack.name)) companionTextures.add(texture);
     else brightTextures.set(texture, pack.name);
     return true;
   };
@@ -249,7 +268,10 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
     if (SIGNATURE_LENGTHS.has(view.length)) {
       const signature = `${view.length}:${matchStride(view.length) === 7 ? hash : sampleHash(view, 0, view.length)}`;
       if (HIDDEN_TEXTURES.has(signature)) hiddenTextures.add(texture);
-      if (WARNING_TEXTURES.has(signature)) protectedTextures.add(texture);
+      if (WARNING_TEXTURES.has(signature)) {
+        protectedTextures.add(texture);
+        warningTextures.add(texture);
+      }
     }
     let anchor = -1;
     const limit = Math.min(view.length - 8, (view.length >> 1) + ANCHOR_SEARCH);
@@ -278,7 +300,8 @@ export function installChromiumRoleGameEffectsRuntime(initial: {
       try {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input?.url;
         const name = url ? fileName(url) : null;
-        if (name && !requested.has(name) && (BRIGHT_FILES.includes(name) || isProtected(name) || isUnthinned(name))) {
+        if (name && !requested.has(name) && (BRIGHT_FILES.includes(name) || isProtected(name) || isUnthinned(name)
+          || WARNING_COMPANION_FILES.includes(name))) {
           requested.add(name);
           // Clone before the game reads the body: this reaction is attached first.
           void promise
@@ -483,18 +506,25 @@ void main() {
     if (additive && state.depthTest && !darken) effectPrograms.add(program);
     if (!effectPrograms.has(program) || !(additive || !state.depthMask)) return IDENTITY;
     // One pass over the bound units: hit, bright, protected and the main texture.
-    let hidden = false, bright = false, protect = false;
+    let hidden = false, bright = false, protect = false, warning = false, companion = false;
     let texture: WebGLTexture | null = null;
     for (let index = 0; index < state.units.length; index++) {
       const unit = state.units[index];
       if (!unit) continue;
       if (!texture) texture = unit;
       if (protectedTextures.has(unit)) protect = true;
+      if (warningTextures.has(unit)) warning = true;
+      if (companionTextures.has(unit)) companion = true;
       if (hideHitEffects && hiddenTextures.has(unit)) hidden = true;
       if (dimBrightSkills && brightTextures.has(unit)) bright = true;
     }
+    // Draw recency only chooses this draw's brightness: no timer runs and
+    // nothing waits on it.
+    if (warning) lastWarningAt = performance.now();
     // Protected effects always draw exactly as the game intends.
     if (protect) return IDENTITY;
+    // A ring drawn with an on-screen Boss warning belongs to that warning.
+    if (companion && performance.now() - lastWarningAt < WARNING_COMPANION_MS) return IDENTITY;
     // Darkening draws follow the level like any effect; only textures on the
     // bright list (Gravity Well) dim further, so Original leaves other dark
     // ground effects as the game draws them.
